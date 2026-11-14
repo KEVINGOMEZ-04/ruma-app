@@ -1,0 +1,9 @@
+{
+  "appId": "com.kevin.ruma",
+  "appName": "ruma",
+  "webDir": "dist",
+  "android": {
+    "backgroundColor": "#0E071D",
+    "allowMixedContent": true
+  }
+}
