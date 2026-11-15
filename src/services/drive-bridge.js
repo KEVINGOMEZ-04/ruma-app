@@ -1,15 +1,20 @@
 /**
- * ruma 🌟 — Puente Inteligente con Google Drive + Caché Local Rápida
+ * ruma 🌟 — Puente Oficial con Google Drive + Almacenamiento Local IndexedDB
  *
- * Reglas:
- * 1. Solo los Administradores del grupo pueden configurar/modificar la carpeta de Google Drive.
- * 2. Al cargar fotos/videos de un recuerdo, se crea dentro de la carpeta del grupo la subcarpeta:
- *    "[Nombre del Recuerdo] - [Día DD de mes de YYYY]" (ej: "Paseo al Mirador - Domingo 15 de noviembre de 2026")
- * 3. La información de esa carpeta se guarda localmente en caché para consulta instantánea en la app.
+ * Reglas de Arquitectura:
+ * 1. Soporta archivos gigantes (fotos de 100 MB y videos de más de 1 GB) sin desbordar memoria.
+ * 2. Guarda el archivo binario real en IndexedDB localmente para reproducción y visualización inmediata.
+ * 3. Crea automáticamente en Google Drive la subcarpeta con formato:
+ *    "[Nombre del Recuerdo] - [Día y Fecha en español]" (ej: "Paseo al Mirador - Domingo 15 de noviembre de 2026")
+ * 4. Sube mediante el protocolo Resumible oficial de Google en fragmentos de 5 MB con reporte de progreso.
+ * 5. Solo los usuarios con rol de Administrador pueden autorizar y cambiar la carpeta de Google Drive.
  */
 
 import { CONFIG } from '../core/config.js';
 import { Utils } from '../core/utils.js';
+import { MediaStorage } from './media-storage.js';
+import { DriveResumableUploader } from './drive-resumable-uploader.js';
+import { GoogleAuth } from './google-auth.js';
 
 export const DriveBridge = {
   extractFolderId(urlOrId) {
@@ -30,97 +35,107 @@ export const DriveBridge = {
     return `https://drive.google.com/drive/folders/${folderId}`;
   },
 
-  getLocalCache(groupId) {
-    if (!groupId) return [];
-    try {
-      const raw = localStorage.getItem(`${CONFIG.storageKeys.driveCachePrefix}${groupId}`);
-      return raw ? JSON.parse(raw) : [];
-    } catch (_) {
-      return [];
-    }
-  },
-
-  saveLocalCache(groupId, entries) {
-    if (!groupId) return;
-    try {
-      localStorage.setItem(`${CONFIG.storageKeys.driveCachePrefix}${groupId}`, JSON.stringify(entries || []));
-    } catch (err) {
-      console.warn('Error guardando caché local de Drive:', err);
-    }
-  },
-
   /**
-   * Registra y sincroniza un recuerdo con la carpeta de Google Drive del grupo
-   * creando la subcarpeta "[Título] - [Fecha completa]" y almacenando la referencia local para consulta.
+   * Sincroniza un recuerdo completo con fotos/videos pesados:
+   * 1. Guarda en IndexedDB para disponibilidad instantánea y offline
+   * 2. Si Google Drive está vinculado, sube en segundo plano mediante subida resumible
    */
-  async syncMemoryToDrive(group, memoryPayload, files = []) {
-    const folderId = this.extractFolderId(group?.driveFolderUrl);
-    const subfolderName = Utils.buildDriveSubfolderName(memoryPayload.title, memoryPayload.date);
+  async syncMemory(group, memoryPayload, files = [], onProgress = null) {
+    if (!group) throw new Error('Grupo no especificado.');
 
-    // 1. Preparar metadatos de los archivos (sin límite de peso porque residen en Drive)
-    const fileItems = [];
+    const subfolderName = Utils.buildDriveSubfolderName(memoryPayload.title, memoryPayload.date);
+    const memoryId = memoryPayload.id || Utils.generateId('mem');
+
+    const processedFiles = [];
+
+    // 1. Guardar cada archivo binario en IndexedDB (soporta 100 MB y 1 GB+)
     for (let i = 0; i < files.length; i++) {
-      const f = files[i];
-      const isVideo = f.type && f.type.startsWith('video/');
-      const previewUrl = isVideo ? '' : await Utils.fileToPreviewDataUrl(f, 850, 0.72);
-      fileItems.push({
-        id: Utils.generateId('drvfile'),
-        name: f.name || (isVideo ? `Video_${i + 1}.mp4` : `Foto_${i + 1}.jpg`),
-        mimeType: f.type || (isVideo ? 'video/mp4' : 'image/jpeg'),
-        sizeBytes: f.size || 0,
-        isVideo,
-        previewUrl
+      const file = files[i];
+      const fileId = Utils.generateId('blob');
+      const isVideo = file.type ? file.type.startsWith('video/') : false;
+
+      const mediaRecord = await MediaStorage.saveMedia(fileId, file, {
+        groupId: group.id,
+        memoryId,
+        name: file.name || (isVideo ? `Video_${i + 1}.mp4` : `Foto_${i + 1}.jpg`)
+      });
+
+      processedFiles.push({
+        id: fileId,
+        name: mediaRecord.name,
+        type: mediaRecord.type,
+        size: mediaRecord.size,
+        isVideo: mediaRecord.isVideo,
+        thumbnail: mediaRecord.thumbnail,
+        originalFile: file
       });
     }
 
-    // 2. Intentar envío al puente de Google Drive si el grupo tiene carpeta configurada
-    let bridgeStatus = 'local_cached';
-    const bridgeEndpoint = group?.driveWebhookUrl || CONFIG.googleDrive.defaultBridgeUrl;
+    // 2. Si hay conexión activa con Google Drive, subir mediante protocolo Resumible
+    let driveSubfolder = null;
+    const token = GoogleAuth.getAccessToken() || group.driveAccessToken;
+    const parentFolderId = this.extractFolderId(group.driveFolderUrl || group.driveFolderId);
 
-    if (folderId && bridgeEndpoint && fileItems.length > 0) {
+    if (token && parentFolderId && !token.startsWith('demo_')) {
       try {
-        const payload = {
-          action: 'uploadMemoryFolder',
-          parentFolderId: folderId,
-          subfolderName,
-          memoryTitle: memoryPayload.title,
-          memoryDate: memoryPayload.date,
-          description: memoryPayload.description || '',
-          filesCount: fileItems.length
-        };
-        fetch(bridgeEndpoint, {
-          method: 'POST',
-          mode: 'no-cors',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify(payload)
-        }).catch(() => {});
-        bridgeStatus = 'synced_drive';
-      } catch (_) {
-        bridgeStatus = 'local_cached';
+        // Crear la subcarpeta "[Nombre] - [Fecha]" en Google Drive
+        driveSubfolder = await DriveResumableUploader.createSubfolder(token, parentFolderId, subfolderName);
+
+        // Subir cada archivo a la subcarpeta en chunks
+        for (let i = 0; i < processedFiles.length; i++) {
+          const item = processedFiles[i];
+          if (item.originalFile) {
+            const driveResult = await DriveResumableUploader.uploadLargeFile(
+              token,
+              driveSubfolder.id,
+              item.originalFile,
+              (p) => {
+                if (typeof onProgress === 'function') {
+                  onProgress({
+                    fileIndex: i + 1,
+                    totalFiles: processedFiles.length,
+                    ...p
+                  });
+                }
+              }
+            );
+            item.driveFileId = driveResult.id;
+            item.driveViewLink = driveResult.webViewLink;
+          }
+        }
+      } catch (uploadErr) {
+        console.warn('Sincronización con Google Drive diferida:', uploadErr);
       }
     }
 
-    // 3. Guardar registro en la caché local del puente para consulta inmediata
-    const cacheList = this.getLocalCache(group.id);
-    const folderRecord = {
-      id: Utils.generateId('mem'),
-      subfolderName,
-      parentFolderId: folderId,
-      driveUrl: this.getFolderWebUrl(group?.driveFolderUrl),
+    // Portada del recuerdo: usar la miniatura de la primera foto/video
+    const coverThumbnail = processedFiles.find(f => f.thumbnail)?.thumbnail || '';
+
+    // Registro del recuerdo listo para el almacén (sin objetos pesados en JSON)
+    const memoryRecord = {
+      id: memoryId,
+      groupId: group.id,
       title: memoryPayload.title,
       date: memoryPayload.date,
       fullDateLabel: Utils.formatFullSpanishDate(memoryPayload.date),
       description: memoryPayload.description || '',
       authorId: memoryPayload.authorId,
       authorName: memoryPayload.authorName,
-      files: fileItems,
-      coverPreview: fileItems.find(x => x.previewUrl)?.previewUrl || memoryPayload.coverPreview || '',
-      bridgeStatus,
+      subfolderName,
+      driveSubfolderUrl: driveSubfolder?.webViewLink || '',
+      coverThumbnail,
+      files: processedFiles.map(f => ({
+        id: f.id,
+        name: f.name,
+        type: f.type,
+        size: f.size,
+        isVideo: f.isVideo,
+        thumbnail: f.thumbnail,
+        driveViewLink: f.driveViewLink || ''
+      })),
       createdAt: new Date().toISOString()
     };
 
-    cacheList.unshift(folderRecord);
-    this.saveLocalCache(group.id, cacheList);
-    return folderRecord;
+    return memoryRecord;
   }
 };
