@@ -7,6 +7,7 @@ import { store } from '../core/store.js';
 import { Entitlements, PLAN_LIMITS } from '../core/entitlements.js';
 import { Utils } from '../core/utils.js';
 import { MediaService } from '../services/media-api.js';
+import { MusicService } from '../services/music-service.js';
 import { UI } from '../components/ui.js';
 
 let pendingChatQuote = null;
@@ -533,7 +534,7 @@ function renderMusicTab(viewport, group) {
         <div>
           <h2 style="font-family:var(--font-display);font-size:1.3rem;">🎵 Playlist del Grupo</h2>
           <p style="font-size:0.84rem;color:var(--text-secondary);">
-            Guarda las canciones especiales del grupo y ábrelas directamente en <strong>Spotify</strong>, <strong>YouTube</strong> o <strong>Apple Music</strong>.
+            Guarda canciones especiales. Escucha fragmentos de 30s oficiales o ábrelas en <strong>Spotify</strong>, <strong>YouTube</strong> o <strong>Apple Music</strong>.
           </p>
         </div>
         <div style="display:flex;align-items:center;gap:0.65rem;">
@@ -562,15 +563,20 @@ function renderMusicTab(viewport, group) {
 
                 ${song.note ? `<p style="font-size:0.82rem;color:var(--text-secondary);margin-top:0.4rem;">"${Utils.sanitize(song.note)}"</p>` : ''}
 
-                <!-- Botones Directos a Spotify, YouTube y Apple Music -->
-                <div class="platform-links">
-                  <a href="${Utils.sanitize(song.spotifyUrl || MediaService.getSpotifyUrl(song.title, song.artist))}" target="_blank" rel="noopener" class="btn-platform btn-spotify">
+                <!-- Reproductor de Fragmento Oficial 30s + Enlaces a Plataformas -->
+                <div class="platform-links" style="margin-top:0.75rem;">
+                  ${song.previewUrl ? `
+                    <button type="button" class="btn btn-secondary btn-sm" data-preview-song="${Utils.sanitize(song.id)}" data-preview-url="${Utils.sanitize(song.previewUrl)}">
+                      ▶ 30s
+                    </button>
+                  ` : ''}
+                  <a href="${Utils.sanitize(song.spotifyUrl || MusicService.buildSpotifyUrl(song.title, song.artist))}" target="_blank" rel="noopener" class="btn-platform btn-spotify">
                     🟢 Spotify
                   </a>
-                  <a href="${Utils.sanitize(song.youtubeUrl || MediaService.getYoutubeUrl(song.title, song.artist))}" target="_blank" rel="noopener" class="btn-platform btn-youtube">
+                  <a href="${Utils.sanitize(song.youtubeUrl || MusicService.buildYoutubeUrl(song.title, song.artist))}" target="_blank" rel="noopener" class="btn-platform btn-youtube">
                     🔴 YouTube
                   </a>
-                  <a href="${Utils.sanitize(song.appleMusicUrl || MediaService.getAppleMusicUrl(song.title, song.artist))}" target="_blank" rel="noopener" class="btn-platform btn-apple">
+                  <a href="${Utils.sanitize(song.appleMusicUrl || MusicService.buildAppleMusicUrl(song.title, song.artist))}" target="_blank" rel="noopener" class="btn-platform btn-apple">
                     🍎 Apple Music
                   </a>
                   <button type="button" class="btn btn-secondary btn-sm" data-quote-song="${Utils.sanitize(song.id)}">💬 Citar en Chat</button>
@@ -591,8 +597,29 @@ function renderMusicTab(viewport, group) {
     openAddSongModal(group);
   });
 
+  // Manejador de reproducción de fragmentos oficiales de 30 segundos
+  viewport.querySelectorAll('[data-preview-song]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const trackId = btn.getAttribute('data-preview-song');
+      const previewUrl = btn.getAttribute('data-preview-url');
+
+      const res = MusicService.togglePreview(trackId, previewUrl, (state) => {
+        const activeBtn = viewport.querySelector(`[data-preview-song="${state.trackId}"]`);
+        if (activeBtn) {
+          activeBtn.innerHTML = state.isPlaying
+            ? `⏸ ${Math.round(state.currentTime)}s`
+            : '▶ 30s';
+        }
+      });
+
+      // Actualizar texto del botón al presionar
+      btn.innerHTML = res.isPlaying ? '⏸ Reproduciendo...' : '▶ 30s';
+    });
+  });
+
   viewport.querySelectorAll('[data-delete-song]').forEach(btn => {
     btn.addEventListener('click', () => {
+      MusicService.stopPreview();
       store.deleteMediaItem('songs', btn.getAttribute('data-delete-song'));
       UI.showToast('Canción eliminada.', 'info');
     });
@@ -616,49 +643,89 @@ function renderMusicTab(viewport, group) {
 }
 
 function openAddSongModal(group) {
+  let debounceTimer = null;
+
   UI.openModal({
-    title: '🎵 Buscar y Añadir Canción',
+    title: '🎵 Buscar Canción o Letra',
     contentHtml: `
       <div>
-        <div style="display:flex;gap:0.5rem;margin-bottom:0.85rem;">
-          <input type="text" id="song-search-inp" class="form-input" placeholder="Busca por canción o artista...">
-          <button type="button" class="btn btn-primary" id="btn-run-song-search">Buscar</button>
+        <div style="margin-bottom:0.85rem;">
+          <input type="text" id="song-search-inp" class="form-input" placeholder="Escribe el nombre de la canción, artista o parte de la letra..." autofocus>
+          <div style="font-size:0.75rem;color:var(--text-secondary);margin-top:0.35rem;">
+            ⚡ Búsqueda en vivo: detecta títulos, artistas y fragmentos de letras.
+          </div>
         </div>
         <div class="form-group">
-          <label class="form-label">Dedicatoria o nota (opcional)</label>
-          <input type="text" id="song-note-inp" class="form-input" placeholder="Ej: La canción de nuestro viaje 🚗">
+          <label class="form-label">Dedicatoria o nota especial (opcional)</label>
+          <input type="text" id="song-note-inp" class="form-input" placeholder="Ej: La canción de nuestra primera cita 💫">
         </div>
-        <div id="song-search-results" style="display:flex;flex-direction:column;gap:0.55rem;max-height:280px;overflow-y:auto;"></div>
+        <div id="song-search-results" style="display:flex;flex-direction:column;gap:0.55rem;max-height:300px;overflow-y:auto;padding-right:0.25rem;">
+          <div style="text-align:center;padding:1.5rem;color:var(--text-secondary);font-size:0.85rem;">
+            Empieza a escribir para buscar en vivo...
+          </div>
+        </div>
       </div>
     `,
     onMount: () => {
       const inp = document.getElementById('song-search-inp');
       const resultsEl = document.getElementById('song-search-results');
 
-      const runSearch = async () => {
+      const executeSearch = async () => {
         const q = inp?.value.trim();
-        if (!q || !resultsEl) return;
-        resultsEl.innerHTML = `<div style="color:var(--text-secondary);font-size:0.85rem;">Buscando canciones...</div>`;
-        const list = await MediaService.searchSongs(q);
-        if (list.length === 0) {
-          resultsEl.innerHTML = `<div style="color:var(--text-muted);font-size:0.85rem;">No se encontraron canciones.</div>`;
+        if (!q || !resultsEl) {
+          if (resultsEl) resultsEl.innerHTML = `<div style="text-align:center;padding:1.5rem;color:var(--text-secondary);font-size:0.85rem;">Empieza a escribir para buscar en vivo...</div>`;
           return;
         }
+
+        resultsEl.innerHTML = `<div style="color:var(--brand-lilac);font-size:0.85rem;padding:0.75rem;">Buscando coincidencias en catálogo y letras...</div>`;
+        const list = await MusicService.searchSongs(q, 10);
+
+        if (list.length === 0) {
+          resultsEl.innerHTML = `<div style="color:var(--text-muted);font-size:0.85rem;padding:1rem;text-align:center;">No encontramos canciones con esa letra o nombre. Intenta con otras palabras.</div>`;
+          return;
+        }
+
         resultsEl.innerHTML = list.map((s, i) => `
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:0.65rem;padding:0.5rem;background:var(--bg-elevated);border-radius:var(--radius-sm);">
-            <div style="display:flex;align-items:center;gap:0.65rem;min-width:0;">
-              <img src="${Utils.sanitize(s.artwork)}" alt="art" style="width:42px;height:42px;border-radius:8px;object-fit:cover;">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:0.65rem;padding:0.65rem;background:var(--bg-elevated);border-radius:var(--radius-sm);border:1px solid var(--border-subtle);">
+            <div style="display:flex;align-items:center;gap:0.75rem;min-width:0;flex:1;">
+              <img src="${Utils.sanitize(s.artwork)}" alt="art" style="width:46px;height:46px;border-radius:8px;object-fit:cover;flex-shrink:0;">
               <div style="min-width:0;">
-                <div style="font-weight:700;font-size:0.88rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${Utils.sanitize(s.title)}</div>
-                <div style="font-size:0.76rem;color:var(--text-secondary);">${Utils.sanitize(s.artist)}</div>
+                <div style="font-weight:700;font-size:0.9rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${Utils.sanitize(s.title)}</div>
+                <div style="font-size:0.78rem;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${Utils.sanitize(s.artist)}</div>
               </div>
             </div>
-            <button type="button" class="btn btn-primary btn-sm" data-pick-song="${i}">+ Guardar</button>
+            <div style="display:flex;align-items:center;gap:0.45rem;flex-shrink:0;">
+              ${s.previewUrl ? `
+                <button type="button" class="btn btn-secondary btn-sm" data-modal-preview="${i}" title="Escuchar fragmento oficial de 30 segundos">
+                  ▶ 30s
+                </button>
+              ` : ''}
+              <button type="button" class="btn btn-primary btn-sm" data-pick-song="${i}">+ Guardar</button>
+            </div>
           </div>
         `).join('');
 
+        // Escuchar fragmento de 30 segundos directamente en el buscador
+        resultsEl.querySelectorAll('[data-modal-preview]').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const idx = Number(btn.getAttribute('data-modal-preview'));
+            const item = list[idx];
+            if (!item?.previewUrl) return;
+
+            const res = MusicService.togglePreview(`modal_${item.id}`, item.previewUrl, (state) => {
+              const b = resultsEl.querySelector(`[data-modal-preview="${idx}"]`);
+              if (b) {
+                b.innerHTML = state.isPlaying ? `⏸ ${Math.round(state.currentTime)}s` : '▶ 30s';
+              }
+            });
+            btn.innerHTML = res.isPlaying ? '⏸ ...' : '▶ 30s';
+          });
+        });
+
+        // Guardar canción en la playlist del grupo
         resultsEl.querySelectorAll('[data-pick-song]').forEach(btn => {
           btn.addEventListener('click', () => {
+            MusicService.stopPreview();
             const picked = list[Number(btn.getAttribute('data-pick-song'))];
             const note = document.getElementById('song-note-inp')?.value.trim() || '';
             const res = store.addMediaToActiveGroup('songs', {
@@ -671,17 +738,15 @@ function openAddSongModal(group) {
               else UI.showToast(res.error, 'error');
               return;
             }
-            UI.showToast(`"${picked.title}" añadida con links a Spotify, YouTube y Apple Music 🎵`, 'success');
+            UI.showToast(`"${picked.title}" añadida con fragmento oficial y links 🎵`, 'success');
           });
         });
       };
 
-      document.getElementById('btn-run-song-search')?.addEventListener('click', runSearch);
-      inp?.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          runSearch();
-        }
+      // Búsqueda en vivo mientras el usuario escribe (con debounce de 280ms)
+      inp?.addEventListener('input', () => {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(executeSearch, 280);
       });
     }
   });
