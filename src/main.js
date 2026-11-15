@@ -11,12 +11,23 @@ import './styles/layout.css';
 
 import { store } from './core/store.js';
 import { Utils } from './core/utils.js';
+import { CosmicBackground } from './components/cosmic-background.js';
 import { renderHubInterface } from './interfaces/hub-interface.js';
 import { renderGroupInterface } from './interfaces/group-interface.js';
 import { renderProfileInterface } from './interfaces/profile-interface.js';
 import { renderSettingsInterface } from './interfaces/settings-interface.js';
 
+let cosmicBg = null;
+
 function renderApp() {
+  if (!cosmicBg) {
+    try {
+      cosmicBg = new CosmicBackground();
+    } catch (e) {
+      console.warn('CosmicBackground init error:', e);
+    }
+  }
+
   const root = document.getElementById('app');
   if (!root) return;
 

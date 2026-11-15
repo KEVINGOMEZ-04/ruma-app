@@ -1,12 +1,6 @@
 /**
  * ruma 🌟 — INTERFAZ 1: Principal (Login Triple + Hub Central de Grupos)
- *
- * Funcionalidades:
- * 1. Si no ha iniciado sesión: Login / Registro con Correo + Contraseña, Teléfono + Contraseña o @Usuario + Contraseña.
- * 2. Una vez dentro: Hub Central con el desglose de:
- *    - 📂 Grupos a los que perteneces (con límite de 2 en Plan Gratis: 1 creado + 1 unido).
- *    - ✨ Crear grupo (Gratis o Premium — única forma de obtener Premium).
- *    - 🔍 Buscar / Unirse a grupo (por código o nombre).
+ * Clean Luxury Edition
  */
 
 import { store } from '../core/store.js';
@@ -17,7 +11,7 @@ import { UI } from '../components/ui.js';
 export function renderHubInterface(container) {
   const user = store.getCurrentUser();
 
-  // Si no hay sesión activa -> Mostrar Login / Registro Triple
+  // Si no ha iniciado sesión -> Mostrar pantalla de bienvenida y Login/Registro Triple
   if (!user) {
     renderAuthScreen(container);
     return;
@@ -29,76 +23,103 @@ export function renderHubInterface(container) {
   const maxGroupsLabel = isPrem ? 'Ilimitados ✨' : `${myGroups.length} / ${PLAN_LIMITS.free.maxTotalGroups} grupos`;
 
   container.innerHTML = `
-    <div style="display:flex;flex-direction:column;gap:1.75rem;">
-      <!-- Banner de Bienvenida con Mascota ruma -->
-      <div class="ruma-card" style="background:var(--grad-surface);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1.25rem;">
-        <div style="display:flex;align-items:center;gap:1.1rem;">
-          <img src="assets/ruma_mascot.png" alt="ruma mascot" style="width:76px;height:76px;object-fit:contain;">
+    <div style="display:flex;flex-direction:column;gap:2rem;">
+      <!-- Hero Banner Principal con Mascota ruma y Glassmorphism -->
+      <div class="ruma-card" style="background:var(--grad-surface);border-color:var(--border-strong);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1.5rem;padding:2rem;">
+        <div style="display:flex;align-items:center;gap:1.4rem;">
+          <div style="position:relative;">
+            <img src="assets/ruma_mascot.png" alt="ruma mascot" style="width:84px;height:84px;object-fit:contain;filter:drop-shadow(0 0 20px rgba(244,114,182,0.45));">
+          </div>
           <div>
-            <div style="display:flex;align-items:center;gap:0.6rem;flex-wrap:wrap;">
-              <h1 style="font-family:var(--font-display);font-size:1.65rem;font-weight:800;">¡Hola, ${Utils.sanitize(user.name)}!</h1>
-              <span class="badge ${isPrem ? 'badge-premium' : 'badge-free'}">${isPrem ? '✨ ruma Plus Activo' : '🌱 Plan Gratis'}</span>
+            <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;">
+              <h1 style="font-family:var(--font-display);font-size:1.85rem;font-weight:900;letter-spacing:-0.03em;">
+                ¡Hola, ${Utils.sanitize(user.name)}!
+              </h1>
+              <span class="badge ${isPrem ? 'badge-premium' : 'badge-free'}">
+                ${isPrem ? '✨ ruma Plus Activo' : '🌱 Plan Gratis'}
+              </span>
             </div>
-            <p style="color:var(--text-secondary);font-size:0.92rem;margin-top:0.25rem;">
-              Gestiona tus grupos privados, crea un santuario nuevo o únete con un código.
+            <p style="color:var(--text-secondary);font-size:0.95rem;margin-top:0.35rem;max-width:560px;line-height:1.5;">
+              Bienvenido a tu santuario privado. Administra tus grupos, crea un espacio nuevo o únete con un código de 6 caracteres.
             </p>
           </div>
         </div>
-        <div style="display:flex;gap:0.65rem;flex-wrap:wrap;">
-          <button type="button" class="btn btn-secondary btn-sm" id="btn-hub-go-profile">🎮 Mi Perfil Discord</button>
-          <button type="button" class="btn btn-secondary btn-sm" id="btn-hub-go-settings">⚙️ Ajustes</button>
+        <div style="display:flex;gap:0.75rem;flex-wrap:wrap;">
+          <button type="button" class="btn btn-secondary" id="btn-hub-go-profile">
+            🎮 Mi Perfil Discord
+          </button>
+          <button type="button" class="btn btn-secondary" id="btn-hub-go-settings">
+            ⚙️ Ajustes & Plan
+          </button>
         </div>
       </div>
 
-      <!-- Desglose de las 3 Opciones Principales del Hub -->
+      <!-- Desglose de las 2 Opciones de Entrada: Modo Creador vs Modo Miembro -->
       <div class="ruma-grid-2">
-        <!-- OPCIÓN 1: Crear Grupo (Modo Creador) -->
-        <div class="ruma-card" style="display:flex;flex-direction:column;justify-content:space-between;gap:1rem;">
+        <!-- 1. CREAR GRUPO (Modo Creador) -->
+        <div class="ruma-card" style="display:flex;flex-direction:column;justify-content:space-between;gap:1.25rem;">
           <div>
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.6rem;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem;">
               <span class="badge badge-admin">👑 Modo Creador</span>
-              <span style="font-size:0.78rem;color:var(--text-muted);">1 grupo propio</span>
+              <span style="font-size:0.8rem;color:var(--text-muted);">1 grupo propio</span>
             </div>
-            <h2 style="font-family:var(--font-display);font-size:1.3rem;margin-bottom:0.4rem;">✨ Crear un Grupo</h2>
-            <p style="color:var(--text-secondary);font-size:0.88rem;line-height:1.5;">
-              Crea tu propio grupo privado, conecta tu carpeta de Google Drive para los recuerdos y elige entre <strong>Grupo Gratis</strong> o <strong>Grupo Premium 🌟</strong>.
+            <h2 style="font-family:var(--font-display);font-size:1.4rem;font-weight:800;margin-bottom:0.45rem;">
+              ✨ Crear un Nuevo Grupo
+            </h2>
+            <p style="color:var(--text-secondary);font-size:0.9rem;line-height:1.55;">
+              Crea tu espacio privado, vincula la carpeta de <strong>Google Drive</strong> para guardar fotos y videos sin límite de peso por fecha, y elige entre <strong>Grupo Gratis</strong> o <strong>Grupo Premium 🌟</strong>.
             </p>
           </div>
-          <div style="display:flex;gap:0.65rem;flex-wrap:wrap;">
-            <button type="button" class="btn btn-primary" id="btn-open-create-free">Crear Grupo Gratis</button>
-            <button type="button" class="btn btn-premium" id="btn-open-create-premium">✨ Crear Grupo Premium</button>
+          <div style="display:flex;gap:0.75rem;flex-wrap:wrap;">
+            <button type="button" class="btn btn-primary" id="btn-open-create-free">
+              🌱 Crear Grupo Gratis
+            </button>
+            <button type="button" class="btn btn-premium" id="btn-open-create-premium">
+              ✨ Crear Grupo Premium
+            </button>
           </div>
         </div>
 
-        <!-- OPCIÓN 2: Buscar / Unirse a un Grupo (Modo Usuario) -->
-        <div class="ruma-card" style="display:flex;flex-direction:column;justify-content:space-between;gap:1rem;">
+        <!-- 2. BUSCAR / UNIRSE (Modo Miembro) -->
+        <div class="ruma-card" style="display:flex;flex-direction:column;justify-content:space-between;gap:1.25rem;">
           <div>
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.6rem;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem;">
               <span class="badge badge-limit">🔑 Modo Miembro</span>
-              <span style="font-size:0.78rem;color:var(--text-muted);">Cupo: ${maxGroupsLabel}</span>
+              <span style="font-size:0.8rem;color:var(--brand-lilac);">Cupo: ${maxGroupsLabel}</span>
             </div>
-            <h2 style="font-family:var(--font-display);font-size:1.3rem;margin-bottom:0.4rem;">🔍 Buscar o Unirse a un Grupo</h2>
-            <p style="color:var(--text-secondary);font-size:0.88rem;line-height:1.5;">
-              Ingresa el código de 6 caracteres (ej: <code>RUMA01</code> o <code>CINE99</code>) o busca por el nombre del grupo para entrar como miembro.
+            <h2 style="font-family:var(--font-display);font-size:1.4rem;font-weight:800;margin-bottom:0.45rem;">
+              🔍 Buscar o Unirse a un Grupo
+            </h2>
+            <p style="color:var(--text-secondary);font-size:0.9rem;line-height:1.55;">
+              Ingresa el código de 6 caracteres (ej: <code style="color:var(--brand-pink);background:rgba(244,114,182,0.15);padding:0.15rem 0.4rem;border-radius:6px;">RUMA01</code> o <code style="color:var(--brand-pink);background:rgba(244,114,182,0.15);padding:0.15rem 0.4rem;border-radius:6px;">CINE99</code>) o el nombre del grupo para acceder como invitado.
             </p>
           </div>
-          <form id="form-hub-join-group" style="display:flex;gap:0.6rem;">
-            <input type="text" id="input-hub-join-code" class="form-input" placeholder="Código o nombre del grupo..." required>
+          <form id="form-hub-join-group" style="display:flex;gap:0.65rem;">
+            <input type="text" id="input-hub-join-code" class="form-input" placeholder="Código ej: RUMA01 o nombre..." required style="text-transform:uppercase;">
             <button type="submit" class="btn btn-primary">Unirme</button>
           </form>
         </div>
       </div>
 
-      <!-- OPCIÓN 3: Grupos a los que perteneces -->
+      <!-- 3. GRUPOS A LOS QUE PERTENECES -->
       <div>
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;flex-wrap:wrap;gap:0.5rem;">
-          <h2 style="font-family:var(--font-display);font-size:1.35rem;">📂 Grupos a los que perteneces</h2>
-          <span class="badge ${isPrem ? 'badge-premium' : 'badge-limit'}">Capacidad actual: ${maxGroupsLabel}</span>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.15rem;flex-wrap:wrap;gap:0.75rem;">
+          <div>
+            <h2 style="font-family:var(--font-display);font-size:1.45rem;font-weight:800;">
+              📂 Mis Santuarios Privados (${myGroups.length})
+            </h2>
+            <p style="font-size:0.84rem;color:var(--text-muted);">
+              Toca cualquier grupo para entrar directamente a su espacio privado.
+            </p>
+          </div>
+          <span class="badge ${isPrem ? 'badge-premium' : 'badge-limit'}">
+            Límite de grupos: ${maxGroupsLabel}
+          </span>
         </div>
 
         ${myGroups.length === 0 ? `
-          <div class="ruma-card" style="text-align:center;padding:2.5rem;">
-            <p style="color:var(--text-secondary);">Aún no perteneces a ningún grupo. ¡Crea uno arriba o únete con un código!</p>
+          <div class="ruma-card" style="text-align:center;padding:3rem 1.5rem;">
+            <p style="color:var(--text-secondary);font-size:0.95rem;">Aún no perteneces a ningún grupo. ¡Crea el primero o únete con un código!</p>
           </div>
         ` : `
           <div class="ruma-grid-2">
@@ -107,22 +128,31 @@ export function renderHubInterface(container) {
               const isAdmin = Entitlements.isGroupAdmin(g, user.id);
               const gPrem = Entitlements.isGroupPremium(g);
               return `
-                <div class="ruma-card" style="display:flex;flex-direction:column;justify-content:space-between;gap:1rem;">
+                <div class="ruma-card" style="display:flex;flex-direction:column;justify-content:space-between;gap:1.25rem;">
                   <div>
-                    <div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;margin-bottom:0.6rem;">
-                      <div style="display:flex;gap:0.4rem;flex-wrap:wrap;">
+                    <div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;margin-bottom:0.75rem;">
+                      <div style="display:flex;gap:0.45rem;flex-wrap:wrap;">
                         <span class="badge ${gPrem ? 'badge-premium' : 'badge-free'}">${gPrem ? '✨ Grupo Premium' : '🌱 Grupo Gratis'}</span>
                         <span class="badge badge-admin">${isCreator ? '👑 Creador & Admin' : (isAdmin ? '🛡️ Administrador' : '👤 Miembro')}</span>
                       </div>
-                      <span style="font-family:var(--font-mono);font-size:0.8rem;color:var(--brand-lilac);">Código: ${Utils.sanitize(g.code)}</span>
+                      <span style="font-family:var(--font-mono);font-size:0.82rem;color:var(--brand-lilac);font-weight:700;">
+                        Código: ${Utils.sanitize(g.code)}
+                      </span>
                     </div>
-                    <h3 style="font-family:var(--font-display);font-size:1.3rem;margin-bottom:0.3rem;">${Utils.sanitize(g.name)}</h3>
-                    <p style="color:var(--text-secondary);font-size:0.86rem;">${Utils.sanitize(g.description || 'Espacio privado en ruma')}</p>
+
+                    <h3 style="font-family:var(--font-display);font-size:1.4rem;font-weight:800;margin-bottom:0.35rem;">
+                      ${Utils.sanitize(g.name)}
+                    </h3>
+                    <p style="color:var(--text-secondary);font-size:0.88rem;line-height:1.5;">
+                      ${Utils.sanitize(g.description || 'Espacio privado en ruma')}
+                    </p>
                   </div>
 
-                  <div style="display:flex;align-items:center;justify-content:space-between;border-top:1px solid var(--border-subtle);padding-top:0.85rem;gap:0.75rem;flex-wrap:wrap;">
-                    <div style="font-size:0.78rem;color:var(--text-muted);">
-                      👥 ${(g.members || []).length} miembros · 📸 ${(g.memories || []).length} recuerdos · 🎬 ${(g.movies || []).length}/${gPrem ? '∞' : '5'} pelis
+                  <div style="display:flex;align-items:center;justify-content:space-between;border-top:1px solid var(--border-subtle);padding-top:1rem;gap:0.75rem;flex-wrap:wrap;">
+                    <div style="font-size:0.8rem;color:var(--text-muted);display:flex;gap:0.6rem;flex-wrap:wrap;">
+                      <span>👥 ${(g.members || []).length} miembros</span>
+                      <span>📸 ${(g.memories || []).length} recuerdos</span>
+                      <span>🎬 ${(g.movies || []).length}/${gPrem ? '∞' : '5'}</span>
                     </div>
                     <button type="button" class="btn btn-primary btn-sm" data-enter-group="${Utils.sanitize(g.id)}">
                       Entrar al Grupo ➔
@@ -137,7 +167,6 @@ export function renderHubInterface(container) {
     </div>
   `;
 
-  // Eventos del Hub
   document.getElementById('btn-hub-go-profile')?.addEventListener('click', () => {
     store.navigate('profile', { inspectUserId: user.id });
   });
@@ -188,24 +217,24 @@ function openCreateGroupModal(defaultPlan = 'free') {
           <input type="text" id="create-grp-name" class="form-input" placeholder="Ej: Nuestro Refugio ✨" required>
         </div>
         <div class="form-group">
-          <label class="form-label">Descripción o frase</label>
-          <input type="text" id="create-grp-desc" class="form-input" placeholder="Recuerdos, películas y planes juntos">
+          <label class="form-label">Descripción o Lema</label>
+          <input type="text" id="create-grp-desc" class="form-input" placeholder="Recuerdos, películas y momentos compartidos">
         </div>
         <div class="form-group">
-          <label class="form-label">Carpeta de Google Drive del Grupo (Pública / Editor)</label>
+          <label class="form-label">Carpeta de Google Drive del Grupo (Pública con permisos de Editor)</label>
           <input type="url" id="create-grp-drive" class="form-input" placeholder="https://drive.google.com/drive/folders/...">
-          <small style="color:var(--text-muted);font-size:0.75rem;">
-            Aquí se crearán automáticamente las carpetas por fecha de cada recuerdo sin límite de peso.
+          <small style="color:var(--text-muted);font-size:0.76rem;margin-top:0.25rem;display:block;">
+            En esta carpeta se crearán automáticamente las subcarpetas por fecha de cada recuerdo sin límite de peso.
           </small>
         </div>
         <div class="form-group">
           <label class="form-label">Tipo de Grupo</label>
           <select id="create-grp-plan" class="form-select">
-            <option value="free" ${defaultPlan === 'free' ? 'selected' : ''}>🌱 Grupo Gratis (Máx 5 películas, 5 series y 5 canciones)</option>
-            <option value="premium" ${defaultPlan === 'premium' ? 'selected' : ''}>✨ Grupo Premium ruma Plus (Todo ilimitado + más grupos)</option>
+            <option value="free" ${defaultPlan === 'free' ? 'selected' : ''}>🌱 Grupo Gratis (Tope de 5 películas, series y canciones)</option>
+            <option value="premium" ${defaultPlan === 'premium' ? 'selected' : ''}>✨ Grupo Premium ruma Plus (Cine, series y música ilimitadas)</option>
           </select>
         </div>
-        <div style="display:flex;justify-content:flex-end;gap:0.65rem;margin-top:1.25rem;">
+        <div style="display:flex;justify-content:flex-end;gap:0.75rem;margin-top:1.5rem;">
           <button type="button" class="btn btn-secondary" id="btn-cancel-create-grp">Cancelar</button>
           <button type="submit" class="btn ${defaultPlan === 'premium' ? 'btn-premium' : 'btn-primary'}">Crear Grupo</button>
         </div>
@@ -234,16 +263,17 @@ function openCreateGroupModal(defaultPlan = 'free') {
 
 function renderAuthScreen(container) {
   container.innerHTML = `
-    <div style="max-width:460px;margin:2rem auto;">
-      <div class="ruma-card" style="text-align:center;padding:2rem;">
-        <img src="assets/ruma_icon_512.png" alt="ruma logo" style="width:84px;height:84px;border-radius:22px;box-shadow:var(--shadow-glow);margin-bottom:0.85rem;">
-        <h1 class="ruma-brand-name" style="font-size:2.3rem;margin-bottom:0.25rem;">ruma</h1>
-        <p style="color:var(--text-secondary);font-size:0.9rem;margin-bottom:1.5rem;">
-          Inicia sesión con tu <strong>Correo</strong>, <strong>Teléfono</strong> o <strong>@Usuario</strong> y tu contraseña.
+    <div style="max-width:480px;margin:2rem auto;">
+      <div class="ruma-card" style="text-align:center;padding:2.5rem 2rem;">
+        <img src="assets/ruma_icon_512.png" alt="ruma logo" style="width:92px;height:92px;border-radius:24px;box-shadow:var(--shadow-glow);margin-bottom:1rem;display:inline-block;">
+        <h1 class="ruma-brand-name" style="font-size:2.5rem;margin-bottom:0.35rem;">ruma</h1>
+        <p style="color:var(--text-secondary);font-size:0.95rem;margin-bottom:1.75rem;line-height:1.5;">
+          Tus personas · Tus recuerdos · Tu refugio.<br>
+          <span style="font-size:0.84rem;color:var(--text-muted);">Inicia sesión con tu <strong>Correo</strong>, <strong>Teléfono</strong> o <strong>@Usuario</strong>.</span>
         </p>
 
         <!-- Selector Login vs Registro -->
-        <div style="display:flex;gap:0.5rem;margin-bottom:1.25rem;background:var(--bg-elevated);padding:0.3rem;border-radius:var(--radius-md);">
+        <div style="display:flex;gap:0.5rem;margin-bottom:1.5rem;background:rgba(14,6,30,0.8);padding:0.35rem;border-radius:var(--radius-md);border:1px solid var(--border-subtle);">
           <button type="button" class="btn btn-primary btn-sm" id="tab-auth-login" style="flex:1;">Iniciar Sesión</button>
           <button type="button" class="btn btn-secondary btn-sm" id="tab-auth-register" style="flex:1;">Crear Cuenta</button>
         </div>
@@ -258,10 +288,12 @@ function renderAuthScreen(container) {
             <label class="form-label">Contraseña</label>
             <input type="password" id="login-password" class="form-input" placeholder="••••••••" value="123" required>
           </div>
-          <button type="submit" class="btn btn-primary" style="width:100%;margin-top:0.5rem;">Entrar a ruma ➔</button>
-          <p style="font-size:0.76rem;color:var(--text-muted);margin-top:0.85rem;text-align:center;">
-            Demo rápida: <code>kevin@ruma.app</code> / <code>3001234567</code> / <code>@kevin</code> (Contraseña: <code>123</code>)
-          </p>
+          <button type="submit" class="btn btn-primary" style="width:100%;margin-top:0.75rem;padding:0.85rem;">
+            Entrar a ruma ➔
+          </button>
+          <div style="font-size:0.78rem;color:var(--text-muted);margin-top:1.25rem;text-align:center;background:rgba(14,6,30,0.6);padding:0.6rem;border-radius:8px;">
+            Acceso demo rápido: <code>kevin@ruma.app</code> / <code>3001234567</code> / <code>@kevin</code> (Clave: <code>123</code>)
+          </div>
         </form>
 
         <!-- Formulario Registro Triple -->
@@ -286,7 +318,9 @@ function renderAuthScreen(container) {
             <label class="form-label">Contraseña</label>
             <input type="password" id="reg-password" class="form-input" placeholder="Crea tu contraseña" required>
           </div>
-          <button type="submit" class="btn btn-primary" style="width:100%;margin-top:0.5rem;">Registrarme y Entrar ✨</button>
+          <button type="submit" class="btn btn-primary" style="width:100%;margin-top:0.75rem;padding:0.85rem;">
+            Registrarme y Entrar ✨
+          </button>
         </form>
       </div>
     </div>
