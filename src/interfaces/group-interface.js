@@ -417,15 +417,23 @@ function renderMoviesOrSeriesTab(viewport, group, user, category) {
 
 function openSearchTmdbModal(group, category) {
   const isMovies = category === 'movies';
+  let debounceTimer = null;
+
   UI.openModal({
     title: isMovies ? '🎬 Buscar y Guardar Película (TMDb)' : '📺 Buscar y Guardar Serie (TMDb)',
     contentHtml: `
       <div>
-        <div style="display:flex;gap:0.5rem;margin-bottom:1rem;">
-          <input type="text" id="tmdb-search-input" class="form-input" placeholder="Escribe el título para buscar en TMDb...">
-          <button type="button" class="btn btn-primary" id="btn-run-tmdb-search">Buscar</button>
+        <div style="margin-bottom:1rem;">
+          <input type="text" id="tmdb-search-input" class="form-input" placeholder="Escribe el título de la película o serie..." autofocus>
+          <div style="font-size:0.75rem;color:var(--text-secondary);margin-top:0.35rem;">
+            ⚡ Búsqueda en vivo conectada con la base de datos de TMDb.
+          </div>
         </div>
-        <div id="tmdb-search-results" style="display:flex;flex-direction:column;gap:0.55rem;max-height:320px;overflow-y:auto;"></div>
+        <div id="tmdb-search-results" style="display:flex;flex-direction:column;gap:0.55rem;max-height:320px;overflow-y:auto;padding-right:0.25rem;">
+          <div style="text-align:center;padding:1.5rem;color:var(--text-secondary);font-size:0.85rem;">
+            Empieza a escribir para buscar títulos...
+          </div>
+        </div>
       </div>
     `,
     onMount: () => {
@@ -434,20 +442,26 @@ function openSearchTmdbModal(group, category) {
 
       const doSearch = async () => {
         const q = input?.value.trim();
-        if (!q || !resultsEl) return;
-        resultsEl.innerHTML = `<div style="color:var(--text-secondary);font-size:0.85rem;">Buscando en TMDb...</div>`;
-        const results = isMovies ? await MediaService.searchMovies(q) : await MediaService.searchSeries(q);
-        if (results.length === 0) {
-          resultsEl.innerHTML = `<div style="color:var(--text-muted);font-size:0.85rem;">Sin resultados encontrados.</div>`;
+        if (!q || !resultsEl) {
+          if (resultsEl) resultsEl.innerHTML = `<div style="text-align:center;padding:1.5rem;color:var(--text-secondary);font-size:0.85rem;">Empieza a escribir para buscar títulos...</div>`;
           return;
         }
+
+        resultsEl.innerHTML = `<div style="color:var(--brand-lilac);font-size:0.85rem;padding:0.75rem;">Consultando catálogo oficial de TMDb...</div>`;
+        const results = isMovies ? await MediaService.searchMovies(q) : await MediaService.searchSeries(q);
+
+        if (results.length === 0) {
+          resultsEl.innerHTML = `<div style="color:var(--text-muted);font-size:0.85rem;padding:1rem;text-align:center;">Sin resultados para esa búsqueda.</div>`;
+          return;
+        }
+
         resultsEl.innerHTML = results.map((r, i) => `
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:0.75rem;padding:0.55rem;background:var(--bg-elevated);border-radius:var(--radius-sm);">
-            <div style="display:flex;align-items:center;gap:0.65rem;min-width:0;">
-              <img src="${Utils.sanitize(r.poster)}" alt="poster" style="width:38px;height:54px;border-radius:6px;object-fit:cover;">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:0.75rem;padding:0.6rem;background:var(--bg-elevated);border-radius:var(--radius-sm);border:1px solid var(--border-subtle);">
+            <div style="display:flex;align-items:center;gap:0.65rem;min-width:0;flex:1;">
+              <img src="${Utils.sanitize(r.poster)}" alt="poster" style="width:42px;height:60px;border-radius:6px;object-fit:cover;flex-shrink:0;">
               <div style="min-width:0;">
-                <div style="font-weight:700;font-size:0.88rem;">${Utils.sanitize(r.title)} (${Utils.sanitize(r.year)})</div>
-                <div style="font-size:0.75rem;color:var(--brand-gold);">⭐ TMDb ${Utils.sanitize(r.voteAverage)}</div>
+                <div style="font-weight:700;font-size:0.9rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${Utils.sanitize(r.title)} (${Utils.sanitize(r.year || 'N/A')})</div>
+                <div style="font-size:0.78rem;color:var(--brand-gold);margin-top:0.2rem;">⭐ TMDb ${Utils.sanitize(r.voteAverage)}</div>
               </div>
             </div>
             <button type="button" class="btn btn-primary btn-sm" data-pick-tmdb="${i}">+ Guardar</button>
@@ -475,12 +489,9 @@ function openSearchTmdbModal(group, category) {
         });
       };
 
-      document.getElementById('btn-run-tmdb-search')?.addEventListener('click', doSearch);
-      input?.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          doSearch();
-        }
+      input?.addEventListener('input', () => {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(doSearch, 280);
       });
     }
   });
