@@ -7,6 +7,7 @@ import { CONFIG } from './config.js';
 import { Utils } from './utils.js';
 import { Entitlements } from './entitlements.js';
 import { DriveBridge } from '../services/drive-bridge.js';
+import { GoogleAuth } from '../services/google-auth.js';
 import { PRELOADED_SERIES_EPISODES } from '../services/media-api.js';
 
 const DEMO_USERS = [
@@ -465,8 +466,72 @@ class RumaStore {
     return { ok: true, user: newUser };
   }
 
+  loginWithGoogle({ email, name, picture }) {
+    const cleanEmail = String(email || '').trim().toLowerCase();
+    const displayName = String(name || 'Usuario de Google').trim();
+    const accounts = this.getAccounts();
+
+    // Buscar cuenta existente por correo o vincular la primera cuenta demo si aún no tiene cuenta Google
+    let user = accounts.find(u => cleanEmail && u.email && u.email.toLowerCase() === cleanEmail);
+
+    if (!user && accounts.length > 0 && accounts[0].id === 'usr_kevin' && accounts[0].email === 'kevin@ruma.app') {
+      user = accounts[0];
+    }
+
+    if (user) {
+      user.name = displayName || user.name;
+      if (cleanEmail) user.email = cleanEmail;
+      if (picture) user.avatar = picture;
+      if (!user.username) {
+        user.username = cleanEmail ? cleanEmail.split('@')[0].replace(/[^a-z0-9_]/gi, '').toLowerCase() : `user_${Date.now().toString().slice(-4)}`;
+      }
+      user.authProvider = 'google';
+      this.saveAccounts(accounts);
+
+      // Actualizar nombre y foto del miembro en sus grupos
+      const groups = this.getGroups().map(g => ({
+        ...g,
+        members: (g.members || []).map(m => m.id === user.id ? {
+          ...m,
+          name: user.name,
+          username: user.username,
+          avatar: user.avatar
+        } : m)
+      }));
+      this.saveGroups(groups);
+    } else {
+      const baseUsername = cleanEmail
+        ? cleanEmail.split('@')[0].replace(/[^a-z0-9_]/gi, '').toLowerCase()
+        : displayName.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 12);
+
+      user = {
+        id: Utils.generateId('usr'),
+        name: displayName,
+        username: baseUsername || `user_${Date.now().toString().slice(-4)}`,
+        email: cleanEmail,
+        phone: '',
+        password: '',
+        avatar: picture || 'assets/ruma_icon_512.png',
+        frameId: 'frame-axolotl',
+        bannerColor: '#7C3AED',
+        bio: '✨ Conectado con Google Drive',
+        showcaseIds: [],
+        isPremium: false,
+        authProvider: 'google'
+      };
+      accounts.push(user);
+      this.saveAccounts(accounts);
+    }
+
+    localStorage.setItem(CONFIG.storageKeys.currentUserId, user.id);
+    this.currentInterface = 'hub';
+    this.notify();
+    return { ok: true, user };
+  }
+
   logout() {
     localStorage.removeItem(CONFIG.storageKeys.currentUserId);
+    try { GoogleAuth.clearToken(); } catch (_) {}
     this.currentInterface = 'hub';
     this.notify();
   }

@@ -6,6 +6,7 @@
 import { store } from '../core/store.js';
 import { Entitlements, PLAN_LIMITS } from '../core/entitlements.js';
 import { Utils } from '../core/utils.js';
+import { GoogleAuth } from '../services/google-auth.js';
 import { UI } from '../components/ui.js';
 
 export function renderHubInterface(container) {
@@ -262,114 +263,105 @@ function openCreateGroupModal(defaultPlan = 'free') {
 }
 
 function renderAuthScreen(container) {
+  const savedClientId = GoogleAuth.getClientId();
+  const hasClientId = GoogleAuth.hasValidClientId();
+  const currentOrigin = typeof window !== 'undefined' ? window.location.origin : 'https://kevingomez-04.github.io';
+
   container.innerHTML = `
-    <div style="max-width:480px;margin:2rem auto;">
+    <div style="max-width:500px;margin:2rem auto;">
       <div class="ruma-card" style="text-align:center;padding:2.5rem 2rem;">
         <img src="assets/ruma_icon_512.png" alt="ruma logo" style="width:92px;height:92px;border-radius:24px;box-shadow:var(--shadow-glow);margin-bottom:1rem;display:inline-block;">
         <h1 class="ruma-brand-name" style="font-size:2.5rem;margin-bottom:0.35rem;">ruma</h1>
-        <p style="color:var(--text-secondary);font-size:0.95rem;margin-bottom:1.75rem;line-height:1.5;">
+        <p style="color:var(--text-secondary);font-size:0.95rem;margin-bottom:1.5rem;line-height:1.5;">
           Tus personas · Tus recuerdos · Tu refugio.<br>
-          <span style="font-size:0.84rem;color:var(--text-muted);">Inicia sesión con tu <strong>Correo</strong>, <strong>Teléfono</strong> o <strong>@Usuario</strong>.</span>
+          <span style="font-size:0.84rem;color:var(--text-muted);">
+            Inicia sesión con tu cuenta de <strong>Google</strong> para acceder a tus grupos y sincronizar automáticamente fotos y videos en <strong>Google Drive</strong>.
+          </span>
         </p>
 
-        <!-- Selector Login vs Registro -->
-        <div style="display:flex;gap:0.5rem;margin-bottom:1.5rem;background:rgba(14,6,30,0.8);padding:0.35rem;border-radius:var(--radius-md);border:1px solid var(--border-subtle);">
-          <button type="button" class="btn btn-primary btn-sm" id="tab-auth-login" style="flex:1;">Iniciar Sesión</button>
-          <button type="button" class="btn btn-secondary btn-sm" id="tab-auth-register" style="flex:1;">Crear Cuenta</button>
-        </div>
+        <!-- Botón Oficial Obligatorio de Inicio de Sesión con Google -->
+        <button
+          type="button"
+          class="btn btn-primary"
+          id="btn-auth-google-signin"
+          style="width:100%;padding:0.95rem 1.25rem;font-size:1rem;display:flex;align-items:center;justify-content:center;gap:0.75rem;box-shadow:var(--shadow-glow);"
+        >
+          <span style="background:#fff;color:#111;width:26px;height:26px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-weight:900;font-size:0.95rem;">G</span>
+          <span>Continuar con Google</span>
+        </button>
 
-        <!-- Formulario Login Triple -->
-        <form id="form-auth-login" style="text-align:left;">
-          <div class="form-group">
-            <label class="form-label">Correo, Número de Teléfono o @Usuario</label>
-            <input type="text" id="login-identifier" class="form-input" placeholder="ej: kevin@ruma.app | 3001234567 | @kevin" value="kevin@ruma.app" required>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Contraseña</label>
-            <input type="password" id="login-password" class="form-input" placeholder="••••••••" value="123" required>
-          </div>
-          <button type="submit" class="btn btn-primary" style="width:100%;margin-top:0.75rem;padding:0.85rem;">
-            Entrar a ruma ➔
-          </button>
-          <div style="font-size:0.78rem;color:var(--text-muted);margin-top:1.25rem;text-align:center;background:rgba(14,6,30,0.6);padding:0.6rem;border-radius:8px;">
-            Acceso demo rápido: <code>kevin@ruma.app</code> / <code>3001234567</code> / <code>@kevin</code> (Clave: <code>123</code>)
-          </div>
-        </form>
+        <div id="auth-google-feedback" style="display:none;margin-top:0.9rem;padding:0.75rem 0.9rem;border-radius:var(--radius-sm);font-size:0.82rem;text-align:left;"></div>
 
-        <!-- Formulario Registro Triple -->
-        <form id="form-auth-register" style="text-align:left;display:none;">
-          <div class="form-group">
-            <label class="form-label">Tu Nombre</label>
-            <input type="text" id="reg-name" class="form-input" placeholder="Ej: Kevin Gómez" required>
+        <!-- Configuración única del Client ID de Google Cloud (si aún no está fijo en config.js) -->
+        <details style="margin-top:1.35rem;text-align:left;background:var(--bg-elevated);padding:0.85rem 1rem;border-radius:var(--radius-md);border:1px solid var(--border-subtle);" ${hasClientId ? '' : 'open'}>
+          <summary style="cursor:pointer;font-size:0.82rem;font-weight:700;color:var(--brand-lilac-soft);">
+            ⚙️ ${hasClientId ? 'Client ID de Google OAuth configurado (ver / editar)' : 'Configurar Client ID de Google OAuth (1 sola vez)'}
+          </summary>
+          <div style="margin-top:0.75rem;">
+            <label class="form-label" style="font-size:0.76rem;">Google OAuth 2.0 Client ID</label>
+            <input
+              type="text"
+              id="auth-google-client-id"
+              class="form-input"
+              value="${Utils.sanitize(savedClientId)}"
+              placeholder="1234567890-abcdefg.apps.googleusercontent.com"
+            >
+            <ol style="margin:0.65rem 0 0 1.1rem;font-size:0.76rem;color:var(--text-secondary);display:flex;flex-direction:column;gap:0.35rem;line-height:1.45;">
+              <li>Habilita <a href="https://console.cloud.google.com/apis/library/drive.googleapis.com" target="_blank" rel="noopener" style="color:var(--brand-cyan);font-weight:700;">Google Drive API ↗</a> en Google Cloud.</li>
+              <li>En <a href="https://console.cloud.google.com/apis/credentials/consent" target="_blank" rel="noopener" style="color:var(--brand-cyan);font-weight:700;">Pantalla de consentimiento OAuth ↗</a> elige <strong>Externo</strong> y pulsa <strong>Publicar aplicación</strong> (o añade tus correos de prueba).</li>
+              <li>En <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener" style="color:var(--brand-cyan);font-weight:700;">Credenciales ↗</a> crea un <strong>ID de cliente de OAuth</strong> (Aplicación web) con este origen autorizado:<br>
+                <code style="background:rgba(0,0,0,0.45);padding:2px 6px;border-radius:4px;color:var(--brand-gold);user-select:all;">${Utils.sanitize(currentOrigin)}</code>
+              </li>
+              <li>Pega el Client ID arriba y pulsa <strong>Continuar con Google</strong>.</li>
+            </ol>
           </div>
-          <div class="form-group">
-            <label class="form-label">Nombre de Usuario (@usuario)</label>
-            <input type="text" id="reg-username" class="form-input" placeholder="ej: kevin04" required>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Correo Electrónico</label>
-            <input type="email" id="reg-email" class="form-input" placeholder="tu@correo.com">
-          </div>
-          <div class="form-group">
-            <label class="form-label">Número de Teléfono</label>
-            <input type="tel" id="reg-phone" class="form-input" placeholder="Ej: 3001234567">
-          </div>
-          <div class="form-group">
-            <label class="form-label">Contraseña</label>
-            <input type="password" id="reg-password" class="form-input" placeholder="Crea tu contraseña" required>
-          </div>
-          <button type="submit" class="btn btn-primary" style="width:100%;margin-top:0.75rem;padding:0.85rem;">
-            Registrarme y Entrar ✨
-          </button>
-        </form>
+        </details>
       </div>
     </div>
   `;
 
-  const loginForm = document.getElementById('form-auth-login');
-  const regForm = document.getElementById('form-auth-register');
-  const tabLogin = document.getElementById('tab-auth-login');
-  const tabReg = document.getElementById('tab-auth-register');
+  const btnGoogle = document.getElementById('btn-auth-google-signin');
+  const inpClientId = document.getElementById('auth-google-client-id');
+  const feedbackEl = document.getElementById('auth-google-feedback');
 
-  tabLogin?.addEventListener('click', () => {
-    loginForm.style.display = 'block';
-    regForm.style.display = 'none';
-    tabLogin.className = 'btn btn-primary btn-sm';
-    tabReg.className = 'btn btn-secondary btn-sm';
-  });
+  const showErr = (msg) => {
+    if (!feedbackEl) return;
+    feedbackEl.style.display = 'block';
+    feedbackEl.style.background = 'rgba(239,68,68,0.14)';
+    feedbackEl.style.border = '1px solid rgba(239,68,68,0.4)';
+    feedbackEl.style.color = '#FCA5A5';
+    feedbackEl.textContent = msg;
+  };
 
-  tabReg?.addEventListener('click', () => {
-    loginForm.style.display = 'none';
-    regForm.style.display = 'block';
-    tabReg.className = 'btn btn-primary btn-sm';
-    tabLogin.className = 'btn btn-secondary btn-sm';
-  });
-
-  loginForm?.addEventListener('submit', (e) => {
-    e.preventDefault();
-    const id = document.getElementById('login-identifier')?.value;
-    const pw = document.getElementById('login-password')?.value;
-    const res = store.login(id, pw);
-    if (!res.ok) {
-      UI.showToast(res.error, 'error');
+  btnGoogle?.addEventListener('click', async () => {
+    const cid = inpClientId?.value.trim() || GoogleAuth.getClientId();
+    if (!cid || !cid.includes('.apps.googleusercontent.com')) {
+      showErr('⚠️ Pega primero tu Client ID de Google OAuth 2.0 (termina en .apps.googleusercontent.com) en el recuadro inferior.');
+      inpClientId?.focus();
       return;
     }
-    UI.showToast(`¡Bienvenido de nuevo, ${res.user.name}! 💜`, 'success');
-  });
 
-  regForm?.addEventListener('submit', (e) => {
-    e.preventDefault();
-    const res = store.register({
-      name: document.getElementById('reg-name')?.value,
-      username: document.getElementById('reg-username')?.value,
-      email: document.getElementById('reg-email')?.value,
-      phone: document.getElementById('reg-phone')?.value,
-      password: document.getElementById('reg-password')?.value
-    });
-    if (!res.ok) {
-      UI.showToast(res.error, 'error');
-      return;
+    GoogleAuth.setClientId(cid);
+    btnGoogle.disabled = true;
+    const prevHtml = btnGoogle.innerHTML;
+    btnGoogle.textContent = '⏳ Conectando con Google...';
+
+    try {
+      const session = await GoogleAuth.requestDriveAccess(cid);
+      const res = store.loginWithGoogle({
+        email: session.email,
+        name: session.name,
+        picture: session.picture
+      });
+      if (res.ok) {
+        UI.showToast(`¡Bienvenido, ${res.user.name}! Google Drive conectado ☁️✨`, 'success');
+      }
+    } catch (err) {
+      showErr(`❌ No se pudo iniciar sesión con Google: ${err.message}`);
+    } finally {
+      btnGoogle.disabled = false;
+      btnGoogle.innerHTML = prevHtml;
     }
-    UI.showToast(`¡Cuenta creada con éxito, ${res.user.name}! 🎉`, 'success');
   });
 }
+
