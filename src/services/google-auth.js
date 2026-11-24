@@ -40,16 +40,18 @@ function savePersistedSession(session) {
 
 export const GoogleAuth = {
   /**
-   * Obtiene el Client ID de OAuth 2.0 configurado (del grupo activo, localStorage o CONFIG)
+   * Obtiene el Client ID de OAuth 2.0 configurado (prioriza el Client ID oficial de CONFIG)
    */
   getClientId(group = null) {
+    const fromConfig = (CONFIG.googleDrive.clientId || '').trim();
+    if (fromConfig) return fromConfig;
     const fromGroup = group?.driveClientId ? String(group.driveClientId).trim() : '';
     if (fromGroup) return fromGroup;
     try {
       const saved = localStorage.getItem(CONFIG.storageKeys.driveClientId);
       if (saved && saved.trim()) return saved.trim();
     } catch (_) {}
-    return (CONFIG.googleDrive.clientId || '').trim();
+    return '';
   },
 
   setClientId(clientId) {

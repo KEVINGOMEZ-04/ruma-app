@@ -45,41 +45,10 @@ export function renderDriveConnectionPanelHtml(group, isAdmin = true) {
         </div>
       </div>
 
-      <!-- Paso 1: Client ID de Google OAuth 2.0 -->
+      <!-- Carpeta Principal de Google Drive del Grupo -->
       <div style="padding:1rem;background:var(--bg-elevated);border-radius:var(--radius-md);border:1px solid var(--border-subtle);">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.5rem;">
-          <label class="form-label" style="margin:0;">1️⃣ Client ID de Google OAuth 2.0</label>
-          <span class="badge ${GoogleAuth.hasValidClientId(group) ? 'badge-free' : 'badge-limit'}">
-            ${GoogleAuth.hasValidClientId(group) ? '✓ Configurado' : 'Requerido 1 sola vez'}
-          </span>
-        </div>
-        <input
-          type="text"
-          id="inp-drive-client-id"
-          class="form-input"
-          value="${Utils.sanitize(clientId)}"
-          placeholder="1234567890-abcdefg.apps.googleusercontent.com"
-        >
-        <details style="margin-top:0.65rem;font-size:0.8rem;color:var(--text-secondary);" ${GoogleAuth.hasValidClientId(group) ? '' : 'open'}>
-          <summary style="cursor:pointer;color:var(--brand-lilac);font-weight:700;">
-            📘 ¿Cómo crear tu Client ID gratuito en Google Cloud en 1 minuto? (Ver pasos)
-          </summary>
-          <ol style="margin:0.55rem 0 0 1.15rem;display:flex;flex-direction:column;gap:0.4rem;line-height:1.45;">
-            <li>Abre <a href="https://console.cloud.google.com/apis/library/drive.googleapis.com" target="_blank" rel="noopener" style="color:var(--brand-cyan);font-weight:700;">Google Drive API en Google Cloud ↗</a>, crea o elige un proyecto y pulsa <strong>Habilitar (Enable)</strong>.</li>
-            <li>En <a href="https://console.cloud.google.com/apis/credentials/consent" target="_blank" rel="noopener" style="color:var(--brand-cyan);font-weight:700;">Pantalla de consentimiento OAuth ↗</a> elige <strong>Externo</strong>, pon el nombre <code>ruma</code> y en <strong>Usuarios de prueba (Test users)</strong> añade tu correo de Gmail.</li>
-            <li>Ve a <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener" style="color:var(--brand-cyan);font-weight:700;">Credenciales ↗</a> → <strong>+ Crear credenciales</strong> → <strong>ID de cliente de OAuth</strong> → Tipo: <strong>Aplicación web</strong>.</li>
-            <li>En <strong>Orígenes de JavaScript autorizados</strong> añade exactamente:<br>
-              <code style="background:rgba(0,0,0,0.45);padding:2px 6px;border-radius:4px;color:var(--brand-gold);user-select:all;">${Utils.sanitize(currentOrigin)}</code>
-            </li>
-            <li>Copia el <strong>ID de cliente</strong> (termina en <code>.apps.googleusercontent.com</code>), pégalo arriba y pulsa <strong>🔑 Iniciar sesión con Google</strong>.</li>
-          </ol>
-        </details>
-      </div>
-
-      <!-- Paso 2: Carpeta de Google Drive del Grupo -->
-      <div style="padding:1rem;background:var(--bg-elevated);border-radius:var(--radius-md);border:1px solid var(--border-subtle);">
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.5rem;">
-          <label class="form-label" style="margin:0;">2️⃣ Carpeta Principal de Google Drive del Grupo</label>
+          <label class="form-label" style="margin:0;">📂 Carpeta Principal de Google Drive del Grupo</label>
           <span class="badge ${hasRealFolder ? 'badge-free' : 'badge-admin'}">
             ${hasRealFolder ? '📁 Carpeta vinculada' : 'Opcional (o créala en 1 clic)'}
           </span>
@@ -104,6 +73,7 @@ export function renderDriveConnectionPanelHtml(group, isAdmin = true) {
           Cada recuerdo creará dentro de esta carpeta una subcarpeta con formato <code>[Nombre del Recuerdo - Día y Fecha]</code> y subirá allí sus fotos, videos y nota de voz.
         </small>
       </div>
+      <input type="hidden" id="inp-drive-client-id" value="${Utils.sanitize(clientId)}">
 
       <div id="drive-test-feedback" style="display:none;padding:0.75rem 0.9rem;border-radius:var(--radius-sm);font-size:0.82rem;"></div>
 

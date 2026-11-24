@@ -21,7 +21,7 @@ export const CONFIG = {
 
   // Google Drive OAuth 2.0 & Master Bridge
   googleDrive: {
-    clientId: '',
+    clientId: '419243559314-jriep6ork2h3o44ht83r5fe20ekpi3io.apps.googleusercontent.com',
     scopes: 'https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile',
     defaultBridgeUrl: 'https://script.google.com/macros/s/AKfycbx3nWf8YgIzkq1Kna1yfB9rv0d3gjr9xvV1yiE-qb5qwzaV6rFujoacsFjOgMkRrbOFiQ/exec'
   },

@@ -263,19 +263,15 @@ function openCreateGroupModal(defaultPlan = 'free') {
 }
 
 function renderAuthScreen(container) {
-  const savedClientId = GoogleAuth.getClientId();
-  const hasClientId = GoogleAuth.hasValidClientId();
-  const currentOrigin = typeof window !== 'undefined' ? window.location.origin : 'https://kevingomez-04.github.io';
-
   container.innerHTML = `
-    <div style="max-width:500px;margin:2rem auto;">
-      <div class="ruma-card" style="text-align:center;padding:2.5rem 2rem;">
-        <img src="assets/ruma_icon_512.png" alt="ruma logo" style="width:92px;height:92px;border-radius:24px;box-shadow:var(--shadow-glow);margin-bottom:1rem;display:inline-block;">
-        <h1 class="ruma-brand-name" style="font-size:2.5rem;margin-bottom:0.35rem;">ruma</h1>
-        <p style="color:var(--text-secondary);font-size:0.95rem;margin-bottom:1.5rem;line-height:1.5;">
+    <div style="max-width:460px;margin:2.5rem auto;">
+      <div class="ruma-card" style="text-align:center;padding:2.75rem 2.25rem;">
+        <img src="assets/ruma_icon_512.png" alt="ruma logo" style="width:96px;height:96px;border-radius:26px;box-shadow:var(--shadow-glow);margin-bottom:1.1rem;display:inline-block;">
+        <h1 class="ruma-brand-name" style="font-size:2.6rem;margin-bottom:0.35rem;">ruma</h1>
+        <p style="color:var(--text-secondary);font-size:0.95rem;margin-bottom:1.85rem;line-height:1.55;">
           Tus personas · Tus recuerdos · Tu refugio.<br>
           <span style="font-size:0.84rem;color:var(--text-muted);">
-            Inicia sesión con tu cuenta de <strong>Google</strong> para acceder a tus grupos y sincronizar automáticamente fotos y videos en <strong>Google Drive</strong>.
+            Inicia sesión con tu cuenta de <strong>Google</strong> para entrar a tus grupos y guardar automáticamente tus fotos y videos en <strong>Google Drive</strong>.
           </span>
         </p>
 
@@ -284,44 +280,23 @@ function renderAuthScreen(container) {
           type="button"
           class="btn btn-primary"
           id="btn-auth-google-signin"
-          style="width:100%;padding:0.95rem 1.25rem;font-size:1rem;display:flex;align-items:center;justify-content:center;gap:0.75rem;box-shadow:var(--shadow-glow);"
+          style="width:100%;padding:0.95rem 1.25rem;font-size:1.02rem;display:flex;align-items:center;justify-content:center;gap:0.75rem;box-shadow:var(--shadow-glow);"
         >
-          <span style="background:#fff;color:#111;width:26px;height:26px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-weight:900;font-size:0.95rem;">G</span>
+          <span style="background:#fff;color:#111;width:28px;height:28px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-weight:900;font-size:0.98rem;">G</span>
           <span>Continuar con Google</span>
         </button>
 
-        <div id="auth-google-feedback" style="display:none;margin-top:0.9rem;padding:0.75rem 0.9rem;border-radius:var(--radius-sm);font-size:0.82rem;text-align:left;"></div>
+        <div id="auth-google-feedback" style="display:none;margin-top:0.95rem;padding:0.75rem 0.9rem;border-radius:var(--radius-sm);font-size:0.82rem;text-align:left;"></div>
 
-        <!-- Configuración única del Client ID de Google Cloud (si aún no está fijo en config.js) -->
-        <details style="margin-top:1.35rem;text-align:left;background:var(--bg-elevated);padding:0.85rem 1rem;border-radius:var(--radius-md);border:1px solid var(--border-subtle);" ${hasClientId ? '' : 'open'}>
-          <summary style="cursor:pointer;font-size:0.82rem;font-weight:700;color:var(--brand-lilac-soft);">
-            ⚙️ ${hasClientId ? 'Client ID de Google OAuth configurado (ver / editar)' : 'Configurar Client ID de Google OAuth (1 sola vez)'}
-          </summary>
-          <div style="margin-top:0.75rem;">
-            <label class="form-label" style="font-size:0.76rem;">Google OAuth 2.0 Client ID</label>
-            <input
-              type="text"
-              id="auth-google-client-id"
-              class="form-input"
-              value="${Utils.sanitize(savedClientId)}"
-              placeholder="1234567890-abcdefg.apps.googleusercontent.com"
-            >
-            <ol style="margin:0.65rem 0 0 1.1rem;font-size:0.76rem;color:var(--text-secondary);display:flex;flex-direction:column;gap:0.35rem;line-height:1.45;">
-              <li>Habilita <a href="https://console.cloud.google.com/apis/library/drive.googleapis.com" target="_blank" rel="noopener" style="color:var(--brand-cyan);font-weight:700;">Google Drive API ↗</a> en Google Cloud.</li>
-              <li>En <a href="https://console.cloud.google.com/apis/credentials/consent" target="_blank" rel="noopener" style="color:var(--brand-cyan);font-weight:700;">Pantalla de consentimiento OAuth ↗</a> elige <strong>Externo</strong> y pulsa <strong>Publicar aplicación</strong> (o añade tus correos de prueba).</li>
-              <li>En <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener" style="color:var(--brand-cyan);font-weight:700;">Credenciales ↗</a> crea un <strong>ID de cliente de OAuth</strong> (Aplicación web) con este origen autorizado:<br>
-                <code style="background:rgba(0,0,0,0.45);padding:2px 6px;border-radius:4px;color:var(--brand-gold);user-select:all;">${Utils.sanitize(currentOrigin)}</code>
-              </li>
-              <li>Pega el Client ID arriba y pulsa <strong>Continuar con Google</strong>.</li>
-            </ol>
-          </div>
-        </details>
+        <div style="margin-top:1.5rem;padding-top:1.1rem;border-top:1px solid var(--border-subtle);font-size:0.76rem;color:var(--text-muted);line-height:1.45;">
+          🔒 Autenticación segura mediante <strong>Google OAuth 2.0</strong>.<br>
+          Sincronización directa con las carpetas de <strong>Google Drive</strong> de tus grupos.
+        </div>
       </div>
     </div>
   `;
 
   const btnGoogle = document.getElementById('btn-auth-google-signin');
-  const inpClientId = document.getElementById('auth-google-client-id');
   const feedbackEl = document.getElementById('auth-google-feedback');
 
   const showErr = (msg) => {
@@ -334,14 +309,7 @@ function renderAuthScreen(container) {
   };
 
   btnGoogle?.addEventListener('click', async () => {
-    const cid = inpClientId?.value.trim() || GoogleAuth.getClientId();
-    if (!cid || !cid.includes('.apps.googleusercontent.com')) {
-      showErr('⚠️ Pega primero tu Client ID de Google OAuth 2.0 (termina en .apps.googleusercontent.com) en el recuadro inferior.');
-      inpClientId?.focus();
-      return;
-    }
-
-    GoogleAuth.setClientId(cid);
+    const cid = GoogleAuth.getClientId();
     btnGoogle.disabled = true;
     const prevHtml = btnGoogle.innerHTML;
     btnGoogle.textContent = '⏳ Conectando con Google...';
