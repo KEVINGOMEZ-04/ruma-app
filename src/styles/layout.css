@@ -1235,15 +1235,120 @@ html, body {
   background-size: 200% 100%;
   animation: wp-shimmer 1.3s infinite linear;
 }
+.ep-card-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.9rem;
+  flex-wrap: wrap;
+}
+.ep-card-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.85rem;
+  min-width: 0;
+  flex: 1 1 380px;
+}
+.ep-card-media {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-shrink: 0;
+}
+.ep-num-badge {
+  font-family: var(--font-mono);
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: var(--brand-lilac);
+  width: 32px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.ep-thumb {
+  position: relative;
+  width: 140px;
+  height: 78px;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  flex-shrink: 0;
+  background: #080312;
+  border: 1px solid var(--border-subtle);
+}
+.ep-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.ep-num-mobile {
+  display: none;
+  top: 6px;
+  left: 6px;
+  font-family: var(--font-mono);
+  font-weight: 800;
+  background: rgba(124, 58, 237, 0.92);
+}
+.ep-card-info {
+  min-width: 0;
+  flex: 1;
+}
+.ep-title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+.ep-title {
+  font-family: var(--font-display);
+  font-size: 1.02rem;
+  line-height: 1.3;
+  word-break: break-word;
+}
+.ep-meta-row {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-top: 0.2rem;
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+}
+.ep-synopsis {
+  font-size: 0.84rem;
+  color: var(--text-secondary);
+  margin-top: 0.35rem;
+  line-height: 1.5;
+  word-break: break-word;
+}
+.ep-synopsis-empty {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+.ep-card-actions {
+  display: flex;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+.ep-watched-by {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  padding-top: 0.45rem;
+  border-top: 1px solid var(--border-subtle);
+}
 .ep-chip {
   position: absolute;
-  background: rgba(9, 3, 20, 0.86);
+  background: rgba(9, 3, 20, 0.88);
   color: #fff;
-  font-size: 0.66rem;
-  padding: 2px 6px;
+  font-size: 0.68rem;
+  padding: 2px 7px;
   border-radius: 6px;
 }
-.ep-overview { margin-top: 0.25rem; font-size: 0.82rem; color: var(--text-secondary); line-height: 1.45; }
+.ep-overview { margin-top: 0.35rem; font-size: 0.84rem; color: var(--text-secondary); line-height: 1.5; }
 .ep-overview summary { cursor: pointer; list-style: none; }
 .ep-overview summary::-webkit-details-marker { display: none; }
 .ep-overview summary span { color: var(--brand-lilac); font-weight: 700; }
@@ -1258,7 +1363,62 @@ html, body {
 }
 .ep-season-header span { font-size: 0.75rem; color: var(--text-muted); font-family: inherit; }
 
+@media (max-width: 640px) {
+  .ruma-episode-card {
+    padding: 0.85rem;
+  }
+  .ep-card-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+  }
+  .ep-card-main {
+    flex-direction: column;
+    align-items: stretch;
+    flex: 1 1 auto;
+    gap: 0.65rem;
+  }
+  .ep-card-media {
+    width: 100%;
+  }
+  .ep-num-badge {
+    display: none;
+  }
+  .ep-thumb {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 16 / 9;
+    max-height: 185px;
+  }
+  .ep-num-mobile {
+    display: inline-block;
+  }
+  .ep-card-info {
+    width: 100%;
+  }
+  .ep-title {
+    font-size: 1.05rem;
+  }
+  .ep-card-actions {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+  }
+  .ep-card-actions .btn {
+    width: 100%;
+    justify-content: center;
+  }
+  .media-hero {
+    flex-direction: column;
+    align-items: center;
+    text-align: left;
+    padding: 0.95rem;
+  }
+}
+
 @media (max-width: 520px) {
   .rv-star { font-size: 1.25rem; }
   .rv-score-big { font-size: 2rem; min-width: 60px; }
 }
+

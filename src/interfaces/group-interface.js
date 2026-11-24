@@ -1744,39 +1744,41 @@ function episodeCardHtml(series, ep, seasonNum, watchedMap, targetKey) {
 
   return `
     <div class="ruma-episode-card ${isWatched ? 'watched' : ''} ${isTarget ? 'target' : ''} ${upcoming ? 'upcoming' : ''}">
-      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.75rem;">
-        <div style="display:flex;align-items:center;gap:0.85rem;min-width:0;flex:1;">
-          <div style="font-family:var(--font-mono);font-size:1.15rem;font-weight:800;color:var(--brand-lilac);width:34px;text-align:center;">
-            ${epNumStr}
+      <div class="ep-card-row">
+        <div class="ep-card-main">
+          <div class="ep-card-media">
+            <div class="ep-num-badge">${epNumStr}</div>
+            <div class="ep-thumb">
+              <img src="${Utils.sanitize(ep.still || series.backdrop || series.poster || 'assets/ruma_icon_512.png')}" alt="${Utils.sanitize(ep.name)}" loading="lazy">
+              <span class="ep-chip ep-num-mobile">#${epNumStr}</span>
+              ${ep.duration ? `<span class="ep-chip" style="bottom:6px;right:6px;">⏱ ${Utils.sanitize(ep.duration)}</span>` : ''}
+              ${isWatched ? `<span class="ep-chip" style="top:6px;right:6px;background:rgba(16,185,129,0.94);">✓ Visto</span>` : ''}
+            </div>
           </div>
-          <div style="position:relative;width:132px;height:74px;border-radius:var(--radius-sm);overflow:hidden;flex-shrink:0;background:#080312;">
-            <img src="${Utils.sanitize(ep.still || series.backdrop || series.poster || 'assets/ruma_icon_512.png')}" alt="${Utils.sanitize(ep.name)}" loading="lazy" style="width:100%;height:100%;object-fit:cover;">
-            ${ep.duration ? `<span class="ep-chip" style="bottom:4px;right:4px;">⏱ ${Utils.sanitize(ep.duration)}</span>` : ''}
-            ${isWatched ? `<span class="ep-chip" style="top:4px;left:4px;background:rgba(16,185,129,0.92);">✓ Visto</span>` : ''}
-          </div>
-          <div style="min-width:0;flex:1;">
-            <div style="display:flex;align-items:center;gap:0.45rem;flex-wrap:wrap;">
-              <h4 style="font-family:var(--font-display);font-size:1rem;">${Utils.sanitize(ep.name)}</h4>
+
+          <div class="ep-card-info">
+            <div class="ep-title-row">
+              <h4 class="ep-title">${Utils.sanitize(ep.name)}</h4>
               ${isTarget ? `<span class="badge badge-limit">▶ Siguiente por ver</span>` : ''}
               ${upcoming ? `<span class="badge badge-admin">🗓️ Próximamente</span>` : ''}
             </div>
-            <div style="font-size:0.72rem;color:var(--text-muted);margin-top:0.15rem;display:flex;gap:0.6rem;flex-wrap:wrap;">
+            <div class="ep-meta-row">
               <span>T${seasonNum} · E${ep.episodeNumber}</span>
               ${ep.airDate ? `<span>📅 ${Utils.sanitize(fmtAirDate(ep.airDate))}</span>` : ''}
-              ${ep.voteAverage && Number(ep.voteAverage) > 0 ? `<span style="color:var(--brand-gold);">⭐ ${Utils.sanitize(ep.voteAverage)}</span>` : ''}
+              ${ep.voteAverage && Number(ep.voteAverage) > 0 ? `<span style="color:var(--brand-gold);font-weight:700;">⭐ ${Utils.sanitize(ep.voteAverage)}</span>` : ''}
             </div>
             ${ep.overview ? (longOverview ? `
               <details class="ep-overview">
-                <summary>${Utils.sanitize(ep.overview.slice(0, 180))}… <span>ver más</span></summary>
+                <summary>${Utils.sanitize(ep.overview.slice(0, 175))}… <span>ver más</span></summary>
                 <p>${Utils.sanitize(ep.overview)}</p>
               </details>
-            ` : `<p style="font-size:0.82rem;color:var(--text-secondary);margin-top:0.25rem;line-height:1.45;">${Utils.sanitize(ep.overview)}</p>`) : `
-              <p style="font-size:0.8rem;color:var(--text-muted);margin-top:0.25rem;">Sin sinopsis en español todavía.</p>
+            ` : `<p class="ep-synopsis">${Utils.sanitize(ep.overview)}</p>`) : `
+              <p class="ep-synopsis ep-synopsis-empty">Sin sinopsis en español todavía.</p>
             `}
           </div>
         </div>
 
-        <div style="display:flex;gap:0.45rem;flex-wrap:wrap;">
+        <div class="ep-card-actions">
           <button type="button" class="btn ${isWatched ? 'btn-primary' : 'btn-secondary'} btn-sm" data-toggle-ep="${seasonNum}_${ep.episodeNumber}">
             ${isWatched ? '✓ Visto' : 'Marcar Visto'}
           </button>
@@ -1787,7 +1789,7 @@ function episodeCardHtml(series, ep, seasonNum, watchedMap, targetKey) {
       </div>
 
       ${membersWhoWatched.length > 0 ? `
-        <div style="display:flex;align-items:center;gap:0.4rem;font-size:0.75rem;color:var(--text-muted);padding-top:0.35rem;border-top:1px solid var(--border-subtle);">
+        <div class="ep-watched-by">
           <span>🍿 Ya lo vieron:</span>
           ${membersWhoWatched.map(m => `<strong style="color:var(--brand-lilac-soft);">${Utils.sanitize(m.userName)}</strong>`).join(', ')}
         </div>
