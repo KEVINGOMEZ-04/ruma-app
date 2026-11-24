@@ -264,40 +264,91 @@ function openCreateGroupModal(defaultPlan = 'free') {
 
 function renderAuthScreen(container) {
   container.innerHTML = `
-    <div style="max-width:460px;margin:2.5rem auto;">
-      <div class="ruma-card" style="text-align:center;padding:2.75rem 2.25rem;">
-        <img src="assets/ruma_icon_512.png" alt="ruma logo" style="width:96px;height:96px;border-radius:26px;box-shadow:var(--shadow-glow);margin-bottom:1.1rem;display:inline-block;">
-        <h1 class="ruma-brand-name" style="font-size:2.6rem;margin-bottom:0.35rem;">ruma</h1>
-        <p style="color:var(--text-secondary);font-size:0.95rem;margin-bottom:1.85rem;line-height:1.55;">
+    <div style="max-width:480px;margin:2rem auto;">
+      <div class="ruma-card" style="text-align:center;padding:2.4rem 2rem;">
+        <img src="assets/ruma_icon_512.png" alt="ruma logo" style="width:92px;height:92px;border-radius:24px;box-shadow:var(--shadow-glow);margin-bottom:1rem;display:inline-block;">
+        <h1 class="ruma-brand-name" style="font-size:2.5rem;margin-bottom:0.35rem;">ruma</h1>
+        <p style="color:var(--text-secondary);font-size:0.95rem;margin-bottom:1.4rem;line-height:1.5;">
           Tus personas · Tus recuerdos · Tu refugio.<br>
-          <span style="font-size:0.84rem;color:var(--text-muted);">
-            Inicia sesión con tu cuenta de <strong>Google</strong> para entrar a tus grupos y guardar automáticamente tus fotos y videos en <strong>Google Drive</strong>.
-          </span>
+          <span style="font-size:0.84rem;color:var(--text-muted);">Inicia sesión con <strong>Google</strong> o con tu cuenta de <strong>ruma</strong>.</span>
         </p>
 
-        <!-- Botón Oficial Obligatorio de Inicio de Sesión con Google -->
+        <!-- Botón de Inicio de Sesión con Google OAuth 2.0 -->
         <button
           type="button"
           class="btn btn-primary"
           id="btn-auth-google-signin"
-          style="width:100%;padding:0.95rem 1.25rem;font-size:1.02rem;display:flex;align-items:center;justify-content:center;gap:0.75rem;box-shadow:var(--shadow-glow);"
+          style="width:100%;padding:0.85rem 1.2rem;font-size:0.96rem;display:flex;align-items:center;justify-content:center;gap:0.75rem;box-shadow:var(--shadow-glow);margin-bottom:0.85rem;"
         >
-          <span style="background:#fff;color:#111;width:28px;height:28px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-weight:900;font-size:0.98rem;">G</span>
-          <span>Continuar con Google</span>
+          <span style="background:#fff;color:#111;width:25px;height:25px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-weight:900;font-size:0.92rem;">G</span>
+          <span>Continuar con Google (Drive)</span>
         </button>
 
-        <div id="auth-google-feedback" style="display:none;margin-top:0.95rem;padding:0.75rem 0.9rem;border-radius:var(--radius-sm);font-size:0.82rem;text-align:left;"></div>
+        <div id="auth-google-feedback" style="display:none;margin-bottom:0.85rem;padding:0.7rem 0.85rem;border-radius:var(--radius-sm);font-size:0.8rem;text-align:left;"></div>
 
-        <div style="margin-top:1.5rem;padding-top:1.1rem;border-top:1px solid var(--border-subtle);font-size:0.76rem;color:var(--text-muted);line-height:1.45;">
-          🔒 Autenticación segura mediante <strong>Google OAuth 2.0</strong>.<br>
-          Sincronización directa con las carpetas de <strong>Google Drive</strong> de tus grupos.
+        <div style="display:flex;align-items:center;gap:0.75rem;margin:1rem 0;color:var(--text-muted);font-size:0.76rem;">
+          <div style="flex:1;height:1px;background:var(--border-subtle);"></div>
+          <span>o accede directamente a la app</span>
+          <div style="flex:1;height:1px;background:var(--border-subtle);"></div>
         </div>
+
+        <!-- Selector Login vs Registro -->
+        <div style="display:flex;gap:0.5rem;margin-bottom:1.25rem;background:rgba(14,6,30,0.8);padding:0.35rem;border-radius:var(--radius-md);border:1px solid var(--border-subtle);">
+          <button type="button" class="btn btn-primary btn-sm" id="tab-auth-login" style="flex:1;">Iniciar Sesión</button>
+          <button type="button" class="btn btn-secondary btn-sm" id="tab-auth-register" style="flex:1;">Crear Cuenta</button>
+        </div>
+
+        <!-- Formulario Login Triple -->
+        <form id="form-auth-login" style="text-align:left;">
+          <div class="form-group">
+            <label class="form-label">Correo, Número de Teléfono o @Usuario</label>
+            <input type="text" id="login-identifier" class="form-input" placeholder="ej: kevin@ruma.app | 3001234567 | @kevin" value="kevin@ruma.app" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Contraseña</label>
+            <input type="password" id="login-password" class="form-input" placeholder="••••••••" value="123" required>
+          </div>
+          <button type="submit" class="btn btn-secondary" style="width:100%;margin-top:0.65rem;padding:0.8rem;">
+            Entrar a ruma ➔
+          </button>
+        </form>
+
+        <!-- Formulario Registro Triple -->
+        <form id="form-auth-register" style="text-align:left;display:none;">
+          <div class="form-group">
+            <label class="form-label">Tu Nombre</label>
+            <input type="text" id="reg-name" class="form-input" placeholder="Ej: Kevin Gómez" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Nombre de Usuario (@usuario)</label>
+            <input type="text" id="reg-username" class="form-input" placeholder="ej: kevin04" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Correo Electrónico</label>
+            <input type="email" id="reg-email" class="form-input" placeholder="tu@correo.com">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Número de Teléfono</label>
+            <input type="tel" id="reg-phone" class="form-input" placeholder="Ej: 3001234567">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Contraseña</label>
+            <input type="password" id="reg-password" class="form-input" placeholder="Crea tu contraseña" required>
+          </div>
+          <button type="submit" class="btn btn-primary" style="width:100%;margin-top:0.65rem;padding:0.8rem;">
+            Registrarme y Entrar ✨
+          </button>
+        </form>
       </div>
     </div>
   `;
 
   const btnGoogle = document.getElementById('btn-auth-google-signin');
   const feedbackEl = document.getElementById('auth-google-feedback');
+  const loginForm = document.getElementById('form-auth-login');
+  const regForm = document.getElementById('form-auth-register');
+  const tabLogin = document.getElementById('tab-auth-login');
+  const tabReg = document.getElementById('tab-auth-register');
 
   const showErr = (msg) => {
     if (!feedbackEl) return;
@@ -330,6 +381,48 @@ function renderAuthScreen(container) {
       btnGoogle.disabled = false;
       btnGoogle.innerHTML = prevHtml;
     }
+  });
+
+  tabLogin?.addEventListener('click', () => {
+    loginForm.style.display = 'block';
+    regForm.style.display = 'none';
+    tabLogin.className = 'btn btn-primary btn-sm';
+    tabReg.className = 'btn btn-secondary btn-sm';
+  });
+
+  tabReg?.addEventListener('click', () => {
+    loginForm.style.display = 'none';
+    regForm.style.display = 'block';
+    tabReg.className = 'btn btn-primary btn-sm';
+    tabLogin.className = 'btn btn-secondary btn-sm';
+  });
+
+  loginForm?.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const id = document.getElementById('login-identifier')?.value;
+    const pw = document.getElementById('login-password')?.value;
+    const res = store.login(id, pw);
+    if (!res.ok) {
+      UI.showToast(res.error, 'error');
+      return;
+    }
+    UI.showToast(`¡Bienvenido de nuevo, ${res.user.name}! 💜`, 'success');
+  });
+
+  regForm?.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const res = store.register({
+      name: document.getElementById('reg-name')?.value,
+      username: document.getElementById('reg-username')?.value,
+      email: document.getElementById('reg-email')?.value,
+      phone: document.getElementById('reg-phone')?.value,
+      password: document.getElementById('reg-password')?.value
+    });
+    if (!res.ok) {
+      UI.showToast(res.error, 'error');
+      return;
+    }
+    UI.showToast(`¡Cuenta creada con éxito, ${res.user.name}! 🎉`, 'success');
   });
 }
 
