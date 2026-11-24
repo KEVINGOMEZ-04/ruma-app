@@ -15,6 +15,17 @@ import { MediaService } from '../services/media-api.js';
 import { MusicService } from '../services/music-service.js';
 import { MediaStorage } from '../services/media-storage.js';
 import { UI } from '../components/ui.js';
+import {
+  renderProvidersStrip,
+  renderProvidersSection,
+  renderGroupReviews,
+  reviewFormHtml,
+  bindReviewForm,
+  openReviewModal,
+  hydrateMediaFromTmdb,
+  seriesPatchFromDetails,
+  getAverage
+} from '../components/media-widgets.js';
 
 let pendingChatQuote = null;
 
@@ -1106,7 +1117,7 @@ function renderMoviesTab(viewport, group, user) {
           <div>
             <h2 style="font-family:var(--font-display);font-size:1.35rem;">🎬 Cartelera Colaborativa de Películas</h2>
             <p style="font-size:0.84rem;color:var(--text-secondary);">
-              Descubre en TMDb, consulta en qué plataforma verlas, califica de 1 a 10 y muéstralas en tu <strong>Perfil estilo Discord</strong>.
+              Mira en qué plataformas reales están disponibles, reséñalas con estrellas en un toque y muéstralas en tu <strong>Perfil estilo Discord</strong>.
             </p>
           </div>
           <div style="display:flex;align-items:center;gap:0.55rem;flex-wrap:wrap;">
@@ -1161,7 +1172,7 @@ function renderMoviesTab(viewport, group, user) {
             const ratingEntries = Object.entries(ratingsObj);
             const avg = ratingEntries.length > 0
               ? (ratingEntries.reduce((acc, [, r]) => acc + Number(r.score || 0), 0) / ratingEntries.length).toFixed(1)
-              : (movie.tmdbRating || 'Sin nota');
+              : '—';
             const myRating = ratingsObj[user.id];
             const status = movie.status || 'Por ver';
             const statusIcon = status === 'Favorita' ? '❤️ Favorita' : (status === 'Vista' ? '🍿 Vista' : '🌱 Por ver');
@@ -1187,7 +1198,7 @@ function renderMoviesTab(viewport, group, user) {
                       <button type="button" class="badge badge-admin" style="cursor:pointer;" data-cycle-movie-status="${Utils.sanitize(movie.id)}" title="Toca para alternar Por ver / Vista / Favorita">
                         ${statusIcon} ↻
                       </button>
-                      <span class="badge badge-premium">⭐ Grupo: ${avg}</span>
+                      <span class="badge badge-premium" title="Promedio del grupo">⭐ Grupo: ${avg}</span>
                     </div>
 
                     <h3 style="font-family:var(--font-display);font-size:1.22rem;margin-top:0.45rem;cursor:pointer;" data-open-movie="${Utils.sanitize(movie.id)}">
@@ -1200,20 +1211,12 @@ function renderMoviesTab(viewport, group, user) {
                       Prioridad: ${prioStars} · Propuesta por <strong>${Utils.sanitize(movie.proposedBy?.name || movie.addedBy || 'Miembro')}</strong>
                     </div>
 
-                    <!-- Desglose de calificaciones y reseñas por integrante -->
-                    <div style="margin-top:0.6rem;display:flex;flex-direction:column;gap:0.35rem;">
-                      ${ratingEntries.length === 0 ? `
-                        <div style="font-size:0.78rem;color:var(--text-muted);">Sin calificaciones del grupo aún.</div>
-                      ` : ratingEntries.map(([uid, r]) => {
-                        const member = (group.members || []).find(m => m.id === uid);
-                        return `
-                          <div style="background:var(--bg-elevated);padding:0.4rem 0.65rem;border-radius:var(--radius-xs);font-size:0.78rem;">
-                            <strong>${Utils.sanitize(member?.name || 'Miembro')}:</strong>
-                            <span style="color:var(--brand-gold);font-weight:700;"> ⭐ ${Number(r.score).toFixed(1)}</span>
-                            ${r.review ? `<div style="color:var(--text-secondary);margin-top:0.1rem;">“${Utils.sanitize(r.review)}”</div>` : ''}
-                          </div>
-                        `;
-                      }).join('')}
+                    <!-- Plataformas reales de streaming (TMDb / JustWatch) -->
+                    ${renderProvidersStrip(movie)}
+
+                    <!-- Reseñas del grupo -->
+                    <div style="margin-top:0.6rem;">
+                      ${renderGroupReviews(movie, group, user, { compact: true, category: 'movies' })}
                     </div>
 
                     ${linkedMems.length > 0 ? `
@@ -1230,7 +1233,7 @@ function renderMoviesTab(viewport, group, user) {
                       🎬 Ficha & Dónde Ver
                     </button>
                     <button type="button" class="btn btn-primary btn-sm" data-rate-movie="${Utils.sanitize(movie.id)}">
-                      ⭐ ${myRating ? `${myRating.score}` : 'Calificar'}
+                      ${myRating ? `✏️ Mi reseña · ⭐ ${Number(myRating.score).toFixed(1)}` : '✍️ Reseñar'}
                     </button>
                     <button type="button" class="btn btn-secondary btn-sm" data-comments-movie="${Utils.sanitize(movie.id)}">
                       💬 ${commentsCount}
@@ -1294,7 +1297,13 @@ function renderMoviesTab(viewport, group, user) {
   viewport.querySelectorAll('[data-rate-movie]').forEach(btn => {
     btn.addEventListener('click', () => {
       const movie = allMovies.find(m => m.id === btn.getAttribute('data-rate-movie'));
-      if (movie) openRateModal('movies', movie, user);
+      if (movie) openReviewModal('movies', movie, user);
+    });
+  });
+  viewport.querySelectorAll('[data-review-item][data-review-cat="movies"]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const movie = allMovies.find(m => m.id === btn.getAttribute('data-review-item'));
+      if (movie) openReviewModal('movies', movie, user);
     });
   });
 
@@ -1338,35 +1347,40 @@ function renderMoviesTab(viewport, group, user) {
       UI.showToast('Película eliminada de la cartelera.', 'info');
     });
   });
+
+  // Plataformas, tráiler y ficha real desde TMDb en segundo plano
+  hydrateMediaFromTmdb(group, 'movies');
 }
 
 async function openMovieDetailModal(group, movie, user) {
-  // Enriquecer detalles y plataformas en vivo desde TMDb si tiene tmdbId
-  if (movie.tmdbId && (!movie.gallery || !movie.trailerUrl || !movie.synopsis)) {
+  const refresh = () => (store.getActiveGroup()?.movies || []).find(m => m.id === movie.id) || movie;
+
+  // Datos reales de TMDb (ficha + plataformas en una sola llamada)
+  if (movie.tmdbId && (!movie.watchProviders || !movie.gallery || !movie.trailerUrl || !movie.synopsis)) {
     const details = await MediaService.getMovieDetails(movie.tmdbId);
     if (details) {
-      store.updateMediaItem('movies', movie.id, {
-        duration: movie.duration || details.duration,
-        genres: movie.genres || details.genres,
-        synopsis: movie.synopsis || details.overview,
-        backdrop: movie.backdrop || details.backdrop,
-        gallery: details.gallery || [],
-        trailerUrl: details.trailerUrl || movie.trailerUrl || ''
-      });
-      Object.assign(movie, {
-        duration: movie.duration || details.duration,
-        genres: movie.genres || details.genres,
-        synopsis: movie.synopsis || details.overview,
-        backdrop: movie.backdrop || details.backdrop,
-        gallery: details.gallery || [],
-        trailerUrl: details.trailerUrl || movie.trailerUrl || ''
-      });
+      store.applyMediaPatches(group.id, [{
+        category: 'movies',
+        itemId: movie.id,
+        patch: {
+          watchProviders: details.watchProviders,
+          duration: movie.duration || details.duration,
+          genres: movie.genres || details.genres,
+          synopsis: movie.synopsis || details.overview,
+          tagline: details.tagline,
+          backdrop: movie.backdrop || details.backdrop,
+          gallery: details.gallery || [],
+          trailerUrl: movie.trailerUrl || details.trailerUrl || '',
+          tmdbRating: details.voteAverage || movie.tmdbRating
+        }
+      }]);
+      movie = refresh();
     }
   }
 
-  const providersData = movie.tmdbId ? await MediaService.getMovieWatchProviders(movie.tmdbId) : null;
   const trailerLink = movie.trailerUrl || `https://www.youtube.com/results?search_query=${encodeURIComponent(movie.title + ' trailer oficial')}`;
-  const q = encodeURIComponent(movie.title);
+  const myRating = movie.ratings?.[user.id];
+  const avg = getAverage(movie);
 
   UI.openModal({
     title: `🎬 ${movie.title} (${movie.year || ''})`,
@@ -1374,55 +1388,43 @@ async function openMovieDetailModal(group, movie, user) {
     contentHtml: `
       <div style="display:flex;flex-direction:column;gap:1.15rem;">
         <!-- Cabecera con Backdrop y Póster -->
-        <div style="display:flex;gap:1.15rem;flex-wrap:wrap;padding:1.1rem;border-radius:var(--radius-lg);background:linear-gradient(135deg, rgba(18,7,38,0.92), rgba(35,17,71,0.85));border:1px solid var(--border-subtle);">
-          <img src="${Utils.sanitize(movie.poster || 'assets/ruma_icon_512.png')}" alt="Poster" style="width:120px;height:180px;border-radius:var(--radius-md);object-fit:cover;flex-shrink:0;">
+        <div class="media-hero" style="${movie.backdrop ? `background-image:linear-gradient(135deg, rgba(18,7,38,0.94), rgba(35,17,71,0.80)), url('${Utils.sanitize(movie.backdrop)}');` : ''}">
+          <img src="${Utils.sanitize(movie.poster || 'assets/ruma_icon_512.png')}" alt="Poster" style="width:120px;height:180px;border-radius:var(--radius-md);object-fit:cover;flex-shrink:0;box-shadow:0 10px 30px rgba(0,0,0,0.45);">
           <div style="flex:1;min-width:200px;display:flex;flex-direction:column;justify-content:space-between;gap:0.65rem;">
             <div>
               <div style="display:flex;gap:0.45rem;flex-wrap:wrap;margin-bottom:0.4rem;">
                 <span class="badge badge-admin">${Utils.sanitize(movie.status || 'Por ver')}</span>
-                <span class="badge badge-premium">⭐ TMDb ${Utils.sanitize(movie.tmdbRating || '8.5')}</span>
+                ${movie.tmdbRating ? `<span class="badge badge-premium">⭐ TMDb ${Utils.sanitize(movie.tmdbRating)}</span>` : ''}
+                ${avg !== null ? `<span class="badge badge-premium">👥 Grupo ${avg.toFixed(1)}</span>` : ''}
                 ${movie.duration ? `<span class="badge badge-free">⏱ ${Utils.sanitize(movie.duration)}</span>` : ''}
               </div>
               <h2 style="font-family:var(--font-display);font-size:1.4rem;">${Utils.sanitize(movie.title)}</h2>
+              ${movie.tagline ? `<div style="font-size:0.82rem;font-style:italic;color:var(--text-muted);">“${Utils.sanitize(movie.tagline)}”</div>` : ''}
               <div style="font-size:0.82rem;color:var(--brand-lilac);margin-top:0.2rem;">${Utils.sanitize(movie.genres || 'Cine')}</div>
               <p style="font-size:0.86rem;color:var(--text-secondary);margin-top:0.55rem;line-height:1.5;">
                 ${Utils.sanitize(movie.synopsis || 'Sin sinopsis disponible.')}
               </p>
             </div>
             <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
-              <a href="${Utils.sanitize(trailerLink)}" target="_blank" rel="noopener" class="btn btn-primary btn-sm">▶ Ver Tráiler en YouTube</a>
-              <button type="button" class="btn btn-secondary btn-sm" id="btn-modal-rate-movie">⭐ Calificar / Reseñar</button>
+              <a href="${Utils.sanitize(trailerLink)}" target="_blank" rel="noopener" class="btn btn-primary btn-sm">▶ Ver Tráiler</a>
+              <button type="button" class="btn btn-secondary btn-sm" id="btn-modal-jump-review">${myRating ? `✏️ Editar mi reseña (${Number(myRating.score).toFixed(1)})` : '✍️ Reseñar ahora'}</button>
               <button type="button" class="btn btn-secondary btn-sm" id="btn-modal-comments-movie">💬 Comentarios (${(movie.comments || []).length})</button>
             </div>
           </div>
         </div>
 
-        <!-- Plataformas de Streaming: ¿Dónde Ver? (Acoplado de LUMA) -->
-        <div style="padding:1rem;background:var(--bg-elevated);border-radius:var(--radius-md);border:1px solid var(--border-subtle);">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.65rem;">
-            <strong style="font-size:0.88rem;color:var(--brand-lilac-soft);">📺 ¿Dónde ver "${Utils.sanitize(movie.title)}"?</strong>
-            ${providersData?.country ? `<span class="badge badge-free">Región: ${Utils.sanitize(providersData.country)}</span>` : ''}
+        <!-- Plataformas reales de streaming -->
+        ${renderProvidersSection(movie)}
+
+        <!-- Reseña intuitiva + reseñas del grupo -->
+        <div class="rv-panel" id="movie-review-panel">
+          <div class="rv-panel-col">
+            <div class="rv-panel-title">${myRating ? '✏️ Tu reseña' : '✍️ Escribe tu reseña'}</div>
+            ${reviewFormHtml('movies', movie, user, 'rvmovie')}
           </div>
-          ${providersData && providersData.providers && providersData.providers.length > 0 ? `
-            <div style="display:flex;gap:0.6rem;flex-wrap:wrap;margin-bottom:0.75rem;">
-              ${providersData.providers.map(p => `
-                <a href="${Utils.sanitize(providersData.link || `https://www.google.com/search?q=donde+ver+${q}`)}" target="_blank" rel="noopener" style="display:flex;align-items:center;gap:0.45rem;padding:0.4rem 0.7rem;background:rgba(18,7,38,0.85);border:1px solid var(--border-subtle);border-radius:var(--radius-sm);text-decoration:none;color:var(--text-main);font-size:0.78rem;">
-                  ${p.logo ? `<img src="${Utils.sanitize(p.logo)}" alt="${Utils.sanitize(p.name)}" style="width:24px;height:24px;border-radius:6px;">` : ''}
-                  <div>
-                    <div style="font-weight:700;">${Utils.sanitize(p.name)}</div>
-                    <div style="font-size:0.68rem;color:var(--text-muted);">${Utils.sanitize(p.type)}</div>
-                  </div>
-                </a>
-              `).join('')}
-            </div>
-          ` : ''}
-          <!-- Accesos directos a plataformas principales -->
-          <div style="display:flex;gap:0.45rem;flex-wrap:wrap;">
-            <a href="https://www.netflix.com/search?q=${q}" target="_blank" rel="noopener" class="btn btn-secondary btn-sm">🍿 Netflix</a>
-            <a href="https://www.primevideo.com/search/ref=atv_nb_sr?phrase=${q}" target="_blank" rel="noopener" class="btn btn-secondary btn-sm">📦 Prime Video</a>
-            <a href="https://www.disneyplus.com/search?q=${q}" target="_blank" rel="noopener" class="btn btn-secondary btn-sm">🏰 Disney+</a>
-            <a href="https://www.max.com/search?q=${q}" target="_blank" rel="noopener" class="btn btn-secondary btn-sm">⚡ Max</a>
-            <a href="https://tv.apple.com/search?term=${q}" target="_blank" rel="noopener" class="btn btn-secondary btn-sm">🍏 Apple TV</a>
+          <div class="rv-panel-col">
+            <div class="rv-panel-title">👥 Reseñas del grupo</div>
+            ${renderGroupReviews(movie, group, user, { compact: false, category: 'movies' })}
           </div>
         </div>
 
@@ -1432,7 +1434,7 @@ async function openMovieDetailModal(group, movie, user) {
             <div style="font-size:0.84rem;font-weight:800;margin-bottom:0.5rem;color:var(--brand-lilac-soft);">🖼️ Fotogramas Oficiales</div>
             <div style="display:flex;gap:0.6rem;overflow-x:auto;padding-bottom:0.35rem;">
               ${movie.gallery.map(img => `
-                <img src="${Utils.sanitize(img)}" alt="Fotograma" style="height:105px;border-radius:var(--radius-sm);object-fit:cover;cursor:pointer;" data-movie-still="${Utils.sanitize(img)}">
+                <img src="${Utils.sanitize(img)}" alt="Fotograma" loading="lazy" style="height:105px;border-radius:var(--radius-sm);object-fit:cover;cursor:pointer;" data-movie-still="${Utils.sanitize(img)}">
               `).join('')}
             </div>
           </div>
@@ -1440,9 +1442,18 @@ async function openMovieDetailModal(group, movie, user) {
       </div>
     `,
     onMount: (modalEl) => {
-      document.getElementById('btn-modal-rate-movie')?.addEventListener('click', () => {
-        UI.closeModal();
-        openRateModal('movies', movie, user);
+      bindReviewForm(modalEl.querySelector('#movie-review-panel'), 'movies', movie, () => {
+        // Reabrir con los datos actualizados para ver la reseña publicada
+        openMovieDetailModal(store.getActiveGroup() || group, refresh(), user);
+      });
+      modalEl.querySelector('[data-review-item]')?.addEventListener('click', () => {
+        modalEl.querySelector('#movie-review-panel textarea')?.focus();
+      });
+      document.getElementById('btn-modal-jump-review')?.addEventListener('click', () => {
+        const panel = modalEl.querySelector('#movie-review-panel');
+        panel?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        panel?.classList.add('rv-flash');
+        setTimeout(() => panel?.classList.remove('rv-flash'), 1200);
       });
       document.getElementById('btn-modal-comments-movie')?.addEventListener('click', () => {
         UI.closeModal();
@@ -1497,7 +1508,7 @@ function renderSeriesTab(viewport, group, user) {
           <div>
             <h2 style="font-family:var(--font-display);font-size:1.35rem;">📺 Centro de Maratones de Series</h2>
             <p style="font-size:0.84rem;color:var(--text-secondary);">
-              Lleva el progreso capítulo a capítulo por temporada con tu grupo. La calificación final se desbloquea al completar la serie.
+              Mira dónde está disponible cada serie, sigue todas sus temporadas y capítulos reales con tu grupo y reséñala cuando quieras.
             </p>
           </div>
           <div style="display:flex;align-items:center;gap:0.65rem;">
@@ -1556,7 +1567,7 @@ function renderSeriesTab(viewport, group, user) {
             const ratingEntries = Object.entries(ratingsObj);
             const avg = ratingEntries.length > 0
               ? (ratingEntries.reduce((acc, [, r]) => acc + Number(r.score || 0), 0) / ratingEntries.length).toFixed(1)
-              : '9.2';
+              : '—';
             const myRating = ratingsObj[user.id];
             const watchers = Object.values(ser.userProgress || {});
             const commentsCount = (ser.comments && ser.comments.length) || 0;
@@ -1565,9 +1576,11 @@ function renderSeriesTab(viewport, group, user) {
               <div class="ruma-card" style="display:flex;gap:1.15rem;flex-wrap:wrap;">
                 <div style="position:relative;width:118px;height:176px;flex-shrink:0;cursor:pointer;" data-open-series="${Utils.sanitize(ser.id)}">
                   <img src="${Utils.sanitize(ser.poster || 'assets/ruma_icon_512.png')}" alt="Poster" style="width:100%;height:100%;border-radius:var(--radius-md);object-fit:cover;">
-                  <span class="badge badge-admin" style="position:absolute;top:6px;left:6px;background:rgba(14,7,29,0.9);">
-                    ${Utils.sanitize(ser.platform || 'Streaming')}
-                  </span>
+                  ${ser.tmdbRating ? `
+                    <span class="badge" style="position:absolute;bottom:6px;left:6px;background:rgba(14,7,29,0.88);color:var(--brand-gold);font-size:0.7rem;">
+                      ⭐ TMDb ${Utils.sanitize(ser.tmdbRating)}
+                    </span>
+                  ` : ''}
                 </div>
 
                 <div style="flex:1;min-width:210px;display:flex;flex-direction:column;justify-content:space-between;gap:0.75rem;">
@@ -1585,6 +1598,9 @@ function renderSeriesTab(viewport, group, user) {
                     <div style="font-size:0.78rem;color:var(--text-muted);">
                       ${Utils.sanitize(ser.years || ser.year || '')} • ${seasons.length} temp. • ${totalEps} capítulos
                     </div>
+
+                    <!-- Plataformas reales de streaming (TMDb / JustWatch) -->
+                    ${renderProvidersStrip(ser)}
 
                     <!-- Barra de Progreso del Maratón -->
                     <div style="margin-top:0.65rem;background:var(--bg-elevated);padding:0.55rem 0.75rem;border-radius:var(--radius-sm);">
@@ -1608,6 +1624,11 @@ function renderSeriesTab(viewport, group, user) {
                         `).join('')}
                       </div>
                     ` : ''}
+
+                    <!-- Reseñas del grupo -->
+                    <div style="margin-top:0.6rem;">
+                      ${renderGroupReviews(ser, group, user, { compact: true, category: 'series' })}
+                    </div>
                   </div>
 
                   <div style="display:flex;gap:0.4rem;flex-wrap:wrap;">
@@ -1615,7 +1636,7 @@ function renderSeriesTab(viewport, group, user) {
                       ▶ Capítulos & Maratón
                     </button>
                     <button type="button" class="btn btn-secondary btn-sm" data-rate-series="${Utils.sanitize(ser.id)}">
-                      ${isCompleted ? `⭐ ${myRating ? myRating.score : 'Calificar'}` : '🔒 Calificar'}
+                      ${myRating ? `✏️ Mi reseña · ⭐ ${Number(myRating.score).toFixed(1)}` : '✍️ Reseñar'}
                     </button>
                     <button type="button" class="btn btn-secondary btn-sm" data-open-series="${Utils.sanitize(ser.id)}">
                       💬 ${commentsCount}
@@ -1662,11 +1683,13 @@ function renderSeriesTab(viewport, group, user) {
     btn.addEventListener('click', () => {
       const ser = allSeries.find(s => s.id === btn.getAttribute('data-rate-series'));
       if (!ser) return;
-      if (!store.isSeriesCompletedByUser(ser, user.id)) {
-        UI.showToast('🔒 Completa todos los capítulos de la serie para desbloquear su calificación final 🍿', 'info');
-        return;
-      }
-      openRateModal('series', ser, user);
+      openReviewModal('series', ser, user);
+    });
+  });
+  viewport.querySelectorAll('[data-review-item][data-review-cat="series"]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const ser = allSeries.find(s => s.id === btn.getAttribute('data-review-item'));
+      if (ser) openReviewModal('series', ser, user);
     });
   });
 
@@ -1692,44 +1715,148 @@ function renderSeriesTab(viewport, group, user) {
       UI.showToast('Serie eliminada de las maratones.', 'info');
     });
   });
+
+  // Plataformas, temporadas y capítulos reales desde TMDb en segundo plano
+  hydrateMediaFromTmdb(group, 'series');
+}
+
+let seriesDetailRenderToken = 0;
+const seriesRefreshedThisSession = new Set();
+
+function fmtAirDate(dateStr) {
+  if (!dateStr) return '';
+  try {
+    return new Date(`${dateStr}T12:00:00`).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' });
+  } catch (_) {
+    return dateStr;
+  }
+}
+
+function episodeCardHtml(series, ep, seasonNum, watchedMap, targetKey) {
+  const epKey = `${seasonNum}_${ep.episodeNumber}`;
+  const isWatched = Boolean(watchedMap[epKey]);
+  const isTarget = targetKey === epKey;
+  const epNumStr = String(ep.episodeNumber).padStart(2, '0');
+  const today = new Date().toISOString().slice(0, 10);
+  const upcoming = ep.airDate && ep.airDate > today;
+  const membersWhoWatched = Object.values(series.userProgress || {}).filter(u => u.watchedEpisodes && u.watchedEpisodes[epKey]);
+  const longOverview = (ep.overview || '').length > 190;
+
+  return `
+    <div class="ruma-episode-card ${isWatched ? 'watched' : ''} ${isTarget ? 'target' : ''} ${upcoming ? 'upcoming' : ''}">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.75rem;">
+        <div style="display:flex;align-items:center;gap:0.85rem;min-width:0;flex:1;">
+          <div style="font-family:var(--font-mono);font-size:1.15rem;font-weight:800;color:var(--brand-lilac);width:34px;text-align:center;">
+            ${epNumStr}
+          </div>
+          <div style="position:relative;width:132px;height:74px;border-radius:var(--radius-sm);overflow:hidden;flex-shrink:0;background:#080312;">
+            <img src="${Utils.sanitize(ep.still || series.backdrop || series.poster || 'assets/ruma_icon_512.png')}" alt="${Utils.sanitize(ep.name)}" loading="lazy" style="width:100%;height:100%;object-fit:cover;">
+            ${ep.duration ? `<span class="ep-chip" style="bottom:4px;right:4px;">⏱ ${Utils.sanitize(ep.duration)}</span>` : ''}
+            ${isWatched ? `<span class="ep-chip" style="top:4px;left:4px;background:rgba(16,185,129,0.92);">✓ Visto</span>` : ''}
+          </div>
+          <div style="min-width:0;flex:1;">
+            <div style="display:flex;align-items:center;gap:0.45rem;flex-wrap:wrap;">
+              <h4 style="font-family:var(--font-display);font-size:1rem;">${Utils.sanitize(ep.name)}</h4>
+              ${isTarget ? `<span class="badge badge-limit">▶ Siguiente por ver</span>` : ''}
+              ${upcoming ? `<span class="badge badge-admin">🗓️ Próximamente</span>` : ''}
+            </div>
+            <div style="font-size:0.72rem;color:var(--text-muted);margin-top:0.15rem;display:flex;gap:0.6rem;flex-wrap:wrap;">
+              <span>T${seasonNum} · E${ep.episodeNumber}</span>
+              ${ep.airDate ? `<span>📅 ${Utils.sanitize(fmtAirDate(ep.airDate))}</span>` : ''}
+              ${ep.voteAverage && Number(ep.voteAverage) > 0 ? `<span style="color:var(--brand-gold);">⭐ ${Utils.sanitize(ep.voteAverage)}</span>` : ''}
+            </div>
+            ${ep.overview ? (longOverview ? `
+              <details class="ep-overview">
+                <summary>${Utils.sanitize(ep.overview.slice(0, 180))}… <span>ver más</span></summary>
+                <p>${Utils.sanitize(ep.overview)}</p>
+              </details>
+            ` : `<p style="font-size:0.82rem;color:var(--text-secondary);margin-top:0.25rem;line-height:1.45;">${Utils.sanitize(ep.overview)}</p>`) : `
+              <p style="font-size:0.8rem;color:var(--text-muted);margin-top:0.25rem;">Sin sinopsis en español todavía.</p>
+            `}
+          </div>
+        </div>
+
+        <div style="display:flex;gap:0.45rem;flex-wrap:wrap;">
+          <button type="button" class="btn ${isWatched ? 'btn-primary' : 'btn-secondary'} btn-sm" data-toggle-ep="${seasonNum}_${ep.episodeNumber}">
+            ${isWatched ? '✓ Visto' : 'Marcar Visto'}
+          </button>
+          <button type="button" class="btn btn-secondary btn-sm" data-upto-ep="${seasonNum}_${ep.episodeNumber}" title="Marca todos los capítulos anteriores y este como vistos">
+            ⏭ Visto hasta aquí
+          </button>
+        </div>
+      </div>
+
+      ${membersWhoWatched.length > 0 ? `
+        <div style="display:flex;align-items:center;gap:0.4rem;font-size:0.75rem;color:var(--text-muted);padding-top:0.35rem;border-top:1px solid var(--border-subtle);">
+          <span>🍿 Ya lo vieron:</span>
+          ${membersWhoWatched.map(m => `<strong style="color:var(--brand-lilac-soft);">${Utils.sanitize(m.userName)}</strong>`).join(', ')}
+        </div>
+      ` : ''}
+    </div>
+  `;
+}
+
+function placeholderEpisodes(series, seasonNum, count) {
+  return Array.from({ length: count || 1 }, (_, i) => ({
+    seasonNumber: seasonNum,
+    episodeNumber: i + 1,
+    name: `Capítulo ${i + 1}`,
+    overview: '',
+    duration: '',
+    still: series.backdrop || series.poster || 'assets/ruma_icon_512.png'
+  }));
+}
+
+async function loadSeasonEpisodes(series, seasonNum) {
+  const seasonObj = [...(series.seasons || []), ...(series.specials || [])].find(s => s.seasonNumber === seasonNum);
+  if (series.tmdbId) {
+    const real = await MediaService.getSeasonEpisodes(series.tmdbId, seasonNum);
+    if (real && real.length) return real;
+  }
+  const cached = series.seasonEpisodes?.[seasonNum];
+  if (cached && cached.length) return cached;
+  return placeholderEpisodes(series, seasonNum, seasonObj?.episodeCount || 1);
 }
 
 async function renderSeriesDetailView(viewport, group, series, user) {
-  const seasons = series.seasons || [{ seasonNumber: 1, name: 'Temporada 1', episodeCount: 10 }];
-  if (!seasons.some(s => s.seasonNumber === activeSeriesSeasonNum)) {
+  const token = ++seriesDetailRenderToken;
+
+  // Refrescar con TMDb: todas las temporadas reales, plataformas y estado (1 vez por sesión)
+  if (series.tmdbId && !seriesRefreshedThisSession.has(series.id)) {
+    seriesRefreshedThisSession.add(series.id);
+    MediaService.getSeriesDetails(series.tmdbId).then(d => {
+      if (d) store.applyMediaPatches(group.id, [{ category: 'series', itemId: series.id, patch: seriesPatchFromDetails(series, d) }]);
+    });
+  }
+
+  const seasons = (series.seasons && series.seasons.length) ? series.seasons : [{ seasonNumber: 1, name: 'Temporada 1', episodeCount: series.totalEpisodes || 1 }];
+  const specials = series.specials || [];
+  const allTabs = [...seasons, ...specials];
+  if (activeSeriesSeasonNum !== 'all' && !allTabs.some(s => s.seasonNumber === activeSeriesSeasonNum)) {
     activeSeriesSeasonNum = seasons[0].seasonNumber;
   }
 
-  let episodes = series.seasonEpisodes?.[activeSeriesSeasonNum];
-  if (!episodes && series.tmdbId) {
-    episodes = await MediaService.getSeasonEpisodes(series.tmdbId, activeSeriesSeasonNum);
-    if (episodes && episodes.length > 0) {
-      store.cacheSeriesSeasonEpisodes(series.id, activeSeriesSeasonNum, episodes);
-    }
-  }
-  if (!episodes || episodes.length === 0) {
-    const seasonObj = seasons.find(s => s.seasonNumber === activeSeriesSeasonNum) || { episodeCount: 9 };
-    episodes = Array.from({ length: seasonObj.episodeCount || 9 }, (_, i) => ({
-      seasonNumber: activeSeriesSeasonNum,
-      episodeNumber: i + 1,
-      name: `Capítulo ${i + 1}`,
-      overview: `Capítulo ${i + 1} de la Temporada ${activeSeriesSeasonNum} de ${series.title}.`,
-      duration: '42 min',
-      still: series.backdrop || series.poster || 'assets/ruma_icon_512.png'
-    }));
-  }
-
+  const totalEps = seasons.reduce((acc, s) => acc + (s.episodeCount || 0), 0) || series.totalEpisodes || 1;
   const myProg = series.userProgress?.[user.id] || {};
   const watchedMap = myProg.watchedEpisodes || {};
-  const watchedThisSeason = episodes.filter(ep => watchedMap[`${activeSeriesSeasonNum}_${ep.episodeNumber}`]).length;
-  const seasonPct = Math.min(100, Math.round((watchedThisSeason / (episodes.length || 1)) * 100));
+  const watchedRegular = Object.keys(watchedMap).filter(k => !k.startsWith('0_')).length;
+  const overallPct = Math.min(100, Math.round((watchedRegular / totalEps) * 100));
   const isCompleted = store.isSeriesCompletedByUser(series, user.id);
   const myRating = series.ratings?.[user.id];
+  const avg = getAverage(series);
   const comments = series.comments || [];
 
-  // Determinar cuál es el siguiente capítulo sugerido para el usuario
-  const nextEpObj = episodes.find(ep => !watchedMap[`${activeSeriesSeasonNum}_${ep.episodeNumber}`]);
-  const targetEpNum = nextEpObj ? nextEpObj.episodeNumber : null;
+  // Siguiente capítulo sugerido (recorriendo todas las temporadas)
+  let targetKey = null;
+  for (const s of seasons) {
+    for (let e = 1; e <= (s.episodeCount || 0); e++) {
+      if (!watchedMap[`${s.seasonNumber}_${e}`]) { targetKey = `${s.seasonNumber}_${e}`; break; }
+    }
+    if (targetKey) break;
+  }
+
+  const trailerLink = series.trailerUrl || `https://www.youtube.com/results?search_query=${encodeURIComponent(series.title + ' trailer oficial')}`;
+  const statusMap = { 'Returning Series': '🟢 En emisión', 'Ended': '🏁 Finalizada', 'Canceled': '⛔ Cancelada', 'In Production': '🎬 En producción' };
 
   viewport.innerHTML = `
     <div style="display:flex;flex-direction:column;gap:1.25rem;">
@@ -1738,106 +1865,97 @@ async function renderSeriesDetailView(viewport, group, series, user) {
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.75rem;">
           <button type="button" class="btn btn-secondary btn-sm" id="btn-back-series-list">← Volver a Series</button>
           <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
-            <button type="button" class="btn ${isCompleted ? 'btn-premium' : 'btn-secondary'} btn-sm" id="btn-detail-rate-series">
-              ${isCompleted ? `⭐ ${myRating ? `Tu nota: ${myRating.score}/10` : 'Calificar Serie (¡Completada!)'}` : '🔒 Calificar al completar todos los capítulos'}
+            <a href="${Utils.sanitize(trailerLink)}" target="_blank" rel="noopener" class="btn btn-secondary btn-sm">▶ Tráiler</a>
+            <button type="button" class="btn btn-primary btn-sm" id="btn-detail-rate-series">
+              ${myRating ? `✏️ Mi reseña · ⭐ ${Number(myRating.score).toFixed(1)}` : '✍️ Reseñar serie'}
             </button>
           </div>
         </div>
 
-        <div style="display:flex;gap:1.25rem;flex-wrap:wrap;">
-          <img src="${Utils.sanitize(series.poster || 'assets/ruma_icon_512.png')}" alt="Poster" style="width:130px;height:190px;border-radius:var(--radius-md);object-fit:cover;flex-shrink:0;">
+        <div class="media-hero" style="${series.backdrop ? `background-image:linear-gradient(135deg, rgba(18,7,38,0.94), rgba(35,17,71,0.82)), url('${Utils.sanitize(series.backdrop)}');` : ''}">
+          <img src="${Utils.sanitize(series.poster || 'assets/ruma_icon_512.png')}" alt="Poster" style="width:130px;height:190px;border-radius:var(--radius-md);object-fit:cover;flex-shrink:0;box-shadow:0 10px 30px rgba(0,0,0,0.45);">
           <div style="flex:1;min-width:220px;display:flex;flex-direction:column;justify-content:space-between;gap:0.75rem;">
             <div>
               <div style="display:flex;gap:0.45rem;flex-wrap:wrap;margin-bottom:0.35rem;">
-                <span class="badge badge-admin">${Utils.sanitize(series.platform || 'Streaming')}</span>
-                <span class="badge badge-free">${Utils.sanitize(series.years || series.year || '')}</span>
-                <span class="badge badge-free">${seasons.length} Temporadas</span>
+                ${series.years || series.year ? `<span class="badge badge-free">${Utils.sanitize(series.years || series.year)}</span>` : ''}
+                <span class="badge badge-free">${seasons.length} temporada${seasons.length === 1 ? '' : 's'}</span>
+                <span class="badge badge-free">${totalEps} capítulos</span>
+                ${series.episodeRuntime ? `<span class="badge badge-free">⏱ ~${series.episodeRuntime} min</span>` : ''}
+                ${series.seriesStatus ? `<span class="badge badge-admin">${Utils.sanitize(statusMap[series.seriesStatus] || series.seriesStatus)}</span>` : ''}
+                ${series.tmdbRating ? `<span class="badge badge-premium">⭐ TMDb ${Utils.sanitize(series.tmdbRating)}</span>` : ''}
+                ${avg !== null ? `<span class="badge badge-premium">👥 Grupo ${avg.toFixed(1)}</span>` : ''}
               </div>
               <h2 style="font-family:var(--font-display);font-size:1.55rem;">${Utils.sanitize(series.title)}</h2>
               <div style="font-size:0.82rem;color:var(--brand-lilac);margin-top:0.2rem;">${Utils.sanitize(series.genres || 'Drama, Serie')}</div>
               <p style="font-size:0.88rem;color:var(--text-secondary);margin-top:0.55rem;line-height:1.55;">
                 ${Utils.sanitize(series.synopsis || series.overview || '')}
               </p>
+              ${series.nextEpisode ? `
+                <div class="badge badge-limit" style="margin-top:0.5rem;">
+                  🗓️ Próximo capítulo: T${series.nextEpisode.season}·E${series.nextEpisode.episode} “${Utils.sanitize(series.nextEpisode.name || '')}” — ${Utils.sanitize(fmtAirDate(series.nextEpisode.airDate))}
+                </div>
+              ` : ''}
             </div>
-          </div>
-        </div>
-
-        <!-- Pestañas de Temporadas -->
-        <div class="ruma-season-tabs">
-          ${seasons.map(s => `
-            <button type="button" class="ruma-season-tab ${s.seasonNumber === activeSeriesSeasonNum ? 'active' : ''}" data-pick-season="${s.seasonNumber}">
-              <strong style="font-size:0.88rem;">Temporada ${s.seasonNumber}</strong>
-              <span style="font-size:0.74rem;opacity:0.85;">${s.episodeCount || 9} capítulos</span>
-            </button>
-          `).join('')}
-        </div>
-
-        <!-- Barra de progreso de la temporada actual -->
-        <div style="background:var(--bg-elevated);padding:0.75rem 1rem;border-radius:var(--radius-md);">
-          <div style="display:flex;justify-content:space-between;font-size:0.82rem;margin-bottom:0.4rem;">
-            <strong>Progreso Temporada ${activeSeriesSeasonNum}: ${watchedThisSeason} / ${episodes.length} vistos</strong>
-            <span style="color:var(--brand-lilac);font-weight:800;">${seasonPct}%</span>
-          </div>
-          <div class="ruma-progress-track">
-            <div class="ruma-progress-fill" style="width:${seasonPct}%;"></div>
+            <div>
+              <div style="display:flex;justify-content:space-between;font-size:0.8rem;margin-bottom:0.35rem;">
+                <span>Tu avance total: <strong>${watchedRegular} / ${totalEps}</strong> capítulos ${isCompleted ? '🏆' : ''}</span>
+                <span style="color:var(--brand-lilac);font-weight:800;">${overallPct}%</span>
+              </div>
+              <div class="ruma-progress-track"><div class="ruma-progress-fill" style="width:${overallPct}%;"></div></div>
+            </div>
           </div>
         </div>
       </div>
 
-      <!-- Lista de Capítulos con Miniatura, Duración, Sinopsis y Botón "Visto hasta aquí" -->
-      <div style="display:flex;flex-direction:column;gap:0.85rem;">
-        ${episodes.map(ep => {
-          const epKey = `${activeSeriesSeasonNum}_${ep.episodeNumber}`;
-          const isWatched = Boolean(watchedMap[epKey]);
-          const isTarget = targetEpNum === ep.episodeNumber;
-          const epNumStr = String(ep.episodeNumber).padStart(2, '0');
+      <!-- Dónde ver (plataformas reales) -->
+      ${renderProvidersSection(series)}
 
-          // Miembros del grupo que ya vieron este capítulo
-          const membersWhoWatched = Object.values(series.userProgress || {}).filter(u => u.watchedEpisodes && u.watchedEpisodes[epKey]);
+      <!-- Reseña intuitiva + reseñas del grupo -->
+      <div class="rv-panel" id="series-review-panel">
+        <div class="rv-panel-col">
+          <div class="rv-panel-title">${myRating ? '✏️ Tu reseña' : '✍️ Reseña la serie'}</div>
+          ${reviewFormHtml('series', series, user, 'rvseries')}
+        </div>
+        <div class="rv-panel-col">
+          <div class="rv-panel-title">👥 Reseñas del grupo</div>
+          ${renderGroupReviews(series, group, user, { compact: false, category: 'series' })}
+        </div>
+      </div>
 
-          return `
-            <div class="ruma-episode-card ${isWatched ? 'watched' : ''} ${isTarget ? 'target' : ''}">
-              <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.75rem;">
-                <div style="display:flex;align-items:center;gap:0.85rem;min-width:0;flex:1;">
-                  <div style="font-family:var(--font-mono);font-size:1.25rem;font-weight:800;color:var(--brand-lilac);width:34px;text-align:center;">
-                    ${epNumStr}
-                  </div>
-                  <div style="position:relative;width:125px;height:72px;border-radius:var(--radius-sm);overflow:hidden;flex-shrink:0;background:#080312;">
-                    <img src="${Utils.sanitize(ep.still || series.poster || 'assets/ruma_icon_512.png')}" alt="${Utils.sanitize(ep.name)}" style="width:100%;height:100%;object-fit:cover;">
-                    <span style="position:absolute;bottom:4px;right:4px;background:rgba(9,3,20,0.86);color:#fff;font-size:0.68rem;padding:2px 6px;border-radius:6px;">
-                      ⏱ ${Utils.sanitize(ep.duration || '42 min')}
-                    </span>
-                  </div>
-                  <div style="min-width:0;flex:1;">
-                    <div style="display:flex;align-items:center;gap:0.45rem;flex-wrap:wrap;">
-                      <h4 style="font-family:var(--font-display);font-size:1.05rem;">${Utils.sanitize(ep.name)}</h4>
-                      ${isTarget ? `<span class="badge badge-limit">▶ Siguiente por ver</span>` : ''}
-                    </div>
-                    <p style="font-size:0.82rem;color:var(--text-secondary);margin-top:0.25rem;line-height:1.45;">
-                      ${Utils.sanitize(ep.overview)}
-                    </p>
-                  </div>
-                </div>
+      <!-- Temporadas y capítulos -->
+      <div class="ruma-card" style="display:flex;flex-direction:column;gap:1rem;">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;">
+          <h3 style="font-family:var(--font-display);font-size:1.15rem;">🎞️ Temporadas y capítulos</h3>
+          <span style="font-size:0.75rem;color:var(--text-muted);">${seasons.length} temporadas · ${totalEps} capítulos (datos oficiales de TMDb)</span>
+        </div>
+        <div class="ruma-season-tabs">
+          ${seasons.map(s => {
+            const w = Array.from({ length: s.episodeCount || 0 }, (_, i) => watchedMap[`${s.seasonNumber}_${i + 1}`]).filter(Boolean).length;
+            return `
+              <button type="button" class="ruma-season-tab ${s.seasonNumber === activeSeriesSeasonNum ? 'active' : ''}" data-pick-season="${s.seasonNumber}">
+                <strong style="font-size:0.88rem;">${Utils.sanitize(s.name || `Temporada ${s.seasonNumber}`)}</strong>
+                <span style="font-size:0.72rem;opacity:0.85;">${w}/${s.episodeCount || 0} caps${s.airDate ? ` · ${s.airDate.slice(0, 4)}` : ''}</span>
+              </button>
+            `;
+          }).join('')}
+          ${specials.map(s => `
+            <button type="button" class="ruma-season-tab ${activeSeriesSeasonNum === 0 ? 'active' : ''}" data-pick-season="0">
+              <strong style="font-size:0.88rem;">✨ ${Utils.sanitize(s.name || 'Especiales')}</strong>
+              <span style="font-size:0.72rem;opacity:0.85;">${s.episodeCount} extras</span>
+            </button>
+          `).join('')}
+          ${seasons.length > 1 ? `
+            <button type="button" class="ruma-season-tab ${activeSeriesSeasonNum === 'all' ? 'active' : ''}" data-pick-season="all">
+              <strong style="font-size:0.88rem;">📚 Todas</strong>
+              <span style="font-size:0.72rem;opacity:0.85;">${totalEps} capítulos</span>
+            </button>
+          ` : ''}
+        </div>
 
-                <div style="display:flex;gap:0.45rem;flex-wrap:wrap;">
-                  <button type="button" class="btn ${isWatched ? 'btn-primary' : 'btn-secondary'} btn-sm" data-toggle-ep="${ep.episodeNumber}">
-                    ${isWatched ? '✓ Visto' : 'Marcar Visto'}
-                  </button>
-                  <button type="button" class="btn btn-secondary btn-sm" data-upto-ep="${ep.episodeNumber}" title="Marca todos los capítulos anteriores y este como vistos">
-                    ⏭ Visto hasta aquí
-                  </button>
-                </div>
-              </div>
-
-              ${membersWhoWatched.length > 0 ? `
-                <div style="display:flex;align-items:center;gap:0.4rem;font-size:0.75rem;color:var(--text-muted);padding-top:0.35rem;border-top:1px solid var(--border-subtle);">
-                  <span>🍿 Ya lo vieron:</span>
-                  ${membersWhoWatched.map(m => `<strong style="color:var(--brand-lilac-soft);">${Utils.sanitize(m.userName)}</strong>`).join(', ')}
-                </div>
-              ` : ''}
-            </div>
-          `;
-        }).join('')}
+        <div id="series-season-summary"></div>
+        <div id="series-episodes-list" style="display:flex;flex-direction:column;gap:0.85rem;">
+          ${Array.from({ length: 3 }).map(() => `<div class="ruma-episode-card ep-skeleton"></div>`).join('')}
+        </div>
       </div>
 
       <!-- Foro de Comentarios de la Serie con Etiqueta automática de Progreso (T# · Cap #) -->
@@ -1879,47 +1997,29 @@ async function renderSeriesDetailView(viewport, group, series, user) {
     </div>
   `;
 
+  // --- Eventos estáticos ---
   document.getElementById('btn-back-series-list')?.addEventListener('click', () => {
     activeSeriesDetailId = null;
     renderSeriesTab(viewport, group, user);
   });
 
   document.getElementById('btn-detail-rate-series')?.addEventListener('click', () => {
-    if (!isCompleted) {
-      UI.showToast('🔒 Solo puedes calificar la serie cuando hayas visto todos los episodios 🍿', 'info');
-      return;
-    }
-    openRateModal('series', series, user);
+    const panel = document.getElementById('series-review-panel');
+    panel?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    panel?.classList.add('rv-flash');
+    setTimeout(() => panel?.classList.remove('rv-flash'), 1200);
+  });
+
+  bindReviewForm(document.getElementById('series-review-panel'), 'series', series);
+  viewport.querySelector('#series-review-panel [data-review-item]')?.addEventListener('click', () => {
+    viewport.querySelector('#series-review-panel textarea')?.focus();
   });
 
   viewport.querySelectorAll('[data-pick-season]').forEach(btn => {
     btn.addEventListener('click', () => {
-      activeSeriesSeasonNum = parseInt(btn.getAttribute('data-pick-season'), 10);
+      const v = btn.getAttribute('data-pick-season');
+      activeSeriesSeasonNum = v === 'all' ? 'all' : parseInt(v, 10);
       renderSeriesDetailView(viewport, store.getActiveGroup(), series, user);
-    });
-  });
-
-  viewport.querySelectorAll('[data-toggle-ep]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const epNum = parseInt(btn.getAttribute('data-toggle-ep'), 10);
-      const res = store.toggleEpisodeWatched(series.id, activeSeriesSeasonNum, epNum);
-      if (res?.isFullyCompleted) {
-        try { confetti({ particleCount: 110, spread: 80, origin: { y: 0.6 } }); } catch (_) {}
-        UI.showToast(`🏆 ¡Completaste toda la serie "${series.title}"! Ya puedes calificarla ⭐`, 'success');
-      }
-    });
-  });
-
-  viewport.querySelectorAll('[data-upto-ep]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const epNum = parseInt(btn.getAttribute('data-upto-ep'), 10);
-      const res = store.markEpisodesUpTo(series.id, activeSeriesSeasonNum, epNum);
-      if (res?.isFullyCompleted) {
-        try { confetti({ particleCount: 130, spread: 85, origin: { y: 0.6 } }); } catch (_) {}
-        UI.showToast(`🎉 ¡Maratón completada! Terminaste "${series.title}". Calificación desbloqueada ⭐`, 'success');
-      } else {
-        UI.showToast(`Avance actualizado hasta Temporada ${activeSeriesSeasonNum} · Cap. ${epNum} 🍿`, 'success');
-      }
     });
   });
 
@@ -1934,6 +2034,81 @@ async function renderSeriesDetailView(viewport, group, series, user) {
   viewport.querySelectorAll('[data-series-react]').forEach(btn => {
     btn.addEventListener('click', () => {
       store.reactMediaComment('series', series.id, btn.getAttribute('data-series-react'), btn.getAttribute('data-emoji'));
+    });
+  });
+
+  // --- Capítulos reales (asíncrono) ---
+  const listEl = document.getElementById('series-episodes-list');
+  const summaryEl = document.getElementById('series-season-summary');
+  let sections = [];
+  if (activeSeriesSeasonNum === 'all') {
+    const all = series.tmdbId ? await MediaService.getAllSeasonsEpisodes(series.tmdbId, seasons) : {};
+    for (const s of seasons) {
+      const eps = (all[s.seasonNumber] && all[s.seasonNumber].length) ? all[s.seasonNumber] : await loadSeasonEpisodes(series, s.seasonNumber);
+      sections.push({ season: s, episodes: eps });
+    }
+  } else {
+    const s = allTabs.find(x => x.seasonNumber === activeSeriesSeasonNum);
+    sections.push({ season: s, episodes: await loadSeasonEpisodes(series, activeSeriesSeasonNum) });
+  }
+
+  // Si el usuario cambió de vista mientras cargaba, no pintar resultados viejos
+  if (token !== seriesDetailRenderToken || !document.body.contains(listEl)) return;
+
+  if (activeSeriesSeasonNum !== 'all' && sections[0]) {
+    const { season, episodes } = sections[0];
+    const seasonNum = season?.seasonNumber ?? activeSeriesSeasonNum;
+    const watchedThisSeason = episodes.filter(ep => watchedMap[`${seasonNum}_${ep.episodeNumber}`]).length;
+    const seasonPct = Math.min(100, Math.round((watchedThisSeason / (episodes.length || 1)) * 100));
+    const totalMinutes = episodes.reduce((a, ep) => a + (ep.runtimeMinutes || 0), 0);
+    summaryEl.innerHTML = `
+      <div style="background:var(--bg-elevated);padding:0.75rem 1rem;border-radius:var(--radius-md);">
+        ${season?.overview ? `<p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:0.55rem;line-height:1.45;">${Utils.sanitize(season.overview)}</p>` : ''}
+        <div style="display:flex;justify-content:space-between;font-size:0.82rem;margin-bottom:0.4rem;flex-wrap:wrap;gap:0.4rem;">
+          <strong>${Utils.sanitize(season?.name || `Temporada ${seasonNum}`)}: ${watchedThisSeason} / ${episodes.length} vistos</strong>
+          <span style="color:var(--text-muted);">${totalMinutes ? `⏱ ${Math.floor(totalMinutes / 60)}h ${totalMinutes % 60}m en total · ` : ''}<span style="color:var(--brand-lilac);font-weight:800;">${seasonPct}%</span></span>
+        </div>
+        <div class="ruma-progress-track"><div class="ruma-progress-fill" style="width:${seasonPct}%;"></div></div>
+      </div>
+    `;
+  } else {
+    summaryEl.innerHTML = '';
+  }
+
+  listEl.innerHTML = sections.map(({ season, episodes }) => {
+    const seasonNum = season?.seasonNumber ?? activeSeriesSeasonNum;
+    return `
+      ${activeSeriesSeasonNum === 'all' ? `
+        <div class="ep-season-header">
+          <strong>${Utils.sanitize(season?.name || `Temporada ${seasonNum}`)}</strong>
+          <span>${episodes.length} capítulos${season?.airDate ? ` · ${season.airDate.slice(0, 4)}` : ''}</span>
+        </div>
+      ` : ''}
+      ${episodes.map(ep => episodeCardHtml(series, ep, seasonNum, watchedMap, targetKey)).join('')}
+    `;
+  }).join('') || `<div style="color:var(--text-muted);font-size:0.85rem;">No hay capítulos disponibles para esta temporada.</div>`;
+
+  listEl.querySelectorAll('[data-toggle-ep]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const [sNum, epNum] = btn.getAttribute('data-toggle-ep').split('_').map(Number);
+      const res = store.toggleEpisodeWatched(series.id, sNum, epNum);
+      if (res?.isFullyCompleted && res.isWatched) {
+        try { confetti({ particleCount: 110, spread: 80, origin: { y: 0.6 } }); } catch (_) {}
+        UI.showToast(`🏆 ¡Completaste toda la serie "${series.title}"! Tu reseña llevará la insignia ⭐`, 'success');
+      }
+    });
+  });
+
+  listEl.querySelectorAll('[data-upto-ep]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const [sNum, epNum] = btn.getAttribute('data-upto-ep').split('_').map(Number);
+      const res = store.markEpisodesUpTo(series.id, sNum, epNum);
+      if (res?.isFullyCompleted) {
+        try { confetti({ particleCount: 130, spread: 85, origin: { y: 0.6 } }); } catch (_) {}
+        UI.showToast(`🎉 ¡Maratón completada! Terminaste "${series.title}" ⭐`, 'success');
+      } else {
+        UI.showToast(`Avance actualizado hasta Temporada ${sNum} · Cap. ${epNum} 🍿`, 'success');
+      }
     });
   });
 }
@@ -2034,7 +2209,7 @@ function openSearchTmdbModal(group, category) {
               genres: picked.genres || '',
               tmdbRating: picked.voteAverage,
               synopsis: picked.overview || '',
-              status: isMovies ? (document.getElementById('tmdb-pick-status')?.value || 'Por ver') : 'Viendo',
+              status: isMovies ? (document.getElementById('tmdb-pick-status')?.value || 'Por ver') : 'Por ver',
               priority: isMovies ? Number(document.getElementById('tmdb-pick-priority')?.value || 5) : 5,
               ratings: {}
             };
@@ -2048,7 +2223,10 @@ function openSearchTmdbModal(group, category) {
                   genres: details.genres || payload.genres,
                   synopsis: details.overview || payload.synopsis,
                   gallery: details.gallery || [],
-                  trailerUrl: details.trailerUrl || ''
+                  trailerUrl: details.trailerUrl || '',
+                  tagline: details.tagline || '',
+                  runtimeMinutes: details.runtimeMinutes,
+                  watchProviders: details.watchProviders
                 };
               }
             } else if (!isMovies && picked.tmdbId) {
@@ -2063,6 +2241,14 @@ function openSearchTmdbModal(group, category) {
                   numberOfSeasons: details.numberOfSeasons,
                   totalEpisodes: details.totalEpisodes,
                   seasons: details.seasons,
+                  specials: details.specials || [],
+                  watchProviders: details.watchProviders,
+                  trailerUrl: details.trailerUrl || '',
+                  episodeRuntime: details.episodeRuntime,
+                  seriesStatus: details.status,
+                  inProduction: details.inProduction,
+                  nextEpisode: details.nextEpisode,
+                  lastEpisode: details.lastEpisode,
                   seasonEpisodes: {},
                   userProgress: {}
                 };
@@ -2090,41 +2276,7 @@ function openSearchTmdbModal(group, category) {
 }
 
 function openRateModal(category, item, user) {
-  const existing = (item.ratings && item.ratings[user.id]) || { score: 9.0, review: '' };
-  UI.openModal({
-    title: `⭐ Calificar "${item.title}"`,
-    contentHtml: `
-      <form id="form-rate-item">
-        <div class="form-group">
-          <label class="form-label">Tu Calificación (1.0 a 10.0)</label>
-          <input type="number" id="rate-score-inp" class="form-input" min="1" max="10" step="0.1" value="${existing.score}" required>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Tu Reseña / Nota para el Grupo</label>
-          <textarea id="rate-review-inp" class="form-textarea" rows="3" placeholder="¿Qué te pareció? (En tu perfil estilo Discord solo se mostrará la calificación, no esta reseña)">${Utils.sanitize(existing.review || '')}</textarea>
-        </div>
-        <div style="display:flex;justify-content:flex-end;gap:0.65rem;margin-top:1.25rem;">
-          <button type="button" class="btn btn-secondary" id="btn-cancel-rate">Cancelar</button>
-          <button type="submit" class="btn btn-primary">Guardar Calificación</button>
-        </div>
-      </form>
-    `,
-    onMount: () => {
-      document.getElementById('btn-cancel-rate')?.addEventListener('click', () => UI.closeModal());
-      document.getElementById('form-rate-item')?.addEventListener('submit', (e) => {
-        e.preventDefault();
-        const score = document.getElementById('rate-score-inp')?.value;
-        const review = document.getElementById('rate-review-inp')?.value;
-        const res = store.rateMovieOrSeries(category, item.id, score, review);
-        UI.closeModal();
-        if (!res.ok && res.error) {
-          UI.showToast(res.error, 'error');
-          return;
-        }
-        UI.showToast('¡Calificación guardada! Ya puedes mostrarla en tu Perfil estilo Discord 🎮', 'success');
-      });
-    }
-  });
+  openReviewModal(category, item, user);
 }
 
 function openMediaCommentsModal(category, item) {

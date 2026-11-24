@@ -910,34 +910,86 @@ class RumaStore {
     return movie.status;
   }
 
-  rateMovieOrSeries(category, itemId, score, review = '') {
+  rateMovieOrSeries(category, itemId, score, review = '', tags = []) {
     const user = this.getCurrentUser();
     const allGroups = this.getGroups();
     const active = this.getActiveGroup();
     const group = allGroups.find(g => g.id === active?.id);
-    if (!group || !user) return { ok: false };
+    if (!group || !user) return { ok: false, error: 'Grupo no disponible.' };
 
     const list = group[category] || [];
     const item = list.find(x => x.id === itemId);
-    if (!item) return { ok: false };
+    if (!item) return { ok: false, error: 'Elemento no encontrado.' };
 
-    if (category === 'series' && !this.isSeriesCompletedByUser(item, user.id)) {
-      return {
-        ok: false,
-        error: 'Solo puedes calificar la serie cuando hayas completado todos sus capítulos 🍿'
-      };
+    // Películas y series se pueden reseñar en cualquier momento.
+    // En series guardamos en qué punto iba el usuario al reseñar (T# · Cap #).
+    let progressLabel = '';
+    let completedWhenRated = false;
+    if (category === 'series') {
+      completedWhenRated = this.isSeriesCompletedByUser(item, user.id);
+      const up = item.userProgress?.[user.id];
+      if (completedWhenRated) progressLabel = '🏆 Serie completada';
+      else if (up?.lastWatched) progressLabel = `Iba en T${up.lastWatched.season} · Cap ${up.lastWatched.episode}`;
+      else progressLabel = 'Sin empezar';
     }
 
+    const numeric = Math.round(Math.min(10, Math.max(0.5, Number(score) || 8)) * 10) / 10;
     item.ratings = item.ratings || {};
     item.ratings[user.id] = {
-      score: Math.min(10, Math.max(1, Number(score) || 8)),
+      score: numeric,
       review: String(review || '').trim(),
+      tags: Array.isArray(tags) ? tags.slice(0, 6) : [],
+      userName: user.name,
+      userAvatar: user.avatar,
+      progressLabel,
+      completedWhenRated,
       updatedAt: new Date().toISOString()
     };
 
+    // Reseñar una película "Por ver" la marca automáticamente como vista.
+    if (category === 'movies' && (item.status || 'Por ver') === 'Por ver') {
+      item.status = 'Vista';
+    }
+
     this.saveGroups(allGroups);
     this.notify();
-    return { ok: true };
+    return { ok: true, rating: item.ratings[user.id] };
+  }
+
+  deleteMyRating(category, itemId) {
+    const user = this.getCurrentUser();
+    const allGroups = this.getGroups();
+    const group = allGroups.find(g => g.id === this.getActiveGroup()?.id);
+    if (!group || !user) return false;
+    const item = (group[category] || []).find(x => x.id === itemId);
+    if (!item || !item.ratings || !item.ratings[user.id]) return false;
+    delete item.ratings[user.id];
+    this.saveGroups(allGroups);
+    this.notify();
+    return true;
+  }
+
+  /**
+   * Aplica varios parches (datos reales de TMDb) en una sola escritura/notify.
+   * patches: [{ category, itemId, patch }]
+   */
+  applyMediaPatches(groupId, patches = []) {
+    if (!patches.length) return;
+    const allGroups = this.getGroups();
+    const group = allGroups.find(g => g.id === groupId);
+    if (!group) return;
+    let changed = false;
+    patches.forEach(({ category, itemId, patch }) => {
+      const item = (group[category] || []).find(x => x.id === itemId);
+      if (item && patch) {
+        Object.assign(item, patch);
+        changed = true;
+      }
+    });
+    if (changed) {
+      this.saveGroups(allGroups);
+      this.notify();
+    }
   }
 
   addMediaComment(category, itemId, text) {
@@ -1031,7 +1083,7 @@ class RumaStore {
     const totalEpisodes = seasons.reduce((acc, s) => acc + (s.episodeCount || 0), 0);
     if (totalEpisodes === 0) return true;
 
-    const watchedCount = Object.keys(up?.watchedEpisodes || {}).length;
+    const watchedCount = Object.keys(up?.watchedEpisodes || {}).filter(k => !k.startsWith('0_')).length;
     return watchedCount >= totalEpisodes;
   }
 

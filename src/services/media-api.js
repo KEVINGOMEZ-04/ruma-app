@@ -117,28 +117,92 @@ export const MediaService = {
     }));
   },
 
+  /**
+   * Convierte la respuesta de TMDb `/watch/providers` (datos reales de JustWatch)
+   * en una lista normalizada de plataformas. Prioriza países hispanohablantes.
+   */
+  extractWatchProviders(wpData, fallbackNetworks = []) {
+    const results = (wpData && wpData.results) || {};
+    const hasAny = c => results[c] && (results[c].flatrate || results[c].free || results[c].ads || results[c].rent || results[c].buy);
+    const priorityCountries = ['CO', 'MX', 'ES', 'AR', 'CL', 'PE', 'US'];
+    let country = priorityCountries.find(hasAny) || Object.keys(results).find(hasAny) || '';
+    const countryData = country ? results[country] : null;
+    const providersMap = new Map();
+    const logoUrl = path => (path ? `https://image.tmdb.org/t/p/original${path}` : '');
+
+    const add = (list, type) => {
+      (list || []).forEach(p => {
+        const existing = providersMap.get(p.provider_id);
+        if (existing) {
+          if (!existing.types.includes(type)) existing.types.push(type);
+          return;
+        }
+        providersMap.set(p.provider_id, {
+          id: p.provider_id,
+          name: p.provider_name,
+          logo: logoUrl(p.logo_path),
+          type,
+          types: [type],
+          priority: p.display_priority ?? 99
+        });
+      });
+    };
+
+    if (countryData) {
+      add(countryData.flatrate, 'Suscripción');
+      add(countryData.free, 'Gratis');
+      add(countryData.ads, 'Gratis con anuncios');
+      add(countryData.rent, 'Alquiler');
+      add(countryData.buy, 'Compra');
+    }
+
+    let providers = Array.from(providersMap.values());
+    const typeOrder = { 'Suscripción': 0, 'Gratis': 1, 'Gratis con anuncios': 2, 'Alquiler': 3, 'Compra': 4 };
+    providers.sort((a, b) => (typeOrder[a.type] - typeOrder[b.type]) || (a.priority - b.priority));
+
+    // Cadenas/plataformas de origen (series): Netflix, HBO, Disney+, etc.
+    const networks = (fallbackNetworks || []).map(n => ({
+      id: `net_${n.id}`,
+      name: n.name,
+      logo: logoUrl(n.logo_path),
+      type: 'Cadena original',
+      types: ['Cadena original']
+    }));
+
+    if (providers.length === 0 && networks.length > 0) {
+      providers = networks;
+    }
+
+    return {
+      country: country || null,
+      link: (countryData && countryData.link) || '',
+      providers,
+      networks,
+      updatedAt: Date.now()
+    };
+  },
+
+  _trailerFrom(videos) {
+    if (!videos || !Array.isArray(videos.results)) return '';
+    const list = videos.results.filter(v => v.site === 'YouTube');
+    const trailer = list.find(v => v.type === 'Trailer') || list.find(v => v.type === 'Teaser') || list[0];
+    return trailer ? `https://www.youtube.com/watch?v=${trailer.key}` : '';
+  },
+
   async getMovieDetails(tmdbId) {
     if (!tmdbId) return null;
     try {
-      const data = await this.fetchTmdb(`/movie/${tmdbId}?append_to_response=images,videos`);
+      const data = await this.fetchTmdb(`/movie/${tmdbId}?append_to_response=images,videos,watch/providers&include_image_language=es,en,null&include_video_language=es,en`);
       if (!data) return null;
 
       const hours = data.runtime ? Math.floor(data.runtime / 60) : 0;
       const mins = data.runtime ? data.runtime % 60 : 0;
-      const durationFormatted = hours > 0 ? `${hours}h ${mins}m` : (mins > 0 ? `${mins}m` : '2h');
+      const durationFormatted = hours > 0 ? `${hours}h ${mins}m` : (mins > 0 ? `${mins}m` : '');
       const genresFormatted = (data.genres || []).map(g => g.name).slice(0, 3).join(', ');
 
       const gallery = ((data.images && data.images.backdrops) || [])
         .slice(0, 8)
         .map(img => `https://image.tmdb.org/t/p/w780${img.file_path}`);
-
-      let trailerUrl = '';
-      if (data.videos && Array.isArray(data.videos.results)) {
-        const trailer = data.videos.results.find(v => v.site === 'YouTube' && (v.type === 'Trailer' || v.type === 'Teaser'));
-        if (trailer) {
-          trailerUrl = `https://www.youtube.com/watch?v=${trailer.key}`;
-        }
-      }
 
       return {
         tmdbId: data.id,
@@ -146,14 +210,16 @@ export const MediaService = {
         originalTitle: data.original_title,
         year: data.release_date ? data.release_date.split('-')[0] : '',
         duration: durationFormatted,
-        runtimeMinutes: data.runtime || 120,
+        runtimeMinutes: data.runtime || 0,
         genres: genresFormatted || 'Cine',
         overview: data.overview || 'Sin sinopsis disponible.',
+        tagline: data.tagline || '',
         poster: data.poster_path ? `${CONFIG.tmdb.imageBaseUrl}${data.poster_path}` : 'assets/ruma_icon_512.png',
         backdrop: data.backdrop_path ? `https://image.tmdb.org/t/p/w1280${data.backdrop_path}` : '',
-        voteAverage: data.vote_average ? Number(data.vote_average).toFixed(1) : '8.5',
+        voteAverage: data.vote_average ? Number(data.vote_average).toFixed(1) : '',
         gallery,
-        trailerUrl
+        trailerUrl: this._trailerFrom(data.videos),
+        watchProviders: this.extractWatchProviders(data['watch/providers'])
       };
     } catch (err) {
       console.warn('Error getMovieDetails:', err);
@@ -165,59 +231,25 @@ export const MediaService = {
     if (!tmdbId) return null;
     try {
       const data = await this.fetchTmdb(`/movie/${tmdbId}/watch/providers`);
-      if (!data || !data.results) return null;
-
-      const results = data.results;
-      const priorityCountries = ['CO', 'MX', 'ES', 'AR', 'CL', 'US'];
-      let selectedCountry = priorityCountries.find(c => results[c] && (results[c].flatrate || results[c].rent || results[c].buy || results[c].ads));
-      if (!selectedCountry) {
-        selectedCountry = Object.keys(results).find(c => results[c] && (results[c].flatrate || results[c].rent || results[c].buy || results[c].ads));
-      }
-      if (!selectedCountry || !results[selectedCountry]) return null;
-
-      const countryData = results[selectedCountry];
-      const providersMap = new Map();
-
-      (countryData.flatrate || []).forEach(p => {
-        if (!providersMap.has(p.provider_id)) {
-          providersMap.set(p.provider_id, {
-            id: p.provider_id,
-            name: p.provider_name,
-            logo: p.logo_path ? `https://image.tmdb.org/t/p/original${p.logo_path}` : '',
-            type: 'Suscripción'
-          });
-        }
-      });
-
-      (countryData.ads || []).forEach(p => {
-        if (!providersMap.has(p.provider_id)) {
-          providersMap.set(p.provider_id, {
-            id: p.provider_id,
-            name: p.provider_name,
-            logo: p.logo_path ? `https://image.tmdb.org/t/p/original${p.logo_path}` : '',
-            type: 'Gratis'
-          });
-        }
-      });
-
-      (countryData.rent || []).forEach(p => {
-        if (!providersMap.has(p.provider_id)) {
-          providersMap.set(p.provider_id, {
-            id: p.provider_id,
-            name: p.provider_name,
-            logo: p.logo_path ? `https://image.tmdb.org/t/p/original${p.logo_path}` : '',
-            type: 'Alquiler'
-          });
-        }
-      });
-
-      return {
-        country: selectedCountry,
-        link: countryData.link || '',
-        providers: Array.from(providersMap.values())
-      };
+      if (!data) return null;
+      return this.extractWatchProviders(data);
     } catch (err) {
       console.warn('Error getMovieWatchProviders:', err);
+      return null;
+    }
+  },
+
+  async getSeriesWatchProviders(tmdbId) {
+    if (!tmdbId) return null;
+    try {
+      const [wp, base] = await Promise.all([
+        this.fetchTmdb(`/tv/${tmdbId}/watch/providers`),
+        this.fetchTmdb(`/tv/${tmdbId}`)
+      ]);
+      if (!wp && !base) return null;
+      return this.extractWatchProviders(wp, (base && base.networks) || []);
+    } catch (err) {
+      console.warn('Error getSeriesWatchProviders:', err);
       return null;
     }
   },
@@ -234,7 +266,7 @@ export const MediaService = {
       overview: s.overview || 'Sin sinopsis disponible.',
       poster: s.poster_path ? `${CONFIG.tmdb.imageBaseUrl}${s.poster_path}` : 'assets/ruma_icon_512.png',
       backdrop: s.backdrop_path ? `https://image.tmdb.org/t/p/w1280${s.backdrop_path}` : '',
-      voteAverage: s.vote_average ? Number(s.vote_average).toFixed(1) : '8.5',
+      voteAverage: s.vote_average ? Number(s.vote_average).toFixed(1) : '',
       genres: this.getGenreNames(s.genre_ids) || 'Drama, Serie'
     }));
   },
@@ -242,43 +274,41 @@ export const MediaService = {
   async getSeriesDetails(seriesId) {
     if (!seriesId) return null;
     try {
-      const data = await this.fetchTmdb(`/tv/${seriesId}?append_to_response=watch/providers`);
+      const data = await this.fetchTmdb(`/tv/${seriesId}?append_to_response=watch/providers,videos&include_video_language=es,en`);
       if (!data) return null;
 
       const firstYear = data.first_air_date ? data.first_air_date.split('-')[0] : '';
       const lastYear = data.last_air_date ? data.last_air_date.split('-')[0] : '';
-      const yearsFormatted = firstYear ? (lastYear && lastYear !== firstYear ? `${firstYear}–${lastYear}` : firstYear) : '';
+      const inProduction = data.in_production || data.status === 'Returning Series';
+      const yearsFormatted = firstYear
+        ? (inProduction ? `${firstYear}–` : (lastYear && lastYear !== firstYear ? `${firstYear}–${lastYear}` : firstYear))
+        : '';
       const genresFormatted = (data.genres || []).map(g => g.name).slice(0, 3).join(', ');
 
-      let platform = (data.networks && data.networks[0]) ? data.networks[0].name : '';
-      if (!platform && data['watch/providers'] && data['watch/providers'].results) {
-        const wp = data['watch/providers'].results;
-        const country = wp.CO || wp.MX || wp.ES || wp.US || Object.values(wp)[0];
-        if (country && country.flatrate && country.flatrate[0]) {
-          platform = country.flatrate[0].provider_name;
-        }
-      }
-      if (!platform) platform = 'Streaming';
+      const watchProviders = this.extractWatchProviders(data['watch/providers'], data.networks || []);
+      const platform = (watchProviders.providers[0] && watchProviders.providers[0].name)
+        || (data.networks && data.networks[0] && data.networks[0].name)
+        || 'Streaming';
 
-      let seasons = (data.seasons || [])
-        .filter(s => s.season_number > 0 && s.episode_count > 0)
-        .map(s => ({
-          seasonNumber: s.season_number,
-          name: s.name || `Temporada ${s.season_number}`,
-          episodeCount: s.episode_count || 1,
-          poster: s.poster_path ? `${CONFIG.tmdb.imageBaseUrl}${s.poster_path}` : ''
-        }));
+      const mapSeason = s => ({
+        seasonNumber: s.season_number,
+        name: s.name || (s.season_number === 0 ? 'Especiales' : `Temporada ${s.season_number}`),
+        episodeCount: s.episode_count || 0,
+        overview: s.overview || '',
+        airDate: s.air_date || '',
+        poster: s.poster_path ? `${CONFIG.tmdb.imageBaseUrl}${s.poster_path}` : ''
+      });
 
-      if (seasons.length === 0 && Array.isArray(data.seasons) && data.seasons.length > 0) {
-        seasons = data.seasons.map(s => ({
-          seasonNumber: s.season_number,
-          name: s.name || `Temporada ${s.season_number}`,
-          episodeCount: s.episode_count || 1,
-          poster: s.poster_path ? `${CONFIG.tmdb.imageBaseUrl}${s.poster_path}` : ''
-        }));
+      // Temporadas regulares (las "Especiales" / temporada 0 se listan aparte)
+      let seasons = (data.seasons || []).filter(s => s.season_number > 0 && s.episode_count > 0).map(mapSeason);
+      const specials = (data.seasons || []).filter(s => s.season_number === 0 && s.episode_count > 0).map(mapSeason);
+      if (seasons.length === 0 && specials.length > 0) {
+        seasons = specials.slice();
       }
 
       const totalEpisodes = seasons.reduce((acc, s) => acc + (s.episodeCount || 0), 0);
+      const lastEp = data.last_episode_to_air;
+      const nextEp = data.next_episode_to_air;
 
       return {
         tmdbId: data.id,
@@ -286,15 +316,24 @@ export const MediaService = {
         originalTitle: data.original_name,
         year: firstYear,
         years: yearsFormatted,
+        status: data.status || '',
+        inProduction: !!inProduction,
         genres: genresFormatted || 'Drama, Serie',
         overview: data.overview || 'Sin sinopsis disponible.',
+        tagline: data.tagline || '',
         platform,
+        watchProviders,
+        trailerUrl: this._trailerFrom(data.videos),
         poster: data.poster_path ? `${CONFIG.tmdb.imageBaseUrl}${data.poster_path}` : 'assets/ruma_icon_512.png',
         backdrop: data.backdrop_path ? `https://image.tmdb.org/t/p/w1280${data.backdrop_path}` : '',
         numberOfSeasons: seasons.length || data.number_of_seasons || 1,
         totalEpisodes: totalEpisodes || data.number_of_episodes || 1,
-        voteAverage: data.vote_average ? Number(data.vote_average).toFixed(1) : '8.5',
-        seasons
+        episodeRuntime: (data.episode_run_time && data.episode_run_time[0]) || null,
+        voteAverage: data.vote_average ? Number(data.vote_average).toFixed(1) : '',
+        lastEpisode: lastEp ? { season: lastEp.season_number, episode: lastEp.episode_number, name: lastEp.name, airDate: lastEp.air_date } : null,
+        nextEpisode: nextEp ? { season: nextEp.season_number, episode: nextEp.episode_number, name: nextEp.name, airDate: nextEp.air_date } : null,
+        seasons,
+        specials
       };
     } catch (err) {
       console.warn('Error getSeriesDetails:', err);
@@ -316,16 +355,33 @@ export const MediaService = {
         seasonNumber: ep.season_number || seasonNumber,
         name: ep.name || `Capítulo ${ep.episode_number}`,
         overview: ep.overview || 'Sin descripción disponible para este capítulo.',
-        duration: ep.runtime ? `${ep.runtime} min` : '42 min',
-        runtimeMinutes: ep.runtime || 42,
+        duration: ep.runtime ? `${ep.runtime} min` : '',
+        runtimeMinutes: ep.runtime || 0,
         still: ep.still_path ? `https://image.tmdb.org/t/p/w500${ep.still_path}` : 'assets/ruma_icon_512.png',
         airDate: ep.air_date || '',
-        voteAverage: ep.vote_average ? Number(ep.vote_average).toFixed(1) : '8.0'
+        voteAverage: ep.vote_average ? Number(ep.vote_average).toFixed(1) : '',
+        isReal: true
       }));
     } catch (err) {
       console.warn(`Error getSeasonEpisodes (${seriesId} S${seasonNumber}):`, err);
       return preloaded || [];
     }
+  },
+
+  /**
+   * Descarga en paralelo TODOS los capítulos reales de todas las temporadas.
+   * Devuelve { [seasonNumber]: Episode[] }
+   */
+  async getAllSeasonsEpisodes(seriesId, seasons = []) {
+    const out = {};
+    const nums = seasons.map(s => (typeof s === 'number' ? s : s.seasonNumber)).filter(n => n !== undefined);
+    const chunk = 4;
+    for (let i = 0; i < nums.length; i += chunk) {
+      const slice = nums.slice(i, i + chunk);
+      const res = await Promise.all(slice.map(n => this.getSeasonEpisodes(seriesId, n)));
+      slice.forEach((n, idx) => { out[n] = res[idx] || []; });
+    }
+    return out;
   },
 
   async fetchLyrics(artist, title) {
