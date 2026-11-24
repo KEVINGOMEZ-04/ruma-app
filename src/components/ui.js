@@ -26,14 +26,16 @@ export const UI = {
     }, 3200);
   },
 
-  openModal({ title, contentHtml, onMount }) {
+  openModal({ title, contentHtml, onMount, size = 'md' }) {
     this.closeModal();
     const backdrop = document.createElement('div');
     backdrop.className = 'ruma-modal-backdrop';
     backdrop.id = 'ruma-active-modal';
 
+    const maxWidth = size === 'xl' ? '920px' : (size === 'lg' ? '740px' : '560px');
+
     backdrop.innerHTML = `
-      <div class="ruma-modal" role="dialog" aria-modal="true">
+      <div class="ruma-modal" role="dialog" aria-modal="true" style="max-width:${maxWidth};">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.15rem;gap:1rem;">
           <h3 style="font-family:var(--font-display);font-size:1.25rem;font-weight:800;">${Utils.sanitize(title)}</h3>
           <button type="button" class="btn btn-secondary btn-sm" id="btn-close-active-modal">✕</button>
@@ -54,6 +56,31 @@ export const UI = {
   closeModal() {
     const existing = document.getElementById('ruma-active-modal');
     if (existing) existing.remove();
+  },
+
+  openLightbox(url, isVideo = false, caption = '') {
+    const existing = document.getElementById('ruma-active-lightbox');
+    if (existing) existing.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'ruma-active-lightbox';
+    overlay.className = 'ruma-modal-backdrop';
+    overlay.style.zIndex = '700';
+    overlay.innerHTML = `
+      <div style="position:relative;max-width:92vw;max-height:90dvh;display:flex;flex-direction:column;align-items:center;gap:0.75rem;">
+        <button type="button" class="btn btn-secondary btn-sm" id="btn-close-lightbox" style="align-self:flex-end;">✕ Cerrar</button>
+        ${isVideo
+          ? `<video src="${Utils.sanitize(url)}" controls autoplay style="max-width:90vw;max-height:80dvh;border-radius:var(--radius-lg);box-shadow:var(--shadow-lg);"></video>`
+          : `<img src="${Utils.sanitize(url)}" alt="Vista completa" style="max-width:90vw;max-height:80dvh;border-radius:var(--radius-lg);object-fit:contain;box-shadow:var(--shadow-lg);">`
+        }
+        ${caption ? `<div style="color:var(--text-secondary);font-size:0.88rem;font-weight:600;">${Utils.sanitize(caption)}</div>` : ''}
+      </div>
+    `;
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) overlay.remove();
+    });
+    document.body.appendChild(overlay);
+    document.getElementById('btn-close-lightbox')?.addEventListener('click', () => overlay.remove());
   },
 
   /**

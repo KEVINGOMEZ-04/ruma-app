@@ -40,6 +40,10 @@ export const DriveBridge = {
    * 1. Guarda en IndexedDB para disponibilidad instantánea y offline
    * 2. Si Google Drive está vinculado, sube en segundo plano mediante subida resumible
    */
+  async syncMemoryToDrive(group, memoryPayload, files = [], onProgress = null) {
+    return this.syncMemory(group, memoryPayload, files, onProgress);
+  },
+
   async syncMemory(group, memoryPayload, files = [], onProgress = null) {
     if (!group) throw new Error('Grupo no especificado.');
 
