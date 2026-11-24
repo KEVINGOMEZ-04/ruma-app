@@ -1075,7 +1075,7 @@ class RumaStore {
    * Aplica varios parches (datos reales de TMDb) en una sola escritura/notify.
    * patches: [{ category, itemId, patch }]
    */
-  applyMediaPatches(groupId, patches = []) {
+  applyMediaPatches(groupId, patches = [], silent = false) {
     if (!patches.length) return;
     const allGroups = this.getGroups();
     const group = allGroups.find(g => g.id === groupId);
@@ -1090,7 +1090,7 @@ class RumaStore {
     });
     if (changed) {
       this.saveGroups(allGroups);
-      this.notify();
+      if (!silent) this.notify();
     }
   }
 
@@ -1406,6 +1406,15 @@ class RumaStore {
     return goal.completed;
   }
 
+  deleteGoalFromActiveGroup(goalId) {
+    const allGroups = this.getGroups();
+    const group = allGroups.find(g => g.id === this.getActiveGroup()?.id);
+    if (!group) return;
+    group.goals = (group.goals || []).filter(g => g.id !== goalId);
+    this.saveGroups(allGroups);
+    this.notify();
+  }
+
   addNoteToActiveGroup({ title, category, content }) {
     const user = this.getCurrentUser();
     const allGroups = this.getGroups();
@@ -1419,6 +1428,15 @@ class RumaStore {
       content: content.trim(),
       authorName: user.name
     });
+    this.saveGroups(allGroups);
+    this.notify();
+  }
+
+  deleteNoteFromActiveGroup(noteId) {
+    const allGroups = this.getGroups();
+    const group = allGroups.find(g => g.id === this.getActiveGroup()?.id);
+    if (!group) return;
+    group.notes = (group.notes || []).filter(n => n.id !== noteId);
     this.saveGroups(allGroups);
     this.notify();
   }

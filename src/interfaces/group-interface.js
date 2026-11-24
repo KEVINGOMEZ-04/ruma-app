@@ -1504,7 +1504,7 @@ async function openMovieDetailModal(group, movie, user) {
           trailerUrl: movie.trailerUrl || details.trailerUrl || '',
           tmdbRating: details.voteAverage || movie.tmdbRating
         }
-      }]);
+      }], true);
       movie = refresh();
     }
   }
@@ -1690,7 +1690,7 @@ function renderSeriesTab(viewport, group, user) {
             const myProg = ser.userProgress?.[user.id] || {};
             const curSeason = myProg.currentSeason || ser.currentSeason || 1;
             const curEp = myProg.currentEpisode || ser.currentEpisode || 1;
-            const watchedCountUser = Object.keys(myProg.watchedEpisodes || {}).length;
+            const watchedCountUser = Object.keys(myProg.watchedEpisodes || {}).filter(k => !k.startsWith('0_')).length;
             const pct = Math.min(100, Math.round((watchedCountUser / totalEps) * 100));
             const isCompleted = store.isSeriesCompletedByUser(ser, user.id);
 
@@ -2907,21 +2907,26 @@ function renderGoalsAndNotesTab(viewport, group) {
       <!-- Metas Compartidas -->
       <div class="ruma-card">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;">
-          <h2 style="font-family:var(--font-display);font-size:1.25rem;">🎯 Metas del Grupo</h2>
+          <h2 style="font-family:var(--font-display);font-size:1.25rem;">🎯 Metas del Grupo (${goals.length})</h2>
         </div>
         <form id="form-add-goal" style="display:flex;gap:0.5rem;margin-bottom:1rem;">
           <input type="text" id="goal-title-inp" class="form-input" placeholder="Nueva meta o plan juntos..." required>
           <button type="submit" class="btn btn-primary btn-sm">+ Añadir</button>
         </form>
         <div style="display:flex;flex-direction:column;gap:0.55rem;">
-          ${goals.map(g => `
-            <div style="display:flex;align-items:center;justify-content:space-between;padding:0.7rem 0.9rem;background:var(--bg-elevated);border-radius:var(--radius-md);border:1px solid var(--border-subtle);">
-              <span style="${g.completed ? 'text-decoration:line-through;color:var(--text-muted);' : 'font-weight:600;'}">
+          ${goals.length === 0 ? `
+            <div style="font-size:0.84rem;color:var(--text-muted);text-align:center;padding:1rem;">Aún no hay metas compartidas. ¡Crea la primera!</div>
+          ` : goals.map(g => `
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;padding:0.7rem 0.9rem;background:var(--bg-elevated);border-radius:var(--radius-md);border:1px solid var(--border-subtle);">
+              <span style="flex:1;min-width:0;word-break:break-word;${g.completed ? 'text-decoration:line-through;color:var(--text-muted);' : 'font-weight:600;'}">
                 ${Utils.sanitize(g.title)}
               </span>
-              <button type="button" class="btn ${g.completed ? 'btn-primary' : 'btn-secondary'} btn-sm" data-toggle-goal="${Utils.sanitize(g.id)}">
-                ${g.completed ? '✓ Cumplida' : 'Marcar Cumplida'}
-              </button>
+              <div style="display:flex;align-items:center;gap:0.4rem;flex-shrink:0;">
+                <button type="button" class="btn ${g.completed ? 'btn-primary' : 'btn-secondary'} btn-sm" data-toggle-goal="${Utils.sanitize(g.id)}">
+                  ${g.completed ? '✓ Cumplida' : 'Marcar Cumplida'}
+                </button>
+                <button type="button" class="btn btn-danger btn-sm" data-delete-goal="${Utils.sanitize(g.id)}" title="Eliminar meta">✕</button>
+              </div>
             </div>
           `).join('')}
         </div>
@@ -2929,18 +2934,23 @@ function renderGoalsAndNotesTab(viewport, group) {
 
       <!-- Tablero de Notas -->
       <div class="ruma-card">
-        <h2 style="font-family:var(--font-display);font-size:1.25rem;margin-bottom:1rem;">📝 Tablero de Notas</h2>
+        <h2 style="font-family:var(--font-display);font-size:1.25rem;margin-bottom:1rem;">📝 Tablero de Notas (${notes.length})</h2>
         <form id="form-add-note" style="display:flex;flex-direction:column;gap:0.55rem;margin-bottom:1rem;">
           <input type="text" id="note-title-inp" class="form-input" placeholder="Título de la nota..." required>
           <textarea id="note-content-inp" class="form-textarea" rows="2" placeholder="Escribe un recordatorio, idea o mensaje..." required></textarea>
           <button type="submit" class="btn btn-primary btn-sm" style="align-self:flex-end;">Publicar Nota</button>
         </form>
         <div style="display:flex;flex-direction:column;gap:0.55rem;">
-          ${notes.map(n => `
+          ${notes.length === 0 ? `
+            <div style="font-size:0.84rem;color:var(--text-muted);text-align:center;padding:1rem;">Aún no hay notas en el tablero.</div>
+          ` : notes.map(n => `
             <div style="padding:0.85rem;background:var(--bg-elevated);border-radius:var(--radius-md);border-left:3px solid var(--brand-lilac);">
-              <div style="font-weight:700;font-size:0.92rem;">${Utils.sanitize(n.title)}</div>
-              <p style="font-size:0.84rem;color:var(--text-secondary);margin-top:0.25rem;">${Utils.sanitize(n.content)}</p>
-              <div style="font-size:0.72rem;color:var(--text-muted);margin-top:0.35rem;">Por ${Utils.sanitize(n.authorName)}</div>
+              <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:0.5rem;">
+                <div style="font-weight:700;font-size:0.92rem;word-break:break-word;">${Utils.sanitize(n.title)}</div>
+                <button type="button" class="btn btn-danger btn-sm" style="padding:0.15rem 0.45rem;font-size:0.72rem;" data-delete-note="${Utils.sanitize(n.id)}" title="Eliminar nota">✕</button>
+              </div>
+              <p style="font-size:0.84rem;color:var(--text-secondary);margin-top:0.25rem;word-break:break-word;">${Utils.sanitize(n.content)}</p>
+              <div style="font-size:0.72rem;color:var(--text-muted);margin-top:0.35rem;">Por ${Utils.sanitize(n.authorName || 'Miembro')}</div>
             </div>
           `).join('')}
         </div>
@@ -2964,11 +2974,25 @@ function renderGoalsAndNotesTab(viewport, group) {
     });
   });
 
+  viewport.querySelectorAll('[data-delete-goal]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      store.deleteGoalFromActiveGroup(btn.getAttribute('data-delete-goal'));
+      UI.showToast('Meta eliminada.', 'info');
+    });
+  });
+
   document.getElementById('form-add-note')?.addEventListener('submit', (e) => {
     e.preventDefault();
     const title = document.getElementById('note-title-inp')?.value;
     const content = document.getElementById('note-content-inp')?.value;
     if (title && content) store.addNoteToActiveGroup({ title, content });
+  });
+
+  viewport.querySelectorAll('[data-delete-note]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      store.deleteNoteFromActiveGroup(btn.getAttribute('data-delete-note'));
+      UI.showToast('Nota eliminada.', 'info');
+    });
   });
 }
 
