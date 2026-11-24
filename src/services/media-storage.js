@@ -115,6 +115,10 @@ export const MediaStorage = {
     return URL.createObjectURL(item.blob);
   },
 
+  async getObjectUrl(id) {
+    return this.createMediaStreamUrl(id);
+  },
+
   /**
    * Libera la URL de streaming de la memoria cuando se cierra el reproductor
    */

@@ -14,6 +14,9 @@ import { Utils } from '../core/utils.js';
 import { MediaService } from '../services/media-api.js';
 import { MusicService } from '../services/music-service.js';
 import { MediaStorage } from '../services/media-storage.js';
+import { GoogleAuth } from '../services/google-auth.js';
+import { DriveBridge } from '../services/drive-bridge.js';
+import { openDriveConnectModal } from '../components/drive-connect-modal.js';
 import { UI } from '../components/ui.js';
 import {
   renderProvidersStrip,
@@ -267,30 +270,39 @@ function renderMemoriesTab(viewport, group, user, isAdmin) {
     return cat === 'oldest' ? tA - tB : tB - tA;
   });
 
+  const googleSession = GoogleAuth.getSession();
+  const hasRealFolder = DriveBridge.isRealFolderConfigured(group.driveFolderUrl);
+
   viewport.innerHTML = `
     <div style="display:flex;flex-direction:column;gap:1.25rem;">
-      <!-- Estado del Puente Google Drive -->
+      <!-- Estado del Puente Google Drive (OAuth 2.0) -->
       <div class="ruma-card" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1rem;background:var(--bg-elevated);">
         <div>
-          <div style="font-weight:800;font-size:0.95rem;color:var(--brand-lilac-soft);">
-            📂 Puente Google Drive del Grupo + Diario Emocional
+          <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">
+            <span style="font-weight:800;font-size:0.95rem;color:var(--brand-lilac-soft);">
+              📂 Puente Google Drive del Grupo + Diario Emocional
+            </span>
+            <span class="badge ${googleSession ? 'badge-free' : 'badge-limit'}">
+              ${googleSession ? `🟢 Google: ${Utils.sanitize(googleSession.email || googleSession.name)}` : '🔐 Google no conectado'}
+            </span>
+            ${hasRealFolder ? `<span class="badge badge-admin">📁 Carpeta vinculada</span>` : ''}
           </div>
-          <p style="font-size:0.82rem;color:var(--text-secondary);margin-top:0.2rem;">
-            ${group.driveFolderUrl
-              ? `Conectado a carpeta Drive. Cada carga crea la subcarpeta <code>[Nombre del Recuerdo - Fecha]</code> sin límite de peso.`
-              : '⚠️ Aún no se ha vinculado una carpeta de Google Drive.'}
+          <p style="font-size:0.82rem;color:var(--text-secondary);margin-top:0.25rem;">
+            ${googleSession
+              ? `Sesión OAuth 2.0 activa. Cada carga crea la subcarpeta <code>[Nombre del Recuerdo - Fecha]</code> y sube las fotos y videos a Google Drive.`
+              : 'Conecta tu cuenta de Google (OAuth 2.0) para que cada recuerdo cree su subcarpeta y suba automáticamente tus fotos y videos a Google Drive.'}
           </p>
         </div>
         <div style="display:flex;gap:0.55rem;flex-wrap:wrap;">
           <button type="button" class="btn btn-secondary btn-sm" id="btn-toggle-mem-calendar">
             📅 ${memFilterState.showCalendar ? 'Ocultar Calendario' : 'Calendario & Planes'}
           </button>
-          ${group.driveFolderUrl ? `
-            <a href="${Utils.sanitize(group.driveFolderUrl)}" target="_blank" rel="noopener" class="btn btn-secondary btn-sm">↗ Abrir Drive</a>
+          ${hasRealFolder ? `
+            <a href="${Utils.sanitize(group.driveFolderUrl)}" target="_blank" rel="noopener" class="btn btn-secondary btn-sm">↗ Abrir Carpeta Drive</a>
           ` : ''}
-          ${isAdmin ? `
-            <button type="button" class="btn btn-secondary btn-sm" id="btn-mem-config-drive">⚙️ Configurar Drive</button>
-          ` : ''}
+          <button type="button" class="btn ${googleSession ? 'btn-secondary' : 'btn-primary'} btn-sm" id="btn-mem-config-drive">
+            ${googleSession ? '⚙️ Configurar Drive' : '🔑 Conectar Google Drive'}
+          </button>
           <button type="button" class="btn btn-primary btn-sm" id="btn-mem-upload">+ Inmortalizar Recuerdo</button>
         </div>
       </div>
@@ -334,13 +346,14 @@ function renderMemoriesTab(viewport, group, user, isAdmin) {
             const aura = mem.auraColor || (mem.isFeatured ? '#F59E0B' : '#A855F7');
             const photosCount = (mem.photos && mem.photos.length) || mem.filesCount || 1;
             const commentsCount = (mem.comments && mem.comments.length) || 0;
+            const isSynced = mem.driveSyncStatus === 'synced' || (mem.driveUrl && DriveBridge.isRealFolderConfigured(mem.driveUrl));
 
             return `
               <div class="ruma-card" id="memory-card-${Utils.sanitize(mem.id)}" style="padding:0;overflow:hidden;display:flex;flex-direction:column;justify-content:space-between;border-color:${Utils.sanitize(aura)}55;box-shadow:0 8px 28px ${Utils.sanitize(aura)}18;">
                 <div>
                   <div style="height:220px;background:#090414;position:relative;cursor:pointer;" data-open-memory="${Utils.sanitize(mem.id)}">
                     <img src="${Utils.sanitize(mem.coverPreview || 'assets/ruma_icon_512.png')}" alt="${Utils.sanitize(mem.title)}" style="width:100%;height:100%;object-fit:cover;">
-                    <span class="badge badge-admin" style="position:absolute;top:0.75rem;left:0.75rem;background:rgba(14,7,29,0.86);max-width:75%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+                    <span class="badge badge-admin" style="position:absolute;top:0.75rem;left:0.75rem;background:rgba(14,7,29,0.86);max-width:70%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
                       📁 ${Utils.sanitize(mem.subfolderName || Utils.buildDriveSubfolderName(mem.title, mem.date))}
                     </span>
                     <div style="position:absolute;top:0.75rem;right:0.75rem;display:flex;gap:0.35rem;">
@@ -349,6 +362,9 @@ function renderMemoriesTab(viewport, group, user, isAdmin) {
                         ${mem.isVideo ? '▶ Video' : `📷 ${photosCount}`}
                       </span>
                     </div>
+                    <span class="badge ${isSynced ? 'badge-free' : 'badge-limit'}" style="position:absolute;bottom:0.65rem;left:0.75rem;background:rgba(14,7,29,0.9);">
+                      ${isSynced ? '☁️ Sincronizado en Drive' : '💾 Guardado en dispositivo'}
+                    </span>
                   </div>
 
                   <div style="padding:1.25rem;">
@@ -398,9 +414,13 @@ function renderMemoriesTab(viewport, group, user, isAdmin) {
                       👁️ Ver Álbum & 💬 ${commentsCount}
                     </button>
                     <button type="button" class="btn btn-secondary btn-sm" data-quote-memory="${Utils.sanitize(mem.id)}">💬 Citar</button>
-                    ${mem.driveUrl ? `
+                    ${isSynced && mem.driveUrl ? `
                       <a href="${Utils.sanitize(mem.driveUrl)}" target="_blank" rel="noopener" class="btn btn-primary btn-sm">Drive ↗</a>
-                    ` : ''}
+                    ` : `
+                      <button type="button" class="btn btn-primary btn-sm" data-sync-mem-drive="${Utils.sanitize(mem.id)}" title="Subir este recuerdo ahora a Google Drive">
+                        ☁️ Subir a Drive
+                      </button>
+                    `}
                   </div>
                 </div>
               </div>
@@ -412,9 +432,30 @@ function renderMemoriesTab(viewport, group, user, isAdmin) {
   `;
 
   // Eventos de cabecera y filtros
-  document.getElementById('btn-mem-config-drive')?.addEventListener('click', () => store.navigate('settings'));
-  document.getElementById('btn-mem-upload')?.addEventListener('click', () => openUploadMemoryModal(group));
-  document.getElementById('btn-empty-mem-upload')?.addEventListener('click', () => openUploadMemoryModal(group));
+  document.getElementById('btn-mem-config-drive')?.addEventListener('click', () => openDriveConnectModal(group, isAdmin));
+  document.getElementById('btn-mem-upload')?.addEventListener('click', () => openUploadMemoryModal(group, null, null, isAdmin));
+  document.getElementById('btn-empty-mem-upload')?.addEventListener('click', () => openUploadMemoryModal(group, null, null, isAdmin));
+
+  viewport.querySelectorAll('[data-sync-mem-drive]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const memId = btn.getAttribute('data-sync-mem-drive');
+      if (!GoogleAuth.hasValidClientId(group)) {
+        openDriveConnectModal(group, isAdmin);
+        UI.showToast('Configura tu Client ID e inicia sesión con Google para subir a Drive 🔑', 'info');
+        return;
+      }
+      btn.disabled = true;
+      btn.textContent = '⏳ Subiendo...';
+      const res = await store.syncExistingMemoryToDrive(memId);
+      if (!res.ok) {
+        btn.disabled = false;
+        btn.textContent = '☁️ Subir a Drive';
+        UI.showToast(res.error || 'No se pudo subir a Google Drive.', 'error');
+        return;
+      }
+      UI.showToast(`¡Recuerdo "${res.memory.subfolderName}" subido a tu Google Drive! ☁️✨`, 'success');
+    });
+  });
 
   document.getElementById('btn-toggle-mem-calendar')?.addEventListener('click', () => {
     memFilterState.showCalendar = !memFilterState.showCalendar;
@@ -729,9 +770,11 @@ function openAddPlanModal(dateStr, onSaved) {
   });
 }
 
-function openUploadMemoryModal(group, editingMemory = null, prefillDate = null) {
+function openUploadMemoryModal(group, editingMemory = null, prefillDate = null, isAdmin = true) {
   const today = prefillDate || editingMemory?.date || new Date().toISOString().split('T')[0];
   const sampleFolder = Utils.buildDriveSubfolderName(editingMemory?.title || 'Mi Recuerdo', today);
+  const googleSession = GoogleAuth.getSession();
+  const hasRealFolder = DriveBridge.isRealFolderConfigured(group?.driveFolderUrl);
   let selectedSong = editingMemory?.song || null;
   let recordedVoiceDataUrl = editingMemory?.voiceNote || null;
   let mediaRecorder = null;
@@ -781,9 +824,23 @@ function openUploadMemoryModal(group, editingMemory = null, prefillDate = null) 
           </div>
         </div>
 
-        <div style="background:var(--bg-elevated);padding:0.75rem 0.9rem;border-radius:var(--radius-sm);margin-bottom:1rem;font-size:0.8rem;color:var(--brand-lilac-soft);">
-          📁 Subcarpeta que se creará en Google Drive:<br>
-          <strong id="mem-folder-preview">${Utils.sanitize(sampleFolder)}</strong>
+        <div style="background:var(--bg-elevated);padding:0.8rem 0.95rem;border-radius:var(--radius-sm);margin-bottom:1rem;font-size:0.8rem;border:1px solid ${googleSession ? 'rgba(16,185,129,0.4)' : 'var(--border-subtle)'};display:flex;align-items:center;justify-content:space-between;gap:0.75rem;flex-wrap:wrap;">
+          <div>
+            <div style="color:var(--brand-lilac-soft);">
+              📁 Subcarpeta que se creará en Google Drive:
+            </div>
+            <strong id="mem-folder-preview" style="color:#fff;">${Utils.sanitize(sampleFolder)}</strong>
+            <div style="font-size:0.74rem;color:${googleSession ? '#34D399' : '#FBBF24'};margin-top:0.2rem;">
+              ${googleSession
+                ? `🟢 Conectado a Google (${Utils.sanitize(googleSession.email || googleSession.name)})${hasRealFolder ? ' · Subirá a la carpeta del grupo' : ' · Subirá a tu Google Drive'}`
+                : '⚠️ Cuenta Google no conectada: se guardará en tu dispositivo y podrás subirlo a Drive cuando conectes Google.'}
+            </div>
+          </div>
+          ${!googleSession ? `
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-mem-modal-connect-drive">
+              🔑 Conectar Google
+            </button>
+          ` : ''}
         </div>
 
         <div class="form-group">
@@ -822,9 +879,20 @@ function openUploadMemoryModal(group, editingMemory = null, prefillDate = null) 
           </div>
         </div>
 
+        <!-- Barra de progreso de subida a Google Drive / IndexedDB -->
+        <div id="mem-upload-progress-wrap" style="display:none;margin-top:0.85rem;padding:0.75rem 0.9rem;background:var(--bg-elevated);border-radius:var(--radius-sm);border:1px solid var(--border-subtle);">
+          <div style="display:flex;justify-content:space-between;font-size:0.78rem;margin-bottom:0.35rem;">
+            <span id="mem-upload-progress-text">Preparando archivos...</span>
+            <strong id="mem-upload-progress-pct" style="color:var(--brand-lilac);">0%</strong>
+          </div>
+          <div class="ruma-progress-track">
+            <div class="ruma-progress-fill" id="mem-upload-progress-bar" style="width:0%;"></div>
+          </div>
+        </div>
+
         <div style="display:flex;justify-content:flex-end;gap:0.65rem;margin-top:1.25rem;">
           <button type="button" class="btn btn-secondary" id="btn-cancel-mem">Cancelar</button>
-          <button type="submit" class="btn btn-primary">${editingMemory ? 'Guardar Cambios' : 'Subir y Guardar en Caché'}</button>
+          <button type="submit" class="btn btn-primary" id="btn-submit-mem">${editingMemory ? 'Guardar Cambios' : (googleSession ? '☁️ Subir a Google Drive y Guardar' : '💾 Guardar Recuerdo')}</button>
         </div>
       </form>
     `,
@@ -832,6 +900,11 @@ function openUploadMemoryModal(group, editingMemory = null, prefillDate = null) 
       const titleInp = document.getElementById('mem-title');
       const dateInp = document.getElementById('mem-date');
       const previewEl = document.getElementById('mem-folder-preview');
+
+      document.getElementById('btn-mem-modal-connect-drive')?.addEventListener('click', () => {
+        UI.closeModal();
+        openDriveConnectModal(group, isAdmin);
+      });
 
       const updateFolderPreview = () => {
         if (previewEl) {
@@ -917,6 +990,18 @@ function openUploadMemoryModal(group, editingMemory = null, prefillDate = null) 
       document.getElementById('form-upload-memory')?.addEventListener('submit', async (e) => {
         e.preventDefault();
         const files = Array.from(document.getElementById('mem-files')?.files || []);
+        const submitBtn = document.getElementById('btn-submit-mem');
+        const progWrap = document.getElementById('mem-upload-progress-wrap');
+        const progText = document.getElementById('mem-upload-progress-text');
+        const progPct = document.getElementById('mem-upload-progress-pct');
+        const progBar = document.getElementById('mem-upload-progress-bar');
+
+        if (submitBtn) {
+          submitBtn.disabled = true;
+          submitBtn.textContent = '⏳ Procesando y subiendo...';
+        }
+        if (progWrap) progWrap.style.display = 'block';
+
         const res = await store.addMemoryToActiveGroup({
           id: editingMemory?.id,
           title: titleInp?.value || 'Recuerdo',
@@ -928,7 +1013,22 @@ function openUploadMemoryModal(group, editingMemory = null, prefillDate = null) 
           song: selectedSong,
           voiceNote: recordedVoiceDataUrl,
           files,
-          existingPhotos: editingMemory?.photos || (editingMemory?.coverPreview ? [editingMemory.coverPreview] : [])
+          existingPhotos: editingMemory?.photos || (editingMemory?.coverPreview ? [editingMemory.coverPreview] : []),
+          onProgress: (p) => {
+            if (!progWrap) return;
+            const pct = Math.min(100, Math.max(5, Number(p.percent) || 15));
+            if (progBar) progBar.style.width = `${pct}%`;
+            if (progPct) progPct.textContent = `${pct}%`;
+            if (progText) {
+              if (p.stage === 'drive_folder') {
+                progText.textContent = `📁 Creando subcarpeta "${p.fileName}" en Google Drive...`;
+              } else if (p.stage === 'drive_upload') {
+                progText.textContent = `☁️ Subiendo a Google Drive (${p.fileIndex}/${p.totalFiles}): ${p.fileName || ''}`;
+              } else {
+                progText.textContent = `💾 Guardando en caché (${p.fileIndex}/${p.totalFiles}): ${p.fileName || ''}`;
+              }
+            }
+          }
         });
 
         if (!res.ok) {
@@ -942,7 +1042,13 @@ function openUploadMemoryModal(group, editingMemory = null, prefillDate = null) 
         }
 
         UI.closeModal();
-        UI.showToast(`Recuerdo "${res.memory.subfolderName}" guardado 📂✨`, 'success');
+        if (res.driveSyncStatus === 'synced') {
+          UI.showToast(`☁️ ¡Recuerdo "${res.memory.subfolderName}" subido a tu Google Drive!`, 'success');
+        } else if (res.driveSyncStatus === 'error') {
+          UI.showToast(`Guardado en dispositivo. No se subió a Drive: ${res.driveSyncError}`, 'error');
+        } else {
+          UI.showToast(`💾 Recuerdo guardado en el dispositivo. Pulsa "☁️ Subir a Drive" tras conectar tu cuenta de Google.`, 'info');
+        }
       });
     }
   });
@@ -996,7 +1102,10 @@ async function openMemoryDetailModal(group, mem, user) {
               ${mem.isFeatured ? '★ Quitar Destacado' : '☆ Marcar Destacado'}
             </button>
             <button type="button" class="btn btn-secondary btn-sm" id="btn-mem-detail-edit">✏️ Editar</button>
-            ${mem.driveUrl ? `<a href="${Utils.sanitize(mem.driveUrl)}" target="_blank" rel="noopener" class="btn btn-primary btn-sm">📁 Carpeta Drive ↗</a>` : ''}
+            ${(mem.driveSyncStatus === 'synced' || (mem.driveUrl && DriveBridge.isRealFolderConfigured(mem.driveUrl)))
+              ? `<a href="${Utils.sanitize(mem.driveUrl)}" target="_blank" rel="noopener" class="btn btn-primary btn-sm">📁 Carpeta Drive ↗</a>`
+              : `<button type="button" class="btn btn-primary btn-sm" id="btn-mem-detail-sync-drive">☁️ Subir a Google Drive</button>`
+            }
             <button type="button" class="btn btn-danger btn-sm" id="btn-mem-detail-delete">🗑️</button>
           </div>
         </div>
@@ -1058,6 +1167,28 @@ async function openMemoryDetailModal(group, mem, user) {
           const item = resolvedMedia[Number(el.getAttribute('data-lightbox-idx'))];
           if (item) UI.openLightbox(item.url, item.isVideo, item.name);
         });
+      });
+
+      document.getElementById('btn-mem-detail-sync-drive')?.addEventListener('click', async (e) => {
+        const btn = e.currentTarget;
+        if (!GoogleAuth.hasValidClientId(group)) {
+          UI.closeModal();
+          openDriveConnectModal(group, Entitlements.isGroupAdmin(group, user.id));
+          UI.showToast('Configura tu Client ID e inicia sesión con Google para subir a Drive 🔑', 'info');
+          return;
+        }
+        btn.disabled = true;
+        btn.textContent = '⏳ Subiendo a Drive...';
+        const res = await store.syncExistingMemoryToDrive(mem.id);
+        if (!res.ok) {
+          btn.disabled = false;
+          btn.textContent = '☁️ Subir a Google Drive';
+          UI.showToast(res.error || 'No se pudo subir a Google Drive.', 'error');
+          return;
+        }
+        UI.showToast(`¡Recuerdo "${res.memory.subfolderName}" subido a tu Google Drive! ☁️✨`, 'success');
+        const updated = (store.getActiveGroup()?.memories || []).find(m => m.id === mem.id);
+        if (updated) openMemoryDetailModal(store.getActiveGroup(), updated, user);
       });
 
       document.getElementById('btn-mem-detail-feature')?.addEventListener('click', () => {

@@ -700,7 +700,7 @@ class RumaStore {
   // ==========================================================================
   // 1. RECUERDOS (Puente Google Drive + Álbum / Nota de Voz / Canción / Calendario / Planes)
   // ==========================================================================
-  async addMemoryToActiveGroup({ id, title, date, location, description, auraColor, isFeatured, song, voiceNote, files, existingPhotos }) {
+  async addMemoryToActiveGroup({ id, title, date, location, description, auraColor, isFeatured, song, voiceNote, files, existingPhotos, onProgress = null }) {
     const user = this.getCurrentUser();
     const allGroups = this.getGroups();
     const active = this.getActiveGroup();
@@ -721,9 +721,10 @@ class RumaStore {
       title,
       date,
       description,
+      voiceNote,
       authorId: user.id,
       authorName: user.name
-    }, files || []);
+    }, files || [], onProgress);
 
     const newThumbnails = (record.files || []).map(f => f.thumbnail).filter(Boolean);
     const allPhotos = [...(existingPhotos || []), ...newThumbnails];
@@ -740,7 +741,10 @@ class RumaStore {
       auraColor: auraColor || '#A855F7',
       isFeatured: Boolean(isFeatured),
       subfolderName: record.subfolderName,
-      driveUrl: record.driveSubfolderUrl || group.driveFolderUrl || '',
+      driveSubfolderId: record.driveSubfolderId || '',
+      driveUrl: record.driveSubfolderUrl || (DriveBridge.isRealFolderConfigured(group.driveFolderUrl) ? group.driveFolderUrl : ''),
+      driveSyncStatus: record.driveSyncStatus || 'local_only',
+      driveSyncError: record.driveSyncError || '',
       description: record.description,
       authorId: user.id,
       authorName: user.name,
@@ -761,6 +765,10 @@ class RumaStore {
       memoryData.comments = group.memories[existingIdx].comments || [];
       if (!files || files.length === 0) {
         memoryData.files = group.memories[existingIdx].files || [];
+        if (group.memories[existingIdx].driveSyncStatus === 'synced' && memoryData.driveSyncStatus !== 'synced') {
+          memoryData.driveSyncStatus = 'synced';
+          memoryData.driveUrl = group.memories[existingIdx].driveUrl || memoryData.driveUrl;
+        }
       }
       group.memories[existingIdx] = memoryData;
     } else {
@@ -769,7 +777,36 @@ class RumaStore {
 
     this.saveGroups(allGroups);
     this.notify();
-    return { ok: true, memory: memoryData };
+    return {
+      ok: true,
+      memory: memoryData,
+      driveSyncStatus: record.driveSyncStatus,
+      driveSyncError: record.driveSyncError
+    };
+  }
+
+  async syncExistingMemoryToDrive(memoryId, onProgress = null) {
+    const allGroups = this.getGroups();
+    const active = this.getActiveGroup();
+    const group = allGroups.find(g => g.id === active?.id);
+    if (!group) return { ok: false, error: 'Grupo no encontrado.' };
+
+    const mem = (group.memories || []).find(m => m.id === memoryId);
+    if (!mem) return { ok: false, error: 'Recuerdo no encontrado.' };
+
+    try {
+      const synced = await DriveBridge.syncExistingMemoryToDrive(group, mem, onProgress);
+      Object.assign(mem, synced);
+      this.saveGroups(allGroups);
+      this.notify();
+      return { ok: true, memory: mem };
+    } catch (err) {
+      mem.driveSyncStatus = 'error';
+      mem.driveSyncError = err.message || 'Error al sincronizar con Google Drive.';
+      this.saveGroups(allGroups);
+      this.notify();
+      return { ok: false, error: mem.driveSyncError };
+    }
   }
 
   deleteMemoryFromActiveGroup(memoryId) {

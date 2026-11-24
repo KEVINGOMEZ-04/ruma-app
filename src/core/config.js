@@ -19,8 +19,10 @@ export const CONFIG = {
     language: 'es-ES'
   },
 
-  // Google Drive Master Bridge (Apps Script Webhook)
+  // Google Drive OAuth 2.0 & Master Bridge
   googleDrive: {
+    clientId: '',
+    scopes: 'https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile',
     defaultBridgeUrl: 'https://script.google.com/macros/s/AKfycbx3nWf8YgIzkq1Kna1yfB9rv0d3gjr9xvV1yiE-qb5qwzaV6rFujoacsFjOgMkRrbOFiQ/exec'
   },
 
@@ -40,6 +42,9 @@ export const CONFIG = {
     groups: 'ruma_groups_v1',
     activeGroupId: 'ruma_active_group_id_v1',
     driveCachePrefix: 'ruma_drive_cache_v1_',
+    driveAuthSession: 'ruma_google_drive_oauth_v1',
+    driveClientId: 'ruma_google_client_id_v1',
     theme: 'ruma_theme_v1'
   }
 };
+

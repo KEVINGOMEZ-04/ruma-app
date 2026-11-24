@@ -13,6 +13,7 @@ import { store } from '../core/store.js';
 import { Entitlements, PLAN_LIMITS } from '../core/entitlements.js';
 import { Utils } from '../core/utils.js';
 import { UI } from '../components/ui.js';
+import { renderDriveConnectionPanelHtml, bindDriveConnectionPanelEvents } from '../components/drive-connect-modal.js';
 
 export function renderSettingsInterface(container) {
   const user = store.getCurrentUser();
@@ -122,38 +123,20 @@ export function renderSettingsInterface(container) {
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.85rem;flex-wrap:wrap;gap:0.5rem;">
             <div>
               <h2 style="font-family:var(--font-display);font-size:1.3rem;">
-                📂 Puente Google Drive & Rangos de "${Utils.sanitize(activeGroup.name)}"
+                📂 Puente Google Drive (OAuth 2.0) & Rangos de "${Utils.sanitize(activeGroup.name)}"
               </h2>
               <p style="color:var(--text-secondary);font-size:0.86rem;">
                 Código de invitación: <strong style="color:var(--brand-lilac);font-family:var(--font-mono);">${Utils.sanitize(activeGroup.code)}</strong>
               </p>
             </div>
             <span class="badge ${isGroupAdmin ? 'badge-admin' : 'badge-free'}">
-              Tu rango: ${isGroupAdmin ? '🛡️ Administrador (Puedes editar Drive)' : '👤 Miembro (Solo lectura de ajustes)'}
+              Tu rango: ${isGroupAdmin ? '🛡️ Administrador (Puedes editar Drive)' : '👤 Miembro (Puedes conectar tu Google)'}
             </span>
           </div>
 
-          <form id="form-settings-group-drive" style="margin-bottom:1.5rem;">
-            <div class="form-group">
-              <label class="form-label">Enlace de la Carpeta de Google Drive (Pública con permisos de Editor)</label>
-              <input
-                type="url"
-                id="set-group-drive-url"
-                class="form-input"
-                value="${Utils.sanitize(activeGroup.driveFolderUrl || '')}"
-                placeholder="https://drive.google.com/drive/folders/..."
-                ${!isGroupAdmin ? 'disabled' : ''}
-              >
-              <small style="color:var(--text-muted);font-size:0.78rem;">
-                ${isGroupAdmin
-                  ? 'Como Administrador puedes actualizar la carpeta donde ruma creará las subcarpetas por fecha de cada recuerdo.'
-                  : '🔒 Solo los Administradores del grupo pueden modificar la carpeta de Google Drive.'}
-              </small>
-            </div>
-            ${isGroupAdmin ? `
-              <button type="submit" class="btn btn-primary btn-sm">Guardar Carpeta de Google Drive</button>
-            ` : ''}
-          </form>
+          <div id="settings-drive-connection-panel" style="margin-bottom:1.5rem;">
+            ${renderDriveConnectionPanelHtml(activeGroup, isGroupAdmin)}
+          </div>
 
           <!-- Lista de Miembros y Rangos (Administrador vs Miembro) -->
           <div>
@@ -221,17 +204,14 @@ export function renderSettingsInterface(container) {
     });
   });
 
-  document.getElementById('form-settings-group-drive')?.addEventListener('submit', (e) => {
-    e.preventDefault();
-    if (!activeGroup) return;
-    const url = document.getElementById('set-group-drive-url')?.value.trim() || '';
-    const res = store.updateGroupSettings(activeGroup.id, { driveFolderUrl: url });
-    if (!res.ok) {
-      UI.showToast(res.error, 'error');
-      return;
-    }
-    UI.showToast('Carpeta de Google Drive vinculada y guardada localmente 📂✨', 'success');
-  });
+  if (activeGroup) {
+    bindDriveConnectionPanelEvents(
+      document.getElementById('settings-drive-connection-panel'),
+      activeGroup,
+      isGroupAdmin,
+      () => renderSettingsInterface(container)
+    );
+  }
 
   container.querySelectorAll('[data-toggle-role]').forEach(btn => {
     btn.addEventListener('click', () => {
