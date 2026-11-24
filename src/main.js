@@ -11,6 +11,7 @@ import './styles/layout.css';
 
 import { store } from './core/store.js';
 import { Utils } from './core/utils.js';
+import { CloudSync } from './services/cloud-sync.js';
 import { CosmicBackground } from './components/cosmic-background.js';
 import { renderHubInterface } from './interfaces/hub-interface.js';
 import { renderGroupInterface } from './interfaces/group-interface.js';
@@ -18,6 +19,19 @@ import { renderProfileInterface } from './interfaces/profile-interface.js';
 import { renderSettingsInterface } from './interfaces/settings-interface.js';
 
 let cosmicBg = null;
+
+function getCloudBadgeHtml(status) {
+  if (status === 'online') {
+    return `<span id="ruma-cloud-badge" class="badge badge-free" style="font-size:0.68rem;padding:0.2rem 0.55rem;" title="Sincronizado en tiempo real con la nube (todos los dispositivos)">🟢 En línea</span>`;
+  }
+  if (status === 'syncing') {
+    return `<span id="ruma-cloud-badge" class="badge badge-admin" style="font-size:0.68rem;padding:0.2rem 0.55rem;" title="Sincronizando cambios en la nube...">☁️ Sincronizando...</span>`;
+  }
+  if (status === 'offline') {
+    return `<span id="ruma-cloud-badge" class="badge badge-limit" style="font-size:0.68rem;padding:0.2rem 0.55rem;" title="Modo local (se sincronizará al recuperar conexión)">📴 Modo local</span>`;
+  }
+  return `<span id="ruma-cloud-badge" class="badge badge-admin" style="font-size:0.68rem;padding:0.2rem 0.55rem;">☁️ Conectando...</span>`;
+}
 
 function renderApp() {
   if (!cosmicBg) {
@@ -44,9 +58,12 @@ function renderApp() {
 
   root.innerHTML = `
     <header class="ruma-topbar">
-      <div class="ruma-brand" id="nav-brand-home">
-        <img src="assets/ruma_icon_192.png" alt="ruma" class="ruma-brand-logo">
-        <span class="ruma-brand-name">ruma</span>
+      <div style="display:flex;align-items:center;gap:0.65rem;">
+        <div class="ruma-brand" id="nav-brand-home">
+          <img src="assets/ruma_icon_192.png" alt="ruma" class="ruma-brand-logo">
+          <span class="ruma-brand-name">ruma</span>
+        </div>
+        ${getCloudBadgeHtml(CloudSync.getStatus())}
       </div>
 
       <!-- Selector de las 4 Macro-Interfaces -->
@@ -102,5 +119,15 @@ function renderApp() {
   else if (iface === 'settings') renderSettingsInterface(viewRoot);
 }
 
+CloudSync.onStatusChange((status) => {
+  const badge = document.getElementById('ruma-cloud-badge');
+  if (badge) {
+    const tmp = document.createElement('div');
+    tmp.innerHTML = getCloudBadgeHtml(status);
+    badge.replaceWith(tmp.firstElementChild);
+  }
+});
+
 store.subscribe(renderApp);
 window.addEventListener('DOMContentLoaded', renderApp);
+

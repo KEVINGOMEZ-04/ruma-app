@@ -8,6 +8,7 @@ import { Utils } from './utils.js';
 import { Entitlements } from './entitlements.js';
 import { DriveBridge } from '../services/drive-bridge.js';
 import { GoogleAuth } from '../services/google-auth.js';
+import { CloudSync } from '../services/cloud-sync.js';
 import { PRELOADED_SERIES_EPISODES } from '../services/media-api.js';
 
 const DEMO_USERS = [
@@ -350,6 +351,8 @@ class RumaStore {
     this.currentGroupTab = 'memories'; // 'memories' | 'movies' | 'series' | 'music' | 'goals_notes' | 'chat'
     this.inspectedUserId = null;
     this.memoryFilterIds = null; // Permite filtrar recuerdos vinculados desde una canción o película
+    this.clientId = 'cli_' + Math.random().toString(36).slice(2, 10);
+    this.cloudPushTimer = null;
     this.init();
   }
 
@@ -362,6 +365,72 @@ class RumaStore {
     }
     const savedTheme = localStorage.getItem(CONFIG.storageKeys.theme) || 'dark';
     this.setTheme(savedTheme, false);
+
+    // Iniciar sincronización en la nube en tiempo real
+    this.bootstrapCloudSync();
+  }
+
+  async bootstrapCloudSync() {
+    try {
+      const cloud = await CloudSync.pullCloudState();
+      if (cloud && Array.isArray(cloud.groups) && cloud.groups.length > 0) {
+        this.applyRemoteCloudState(cloud, true);
+      } else {
+        // Sembrar la nube con el estado inicial si aún está vacía
+        await CloudSync.pushCloudState({
+          accounts: this.getAccounts(),
+          groups: this.getGroups(),
+          clientId: this.clientId
+        });
+      }
+
+      CloudSync.startRealtimeListener(this.clientId, (remoteData) => {
+        this.applyRemoteCloudState(remoteData, true);
+      });
+    } catch (err) {
+      console.warn('CloudSync bootstrap warning:', err);
+    }
+  }
+
+  applyRemoteCloudState(cloudData, shouldNotify = true) {
+    if (!cloudData) return;
+    let changed = false;
+
+    if (Array.isArray(cloudData.accounts) && cloudData.accounts.length > 0) {
+      const localAccounts = this.getAccounts();
+      const mergedMap = new Map();
+      localAccounts.forEach(a => mergedMap.set(a.id, a));
+      cloudData.accounts.forEach(a => mergedMap.set(a.id, { ...(mergedMap.get(a.id) || {}), ...a }));
+      const mergedAccounts = Array.from(mergedMap.values());
+      localStorage.setItem(CONFIG.storageKeys.accounts, JSON.stringify(mergedAccounts));
+      changed = true;
+    }
+
+    if (Array.isArray(cloudData.groups) && cloudData.groups.length > 0) {
+      localStorage.setItem(CONFIG.storageKeys.groups, JSON.stringify(cloudData.groups));
+      changed = true;
+    }
+
+    if (changed && shouldNotify) {
+      // Si hay un modal abierto o el usuario está escribiendo en un input, evitar destruirle el foco
+      const activeEl = typeof document !== 'undefined' ? document.activeElement : null;
+      const isTyping = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA');
+      const hasOpenModal = typeof document !== 'undefined' && Boolean(document.getElementById('ruma-active-modal'));
+      if (!isTyping && !hasOpenModal) {
+        this.notify();
+      }
+    }
+  }
+
+  scheduleCloudPush() {
+    if (this.cloudPushTimer) clearTimeout(this.cloudPushTimer);
+    this.cloudPushTimer = setTimeout(() => {
+      CloudSync.pushCloudState({
+        accounts: this.getAccounts(),
+        groups: this.getGroups(),
+        clientId: this.clientId
+      });
+    }, 180);
   }
 
   subscribe(fn) {
@@ -392,8 +461,9 @@ class RumaStore {
     }
   }
 
-  saveAccounts(accounts) {
+  saveAccounts(accounts, syncCloud = true) {
     localStorage.setItem(CONFIG.storageKeys.accounts, JSON.stringify(accounts));
+    if (syncCloud) this.scheduleCloudPush();
   }
 
   getCurrentUser() {
@@ -597,8 +667,9 @@ class RumaStore {
     }
   }
 
-  saveGroups(groups) {
+  saveGroups(groups, syncCloud = true) {
     localStorage.setItem(CONFIG.storageKeys.groups, JSON.stringify(groups));
+    if (syncCloud) this.scheduleCloudPush();
   }
 
   getMyGroups() {

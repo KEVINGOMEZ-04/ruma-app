@@ -26,6 +26,13 @@ export const CONFIG = {
     defaultBridgeUrl: 'https://script.google.com/macros/s/AKfycbx3nWf8YgIzkq1Kna1yfB9rv0d3gjr9xvV1yiE-qb5qwzaV6rFujoacsFjOgMkRrbOFiQ/exec'
   },
 
+  // Sincronización en la Nube en Tiempo Real (Firebase Realtime Database)
+  cloudSync: {
+    enabled: true,
+    databaseUrl: 'https://luma-f53ee-default-rtdb.firebaseio.com',
+    rootPath: 'ruma_cloud_v1'
+  },
+
   // Marcos de Perfil Estilo Discord
   avatarFrames: [
     { id: 'frame-none', label: 'Clásico Sutil', premium: false },
