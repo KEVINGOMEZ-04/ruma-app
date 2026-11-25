@@ -261,3 +261,28 @@
   .rv-score-label{font-size:.92rem}
   .rv-star{font-size:1.15rem!important;padding:.1rem 0 .8rem!important}
 }
+
+/* ===== Series (rms-*) ===== */
+.rms-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.5rem}
+.rms-row{display:flex;align-items:center;gap:.45rem;flex-wrap:wrap}
+.rms-badge{display:inline-flex;align-items:center;gap:.25rem;padding:.18rem .55rem;border-radius:9999px;font-size:.72rem;font-weight:700;border:1px solid}
+.rms-badge.ss-done{background:rgba(16,185,129,.16);border-color:rgba(52,211,153,.45);color:#6ee7a0}
+.rms-badge.ss-watching{background:rgba(59,130,246,.18);border-color:rgba(96,165,250,.5);color:#93c5fd}
+.rms-badge.ss-pending{background:rgba(132,204,22,.12);border-color:rgba(163,230,53,.4);color:#bef264}
+.rms-progress{display:flex;flex-direction:column;gap:.25rem}
+.rms-prog-txt{font-size:.72rem;color:#d8c8f5;font-weight:700;text-align:right}
+.rms-bar{height:.4rem;border-radius:9999px;background:rgba(255,255,255,.1);overflow:hidden}
+.rms-bar i{display:block;height:100%;border-radius:9999px;background:linear-gradient(90deg,#a855f7,#ec4899);box-shadow:0 0 8px rgba(168,85,247,.6)}
+.rms-actions{display:flex;gap:.35rem;flex-wrap:wrap}
+.rms-btn{padding:.38rem .65rem;border-radius:9999px;border:1px solid rgba(190,150,255,.32);background:rgba(255,255,255,.05);color:#f3e8ff;font-size:.72rem;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap}
+.rms-btn-main{background:linear-gradient(135deg,#a855f7,#7e22ce);border-color:#e9d5ff}
+.rms-card .rmv-poster{height:auto;min-height:9.5rem;align-self:stretch}
+@media (max-width:380px){.rms-btn{padding:.34rem .5rem;font-size:.68rem}.rms-card .rmv-poster{width:4.6rem}}
+.rms-actions{flex-wrap:nowrap}
+.rms-btn{padding:.38rem .55rem;font-size:.68rem;flex:0 0 auto}
+.rms-btn-main{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.rmv-banner .rm-banner-txt p{white-space:normal}
+.rmv-banner .rm-banner-txt{min-width:0}
+@media (max-width:380px){.rms-btn{padding:.34rem .42rem;font-size:.64rem}}
+.rms-mar{display:none}
+@media (min-width:460px){.rms-mar{display:inline}}

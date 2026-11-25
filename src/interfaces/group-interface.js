@@ -56,6 +56,7 @@ import { groupHeaderHtml, bindGroupHeader } from './group-header.js';
 import { groupHomeHtml, bindGroupHome } from './group-home.js';
 import { renderGroupMemoriesView } from './group-memories.js';
 import { renderGroupMoviesView } from './group-movies.js';
+import { renderGroupSeriesView } from './group-series.js';
 
 export function renderGroupInterface(container) {
   const user = store.getCurrentUser();
@@ -83,7 +84,7 @@ export function renderGroupInterface(container) {
 
   container.innerHTML = `
     <div class="rg-wrap">
-      ${isHome ? groupHeaderHtml(group, user, tab) + groupHomeHtml(group) : ((tab === 'memories' || tab === 'movies') ? `<div id="group-tab-viewport"></div>` : `
+      ${isHome ? groupHeaderHtml(group, user, tab) + groupHomeHtml(group) : ((tab === 'memories' || tab === 'movies' || tab === 'series') ? `<div id="group-tab-viewport"></div>` : `
         <div class="rg-sectionbar">
           <button type="button" class="rg-back" id="rg-back-home">‹ Grupo</button>
           <h2>${SECTION_TITLES[tab] || ''}</h2>
@@ -860,240 +861,30 @@ function renderSeriesTab(viewport, group, user) {
     activeSeriesDetailId = null;
   }
 
-  const check = Entitlements.canAddMediaItem(group, 'series');
-  const maxStr = check.max === Infinity ? 'Ilimitadas ✨' : `${allSeries.length} / ${check.max}`;
-
-  const watchingCount = allSeries.filter(s => s.status === 'Viendo').length;
-  const completedCount = allSeries.filter(s => s.status === 'Completada' || store.isSeriesCompletedByUser(s, user.id)).length;
-
-  let seriesList = [...allSeries];
-  if (seriesFilterState === 'Viendo' || seriesFilterState === 'Por ver' || seriesFilterState === 'Completada') {
-    seriesList = seriesList.filter(s => {
-      if (seriesFilterState === 'Completada') return s.status === 'Completada' || store.isSeriesCompletedByUser(s, user.id);
-      return (s.status || 'Por ver') === seriesFilterState;
-    });
-  } else if (seriesFilterState === 'my-proposals') {
-    seriesList = seriesList.filter(s => s.proposedBy?.id === user.id || s.addedBy === user.name);
-  }
-
-  viewport.innerHTML = `
-    <div style="display:flex;flex-direction:column;gap:1.25rem;">
-      <!-- Cabecera y Métricas de Maratones -->
-      <div class="ruma-card" style="display:flex;flex-direction:column;gap:1rem;background:var(--bg-elevated);">
-        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1rem;">
-          <div>
-            <h2 style="font-family:var(--font-display);font-size:1.35rem;">📺 Centro de Maratones de Series</h2>
-            <p style="font-size:0.84rem;color:var(--text-secondary);">
-              Mira dónde está disponible cada serie, sigue todas sus temporadas y capítulos reales con tu grupo y reséñala cuando quieras.
-            </p>
-          </div>
-          <div style="display:flex;align-items:center;gap:0.65rem;">
-            <span class="badge ${check.allowed ? 'badge-limit' : 'badge-premium'}">Cupo: ${maxStr}</span>
-            <button type="button" class="btn btn-primary btn-sm" id="btn-add-series">+ Añadir Serie (TMDb)</button>
-          </div>
-        </div>
-
-        <div class="ruma-stats-bar">
-          <div class="ruma-stat-box">
-            <span class="ruma-stat-value">${allSeries.length}</span>
-            <span class="ruma-stat-label">Total Series</span>
-          </div>
-          <div class="ruma-stat-box">
-            <span class="ruma-stat-value">${watchingCount}</span>
-            <span class="ruma-stat-label">📺 Viendo Ahora</span>
-          </div>
-          <div class="ruma-stat-box">
-            <span class="ruma-stat-value">${completedCount}</span>
-            <span class="ruma-stat-label">🏆 Completadas</span>
-          </div>
-        </div>
-
-        <div class="ruma-filter-chips">
-          ${[
-            { id: 'all', label: 'Todas' },
-            { id: 'Viendo', label: '📺 Viendo' },
-            { id: 'Por ver', label: '🌱 Por ver' },
-            { id: 'Completada', label: '🏆 Completadas' },
-            { id: 'my-proposals', label: '👤 Mis propuestas' }
-          ].map(f => `
-            <button type="button" class="ruma-chip ${seriesFilterState === f.id ? 'active' : ''}" data-series-filter="${f.id}">
-              ${f.label}
-            </button>
-          `).join('')}
-        </div>
-      </div>
-
-      ${seriesList.length === 0 ? `
-        <div class="ruma-card" style="text-align:center;padding:2.5rem;color:var(--text-secondary);">
-          No hay series en esta categoría. ¡Busca una en TMDb para empezar una maratón grupal!
-        </div>
-      ` : `
-        <div class="ruma-grid-2">
-          ${seriesList.map(ser => {
-            const seasons = ser.seasons || [{ seasonNumber: 1, episodeCount: 10 }];
-            const totalEps = seasons.reduce((acc, s) => acc + (s.episodeCount || 0), 0) || 10;
-            const myProg = ser.userProgress?.[user.id] || {};
-            const curSeason = myProg.currentSeason || ser.currentSeason || 1;
-            const curEp = myProg.currentEpisode || ser.currentEpisode || 1;
-            const watchedCountUser = Object.keys(myProg.watchedEpisodes || {}).filter(k => !k.startsWith('0_')).length;
-            const pct = Math.min(100, Math.round((watchedCountUser / totalEps) * 100));
-            const isCompleted = store.isSeriesCompletedByUser(ser, user.id);
-
-            const ratingsObj = ser.ratings || {};
-            const ratingEntries = Object.entries(ratingsObj);
-            const avg = ratingEntries.length > 0
-              ? (ratingEntries.reduce((acc, [, r]) => acc + Number(r.score || 0), 0) / ratingEntries.length).toFixed(1)
-              : '—';
-            const myRating = ratingsObj[user.id];
-            const watchers = Object.values(ser.userProgress || {});
-            const commentsCount = (ser.comments && ser.comments.length) || 0;
-
-            return `
-              <div class="ruma-card" style="display:flex;gap:1.15rem;flex-wrap:wrap;">
-                <div style="position:relative;width:118px;height:176px;flex-shrink:0;cursor:pointer;" data-open-series="${Utils.sanitize(ser.id)}">
-                  <img src="${Utils.sanitize(ser.poster || 'assets/ruma_icon_512.png')}" alt="Poster" style="width:100%;height:100%;border-radius:var(--radius-md);object-fit:cover;">
-                  ${ser.tmdbRating ? `
-                    <span class="badge" style="position:absolute;bottom:6px;left:6px;background:rgba(14,7,29,0.88);color:var(--brand-gold);font-size:0.7rem;">
-                      ⭐ TMDb ${Utils.sanitize(ser.tmdbRating)}
-                    </span>
-                  ` : ''}
-                </div>
-
-                <div style="flex:1;min-width:210px;display:flex;flex-direction:column;justify-content:space-between;gap:0.75rem;">
-                  <div>
-                    <div style="display:flex;align-items:center;justify-content:space-between;gap:0.4rem;">
-                      <span class="badge ${isCompleted ? 'badge-premium' : 'badge-admin'}">
-                        ${isCompleted ? '🏆 Completada' : Utils.sanitize(ser.status || 'Viendo')}
-                      </span>
-                      <span class="badge badge-premium">⭐ Grupo: ${avg}</span>
-                    </div>
-
-                    <h3 style="font-family:var(--font-display);font-size:1.22rem;margin-top:0.4rem;cursor:pointer;" data-open-series="${Utils.sanitize(ser.id)}">
-                      ${Utils.sanitize(ser.title)}
-                    </h3>
-                    <div style="font-size:0.78rem;color:var(--text-muted);">
-                      ${Utils.sanitize(ser.years || ser.year || '')} • ${seasons.length} temp. • ${totalEps} capítulos
-                    </div>
-
-                    <!-- Plataformas reales de streaming (TMDb / JustWatch) -->
-                    ${renderProvidersStrip(ser)}
-
-                    <!-- Barra de Progreso del Maratón -->
-                    <div style="margin-top:0.65rem;background:var(--bg-elevated);padding:0.55rem 0.75rem;border-radius:var(--radius-sm);">
-                      <div style="display:flex;justify-content:space-between;font-size:0.75rem;margin-bottom:0.35rem;">
-                        <span>Tu avance: <strong>T${curSeason} · Cap ${curEp}</strong></span>
-                        <span style="color:var(--brand-lilac);font-weight:800;">${pct}% visto</span>
-                      </div>
-                      <div class="ruma-progress-track">
-                        <div class="ruma-progress-fill" style="width:${pct}%;"></div>
-                      </div>
-                    </div>
-
-                    <!-- Integrantes viendo la serie -->
-                    ${watchers.length > 0 ? `
-                      <div style="display:flex;align-items:center;gap:0.4rem;margin-top:0.55rem;flex-wrap:wrap;">
-                        <span style="font-size:0.74rem;color:var(--text-muted);">Viendo:</span>
-                        ${watchers.map(w => `
-                          <span class="badge badge-free" style="font-size:0.7rem;">
-                            ${Utils.sanitize(w.userName)}: T${w.currentSeason || 1}·C${w.currentEpisode || 1}
-                          </span>
-                        `).join('')}
-                      </div>
-                    ` : ''}
-
-                    <!-- Reseñas del grupo -->
-                    <div style="margin-top:0.6rem;">
-                      ${renderGroupReviews(ser, group, user, { compact: true, category: 'series' })}
-                    </div>
-                  </div>
-
-                  <div style="display:flex;gap:0.4rem;flex-wrap:wrap;">
-                    <button type="button" class="btn btn-primary btn-sm" data-open-series="${Utils.sanitize(ser.id)}">
-                      ▶ Capítulos & Maratón
-                    </button>
-                    <button type="button" class="btn btn-secondary btn-sm" data-rate-series="${Utils.sanitize(ser.id)}">
-                      ${myRating ? `✏️ Mi reseña · ⭐ ${Number(myRating.score).toFixed(1)}` : '✍️ Reseñar'}
-                    </button>
-                    <button type="button" class="btn btn-secondary btn-sm" data-open-series="${Utils.sanitize(ser.id)}">
-                      💬 ${commentsCount}
-                    </button>
-                    <button type="button" class="btn btn-secondary btn-sm" data-quote-series="${Utils.sanitize(ser.id)}">↩</button>
-                    <button type="button" class="btn btn-danger btn-sm" data-delete-series="${Utils.sanitize(ser.id)}">🗑️</button>
-                  </div>
-                </div>
-              </div>
-            `;
-          }).join('')}
-        </div>
-      `}
-    </div>
-  `;
-
-  viewport.querySelectorAll('[data-series-filter]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      seriesFilterState = btn.getAttribute('data-series-filter');
-      renderSeriesTab(viewport, group, user);
-    });
-  });
-
-  document.getElementById('btn-add-series')?.addEventListener('click', () => {
-    if (!check.allowed) {
-      UI.showUpgradeModal(check.reason, () => store.upgradeGroupToPremium(group.id));
-      return;
-    }
-    openSearchTmdbModal(group, 'series');
-  });
-
-  viewport.querySelectorAll('[data-open-series]').forEach(el => {
-    el.addEventListener('click', () => {
-      const ser = allSeries.find(s => s.id === el.getAttribute('data-open-series'));
-      if (!ser) return;
+  renderGroupSeriesView(viewport, group, user, {
+    getFilterState: () => seriesFilterState,
+    setFilterState: (v) => { seriesFilterState = v; },
+    openSearchTmdbModal,
+    openSeriesDetail: (ser) => {
       activeSeriesDetailId = ser.id;
-      const myProg = ser.userProgress?.[user.id];
-      activeSeriesSeasonNum = myProg?.currentSeason || 1;
+      activeSeriesSeasonNum = ser.userProgress?.[user.id]?.currentSeason || 1;
       renderSeriesTab(viewport, group, user);
-    });
-  });
-
-  viewport.querySelectorAll('[data-rate-series]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const ser = allSeries.find(s => s.id === btn.getAttribute('data-rate-series'));
-      if (!ser) return;
-      openReviewModal('series', ser, user);
-    });
-  });
-  viewport.querySelectorAll('[data-review-item][data-review-cat="series"]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const ser = allSeries.find(s => s.id === btn.getAttribute('data-review-item'));
-      if (ser) openReviewModal('series', ser, user);
-    });
-  });
-
-  viewport.querySelectorAll('[data-quote-series]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const ser = allSeries.find(s => s.id === btn.getAttribute('data-quote-series'));
-      if (!ser) return;
+    },
+    openReviewModal,
+    openMediaCommentsModal,
+    onQuoteSeries: (ser) => {
       pendingChatQuote = {
         type: 'series',
         itemId: ser.id,
         label: '📺 Serie',
-        title: `${ser.title} (${ser.year || ''})`,
+        title: `${ser.title} (${ser.year || ser.years || ''})`,
         subtitle: `Maratón en ${ser.platform || 'Streaming'}`,
         thumb: ser.poster || 'assets/ruma_icon_512.png'
       };
       store.navigate('group', { groupTab: 'chat' });
-    });
+    },
+    rerender: () => renderSeriesTab(viewport, group, user)
   });
-
-  viewport.querySelectorAll('[data-delete-series]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      store.deleteMediaItem('series', btn.getAttribute('data-delete-series'));
-      UI.showToast('Serie eliminada de las maratones.', 'info');
-    });
-  });
-
-  // Plataformas, temporadas y capítulos reales desde TMDb en segundo plano
-  hydrateMediaFromTmdb(group, 'series');
 }
 
 let seriesDetailRenderToken = 0;
