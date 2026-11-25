@@ -361,7 +361,7 @@ class RumaStore {
       localStorage.setItem(CONFIG.storageKeys.accounts, JSON.stringify(DEMO_USERS));
     }
     if (!localStorage.getItem(CONFIG.storageKeys.groups)) {
-      localStorage.setItem(CONFIG.storageKeys.groups, JSON.stringify(DEMO_GROUPS));
+      localStorage.setItem(CONFIG.storageKeys.groups, JSON.stringify([]));
     }
     const savedTheme = localStorage.getItem(CONFIG.storageKeys.theme) || 'dark';
     this.setTheme(savedTheme, false);
@@ -370,10 +370,14 @@ class RumaStore {
     this.bootstrapCloudSync();
   }
 
+  isLegacyDemoGroup(g) {
+    return !g || g.id === 'grp_santuario_1' || g.id === 'grp_amigos_2' || g.id === 'grp_test_cloud_1' || g.id === 'grp_comunidad_2';
+  }
+
   async bootstrapCloudSync() {
     try {
       const cloud = await CloudSync.pullCloudState();
-      if (cloud && Array.isArray(cloud.groups) && cloud.groups.length > 0) {
+      if (cloud && Array.isArray(cloud.groups)) {
         this.applyRemoteCloudState(cloud, true);
       } else {
         // Sembrar la nube con el estado inicial si aún está vacía
@@ -398,8 +402,11 @@ class RumaStore {
 
   mergeCloudAndLocalGroups(baseGroups = [], incomingGroups = []) {
     const map = new Map();
-    baseGroups.forEach(g => map.set(g.id, g));
+    baseGroups.forEach(g => {
+      if (!this.isLegacyDemoGroup(g)) map.set(g.id, g);
+    });
     incomingGroups.forEach(ig => {
+      if (this.isLegacyDemoGroup(ig)) return;
       const bg = map.get(ig.id);
       if (!bg) {
         map.set(ig.id, ig);
@@ -757,7 +764,8 @@ class RumaStore {
   // --- GRUPOS Y NAVEGACIÓN ENTRE LAS 4 INTERFACES ---
   getGroups() {
     try {
-      const list = JSON.parse(localStorage.getItem(CONFIG.storageKeys.groups)) || DEMO_GROUPS;
+      const raw = JSON.parse(localStorage.getItem(CONFIG.storageKeys.groups)) || [];
+      const list = raw.filter(g => !this.isLegacyDemoGroup(g));
       // Garantizar hidratación de series con episodios precargados
       list.forEach(g => {
         (g.series || []).forEach(s => {
@@ -785,7 +793,7 @@ class RumaStore {
       });
       return list;
     } catch (_) {
-      return DEMO_GROUPS;
+      return [];
     }
   }
 
@@ -836,6 +844,19 @@ class RumaStore {
       await this.pushMergedStateToCloud();
     }
     return res;
+  }
+
+  async upgradeGroupToPremiumAsync(groupId) {
+    const allGroups = this.getGroups();
+    const grp = allGroups.find(g => g.id === groupId);
+    if (!grp) return { ok: false, reason: 'No se encontró el grupo.' };
+    grp.plan = 'premium';
+    grp.updatedAt = new Date().toISOString();
+    this.saveGroups(allGroups);
+    this.updateCurrentUser({ isPremium: true });
+    await this.pushMergedStateToCloud();
+    this.notify();
+    return { ok: true, group: grp };
   }
 
   createGroup({ name, description, driveFolderUrl, plan = 'free' }) {
