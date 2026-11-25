@@ -57,6 +57,7 @@ import { groupHomeHtml, bindGroupHome } from './group-home.js';
 import { renderGroupMemoriesView } from './group-memories.js';
 import { renderGroupMoviesView } from './group-movies.js';
 import { renderGroupSeriesView } from './group-series.js';
+import { renderGroupMusicView } from './group-music.js';
 
 export function renderGroupInterface(container) {
   const user = store.getCurrentUser();
@@ -84,7 +85,7 @@ export function renderGroupInterface(container) {
 
   container.innerHTML = `
     <div class="rg-wrap">
-      ${isHome ? groupHeaderHtml(group, user, tab) + groupHomeHtml(group) : ((tab === 'memories' || tab === 'movies' || tab === 'series') ? `<div id="group-tab-viewport"></div>` : `
+      ${isHome ? groupHeaderHtml(group, user, tab) + groupHomeHtml(group) : ((tab === 'memories' || tab === 'movies' || tab === 'series' || tab === 'music') ? `<div id="group-tab-viewport"></div>` : `
         <div class="rg-sectionbar">
           <button type="button" class="rg-back" id="rg-back-home">‹ Grupo</button>
           <h2>${SECTION_TITLES[tab] || ''}</h2>
@@ -1510,230 +1511,12 @@ function openMediaCommentsModal(category, item) {
 // 4. PESTAÑA MÚSICA (Playlist Colaborativa LUMA + Estadísticas + Filtros + Letras + Reproductor Global)
 // ============================================================================
 function renderMusicTab(viewport, group, user) {
-  const allSongs = group.songs || [];
-  const allMemories = group.memories || [];
-  const check = Entitlements.canAddMediaItem(group, 'songs');
-  const maxStr = check.max === Infinity ? 'Ilimitadas ✨' : `${allSongs.length} / ${check.max}`;
-
-  // Métricas estilo LUMA: Canciones, Integrantes que han aportado, Duración total
-  const uniqueAuthors = new Set();
-  allSongs.forEach(s => { if (s.addedBy) uniqueAuthors.add(s.addedBy); });
-  const totalSec = allSongs.reduce((acc, s) => acc + Math.round((s.trackTimeMillis || 210000) / 1000), 0);
-  const mins = Math.floor(totalSec / 60);
-
-  let songs = [...allSongs];
-  if (musicFilterState.type === 'top-rated') {
-    songs.sort((a, b) => (b.rating || 5) - (a.rating || 5));
-  } else if (musicFilterState.type === 'with-memories') {
-    songs = songs.filter(s => s.linkedMemories && s.linkedMemories.length > 0);
-  } else if (musicFilterState.type === 'my-songs') {
-    songs = songs.filter(s => s.addedBy === user.name || s.authorId === user.id);
-  } else if (musicFilterState.type === 'by-member' && musicFilterState.memberName) {
-    songs = songs.filter(s => s.addedBy === musicFilterState.memberName);
-  }
-
-  viewport.innerHTML = `
-    <div style="display:flex;flex-direction:column;gap:1.25rem;">
-      <div class="ruma-card" style="display:flex;flex-direction:column;gap:1rem;background:var(--bg-elevated);">
-        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1rem;">
-          <div>
-            <h2 style="font-family:var(--font-display);font-size:1.35rem;">🎵 Playlist Colaborativa del Grupo</h2>
-            <p style="font-size:0.84rem;color:var(--text-secondary);">
-              Escucha fragmentos de 30s en el reproductor global, lee la letra completa, vincula canciones a recuerdos y ábrelas en <strong>Spotify</strong>, <strong>YouTube</strong> o <strong>Apple Music</strong>.
-            </p>
-          </div>
-          <div style="display:flex;align-items:center;gap:0.65rem;">
-            <span class="badge ${check.allowed ? 'badge-limit' : 'badge-premium'}">Cupo: ${maxStr}</span>
-            <button type="button" class="btn btn-primary btn-sm" id="btn-add-song">+ Añadir Canción</button>
-          </div>
-        </div>
-
-        <!-- Estadísticas Rápidas de la Playlist (Estilo LUMA) -->
-        <div class="ruma-stats-bar">
-          <div class="ruma-stat-box">
-            <span class="ruma-stat-value">${allSongs.length}</span>
-            <span class="ruma-stat-label">🎵 Canciones</span>
-          </div>
-          <div class="ruma-stat-box">
-            <span class="ruma-stat-value">${Math.max(uniqueAuthors.size, allSongs.length > 0 ? 1 : 0)}</span>
-            <span class="ruma-stat-label">👥 Integrantes DJ</span>
-          </div>
-          <div class="ruma-stat-box">
-            <span class="ruma-stat-value">${mins} min</span>
-            <span class="ruma-stat-label">⏱ Duración Total</span>
-          </div>
-        </div>
-
-        <!-- Filtros de Música -->
-        <div class="ruma-filter-chips">
-          ${[
-            { id: 'all', label: 'Todas' },
-            { id: 'top-rated', label: '⭐ Mejor valoradas' },
-            { id: 'with-memories', label: '📸 Con recuerdos' },
-            { id: 'my-songs', label: '👤 Mis canciones' }
-          ].map(f => `
-            <button type="button" class="ruma-chip ${musicFilterState.type === f.id ? 'active' : ''}" data-music-filter="${f.id}">
-              ${f.label}
-            </button>
-          `).join('')}
-
-          <select id="music-member-select" class="form-select" style="width:auto;padding:0.35rem 0.75rem;font-size:0.8rem;border-radius:var(--radius-full);">
-            <option value="">👥 Filtrar por integrante...</option>
-            ${Array.from(uniqueAuthors).map(name => `
-              <option value="${Utils.sanitize(name)}" ${musicFilterState.type === 'by-member' && musicFilterState.memberName === name ? 'selected' : ''}>
-                👤 ${Utils.sanitize(name)}
-              </option>
-            `).join('')}
-          </select>
-        </div>
-      </div>
-
-      ${songs.length === 0 ? `
-        <div class="ruma-card" style="text-align:center;padding:2.5rem;color:var(--text-secondary);">
-          No hay canciones en este filtro todavía.
-        </div>
-      ` : `
-        <div class="ruma-grid-2">
-          ${songs.map(song => {
-            const ratingScore = Number(song.rating || 5).toFixed(1);
-            const ratingCount = song.ratingCount || 1;
-            const commentsCount = (song.comments && song.comments.length) || 0;
-            const linkedMems = (song.linkedMemories || []).map(id => allMemories.find(m => m.id === id)).filter(Boolean);
-            const isPlaying = MusicService.getCurrentPlayingId() === song.id;
-
-            return `
-              <div class="ruma-card" style="display:flex;gap:1rem;align-items:flex-start;">
-                <div style="position:relative;width:88px;height:88px;flex-shrink:0;">
-                  <img src="${Utils.sanitize(song.artwork || 'assets/ruma_icon_512.png')}" alt="Artwork" style="width:100%;height:100%;border-radius:var(--radius-md);object-fit:cover;">
-                  <button type="button" class="btn btn-primary btn-sm" style="position:absolute;bottom:6px;right:6px;width:32px;height:32px;border-radius:50%;padding:0;" data-play-song="${Utils.sanitize(song.id)}" title="Reproducir fragmento 30s">
-                    ${isPlaying ? '⏸' : '▶'}
-                  </button>
-                </div>
-
-                <div style="flex:1;min-width:0;">
-                  <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:0.5rem;">
-                    <div style="min-width:0;">
-                      <h3 style="font-family:var(--font-display);font-size:1.1rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
-                        ${Utils.sanitize(song.title)}
-                      </h3>
-                      <div style="color:var(--brand-lilac);font-size:0.84rem;font-weight:600;">
-                        ${Utils.sanitize(song.artist)} ${song.album ? `<span style="color:var(--text-muted);font-weight:400;">· ${Utils.sanitize(song.album)}</span>` : ''}
-                      </div>
-                    </div>
-                    <button type="button" class="btn btn-danger btn-sm" data-delete-song="${Utils.sanitize(song.id)}">✕</button>
-                  </div>
-
-                  <!-- Calificación 1-5 Estrellas Interactiva -->
-                  <div style="display:flex;align-items:center;gap:0.35rem;margin-top:0.35rem;font-size:0.8rem;">
-                    ${[1, 2, 3, 4, 5].map(st => `
-                      <span style="cursor:pointer;color:${st <= Math.round(song.rating || 5) ? 'var(--brand-gold)' : 'var(--text-muted)'};" data-rate-song="${Utils.sanitize(song.id)}" data-star="${st}" title="Calificar con ${st} estrellas">★</span>
-                    `).join('')}
-                    <span style="color:var(--text-secondary);font-weight:700;margin-left:0.25rem;">${ratingScore} (${ratingCount})</span>
-                    <span style="color:var(--text-muted);font-size:0.74rem;">· Por ${Utils.sanitize(song.addedBy || 'Miembro')}</span>
-                  </div>
-
-                  ${song.note ? `<p style="font-size:0.82rem;color:var(--text-secondary);margin-top:0.4rem;font-style:italic;">“${Utils.sanitize(song.note)}”</p>` : ''}
-
-                  ${linkedMems.length > 0 ? `
-                    <div style="margin-top:0.45rem;">
-                      <button type="button" class="badge badge-free" style="cursor:pointer;" data-song-linked-mems="${Utils.sanitize(song.linkedMemories.join(','))}">
-                        🎴 Usada en ${linkedMems.length} recuerdo(s) ›
-                      </button>
-                    </div>
-                  ` : ''}
-
-                  <!-- Plataformas + Letra + Comentarios + Citar -->
-                  <div class="platform-links" style="margin-top:0.7rem;">
-                    <a href="${Utils.sanitize(song.spotifyUrl || MusicService.buildSpotifyUrl(song.title, song.artist))}" target="_blank" rel="noopener" class="btn-platform btn-spotify">
-                      🟢 Spotify
-                    </a>
-                    <a href="${Utils.sanitize(song.youtubeUrl || MusicService.buildYoutubeUrl(song.title, song.artist))}" target="_blank" rel="noopener" class="btn-platform btn-youtube">
-                      🔴 YouTube
-                    </a>
-                    <a href="${Utils.sanitize(song.appleMusicUrl || MusicService.buildAppleMusicUrl(song.title, song.artist))}" target="_blank" rel="noopener" class="btn-platform btn-apple">
-                      🍎 Apple
-                    </a>
-                    <button type="button" class="btn btn-secondary btn-sm" data-lyrics-song="${Utils.sanitize(song.id)}">🎤 Letra</button>
-                    <button type="button" class="btn btn-secondary btn-sm" data-comments-song="${Utils.sanitize(song.id)}">💬 ${commentsCount}</button>
-                    <button type="button" class="btn btn-secondary btn-sm" data-quote-song="${Utils.sanitize(song.id)}">↩</button>
-                  </div>
-                </div>
-              </div>
-            `;
-          }).join('')}
-        </div>
-      `}
-    </div>
-  `;
-
-  viewport.querySelectorAll('[data-music-filter]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      musicFilterState.type = btn.getAttribute('data-music-filter');
-      musicFilterState.memberName = '';
-      renderMusicTab(viewport, group, user);
-    });
-  });
-
-  document.getElementById('music-member-select')?.addEventListener('change', (e) => {
-    const val = e.target.value;
-    if (val) {
-      musicFilterState.type = 'by-member';
-      musicFilterState.memberName = val;
-    } else {
-      musicFilterState.type = 'all';
-      musicFilterState.memberName = '';
-    }
-    renderMusicTab(viewport, group, user);
-  });
-
-  document.getElementById('btn-add-song')?.addEventListener('click', () => {
-    if (!check.allowed) {
-      UI.showUpgradeModal(check.reason, () => store.upgradeGroupToPremium(group.id));
-      return;
-    }
-    openAddSongModal(group);
-  });
-
-  // Reproducir canción (si no tiene previewUrl cargado, lo busca en vivo en iTunes)
-  viewport.querySelectorAll('[data-play-song]').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const song = allSongs.find(s => s.id === btn.getAttribute('data-play-song'));
-      if (!song) return;
-
-      if (song.previewUrl) {
-        const res = MusicService.toggleTrack(song);
-        btn.textContent = res.isPlaying ? '⏸' : '▶';
-      } else {
-        btn.textContent = '⏳';
-        const results = await MusicService.searchSongs(`${song.title} ${song.artist}`, 3);
-        if (results.length > 0 && results[0].previewUrl) {
-          store.updateMediaItem('songs', song.id, { previewUrl: results[0].previewUrl });
-          song.previewUrl = results[0].previewUrl;
-          MusicService.playTrack(song);
-          btn.textContent = '⏸';
-        } else {
-          btn.textContent = '▶';
-          UI.showToast('Preview de 30s no disponible en iTunes para esta canción.', 'info');
-        }
-      }
-    });
-  });
-
-  // Calificar canción 1-5 estrellas
-  viewport.querySelectorAll('[data-rate-song]').forEach(el => {
-    el.addEventListener('click', () => {
-      const songId = el.getAttribute('data-rate-song');
-      const star = Number(el.getAttribute('data-star'));
-      store.rateSong(songId, star);
-      UI.showToast(`¡Calificaste con ${star}★!`, 'success');
-    });
-  });
-
-  // Ver letra completa (LRCLIB API de LUMA)
-  viewport.querySelectorAll('[data-lyrics-song]').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const song = allSongs.find(s => s.id === btn.getAttribute('data-lyrics-song'));
-      if (!song) return;
+  renderGroupMusicView(viewport, group, user, {
+    getFilterState: () => musicFilterState,
+    setFilterState: (v) => { musicFilterState = v; },
+    openAddSongModal,
+    openMediaCommentsModal,
+    openLyricsModal: (song) => {
       UI.openModal({
         title: `🎤 Letra: ${song.title} — ${song.artist}`,
         contentHtml: `<div id="lyrics-modal-box" style="padding:1rem;color:var(--brand-lilac);">Buscando letra oficial...</div>`,
@@ -1742,48 +1525,14 @@ function renderMusicTab(viewport, group, user) {
           const lyrics = await MediaService.fetchLyrics(song.artist, song.title);
           if (!box) return;
           if (lyrics) {
-            box.innerHTML = `<pre style="white-space:pre-wrap;font-family:var(--font-sans);font-size:0.88rem;line-height:1.65;color:var(--text-secondary);max-height:55dvh;overflow-y:auto;">${Utils.sanitize(lyrics)}</pre>`;
+            box.innerHTML = `<pre style="white-space:pre-wrap;font-family:var(--font-sans);font-size:0.88rem;line-height:1.65;color:var(--text-secondary);">${Utils.sanitize(lyrics)}</pre>`;
           } else {
-            box.innerHTML = `
-              <div style="text-align:center;padding:1rem;">
-                <p style="color:var(--text-secondary);margin-bottom:0.85rem;">No se encontró la letra sincronizada en LRCLIB para este tema.</p>
-                <a href="https://genius.com/search?q=${encodeURIComponent(song.title + ' ' + song.artist)}" target="_blank" rel="noopener" class="btn btn-primary btn-sm">Buscar Letra en Genius ↗</a>
-              </div>
-            `;
+            box.innerHTML = `<div style="text-align:center;padding:1rem;"><p style="color:var(--text-secondary);margin-bottom:0.85rem;">No se encontró la letra para este tema.</p><a href="https://genius.com/search?q=${encodeURIComponent(song.title + ' ' + song.artist)}" target="_blank" rel="noopener" class="btn btn-primary btn-sm">Buscar Letra en Genius ↗</a></div>`;
           }
         }
       });
-    });
-  });
-
-  // Comentarios de la canción
-  viewport.querySelectorAll('[data-comments-song]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const song = allSongs.find(s => s.id === btn.getAttribute('data-comments-song'));
-      if (song) openMediaCommentsModal('songs', song);
-    });
-  });
-
-  // Recuerdos vinculados
-  viewport.querySelectorAll('[data-song-linked-mems]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const ids = btn.getAttribute('data-song-linked-mems').split(',').filter(Boolean);
-      store.navigate('group', { groupTab: 'memories', memoryFilterIds: ids });
-    });
-  });
-
-  viewport.querySelectorAll('[data-delete-song]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      MusicService.stopPreview();
-      store.deleteMediaItem('songs', btn.getAttribute('data-delete-song'));
-      UI.showToast('Canción eliminada.', 'info');
-    });
-  });
-
-  viewport.querySelectorAll('[data-quote-song]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const song = allSongs.find(s => s.id === btn.getAttribute('data-quote-song'));
-      if (!song) return;
+    },
+    onQuoteSong: (song) => {
       pendingChatQuote = {
         type: 'song',
         itemId: song.id,
@@ -1793,7 +1542,8 @@ function renderMusicTab(viewport, group, user) {
         thumb: song.artwork || 'assets/ruma_icon_512.png'
       };
       store.navigate('group', { groupTab: 'chat' });
-    });
+    },
+    rerender: () => renderMusicTab(viewport, group, user)
   });
 }
 

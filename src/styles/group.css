@@ -286,3 +286,36 @@
 @media (max-width:380px){.rms-btn{padding:.34rem .42rem;font-size:.64rem}}
 .rms-mar{display:none}
 @media (min-width:460px){.rms-mar{display:inline}}
+
+/* ===== Música (rmu-*) ===== */
+.rmu-select{width:100%;max-width:100%;align-self:flex-start;padding:.55rem 1rem;border-radius:9999px;border:1px solid rgba(190,150,255,.28);background:rgba(20,12,40,.78);color:#e9ddff;font-size:.8rem;font-family:inherit;appearance:none;-webkit-appearance:none}
+@media (min-width:520px){.rmu-select{width:auto;min-width:16rem}}
+.rmu-card{display:flex;gap:.75rem;padding:.7rem;align-items:flex-start}
+.rmu-art{position:relative;width:5.4rem;height:5.4rem;flex:0 0 auto}
+.rmu-art img{width:100%;height:100%;object-fit:cover;border-radius:.9rem;background:#140c28;box-shadow:0 6px 16px rgba(0,0,0,.4)}
+.rmu-play{position:absolute;right:.3rem;bottom:.3rem;width:2rem;height:2rem;border-radius:50%;border:0;background:linear-gradient(135deg,#a855f7,#7e22ce);color:#fff;font-size:.8rem;cursor:pointer;box-shadow:0 0 12px rgba(168,85,247,.7)}
+.rmu-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:.3rem}
+.rmu-top{display:flex;justify-content:space-between;align-items:flex-start;gap:.4rem}
+.rmu-titles{min-width:0}
+.rmu-titles h3{margin:0;font-family:var(--font-display);font-size:clamp(.98rem,4vw,1.15rem);font-weight:800;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rmu-artist{font-size:.78rem;color:#b8a3d9;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rmu-artist b{color:#c084fc;font-weight:700}
+.rmu-top-actions{display:flex;align-items:center;gap:.2rem;flex:0 0 auto}
+.rmu-comm{display:inline-flex;align-items:center;gap:.25rem;padding:.25rem .6rem;border-radius:9999px;border:1px solid rgba(190,150,255,.3);background:rgba(255,255,255,.04);color:#f3e8ff;font-size:.72rem;font-weight:700;cursor:pointer;font-family:inherit}
+.rmu-stars{display:flex;align-items:center;gap:.1rem;font-size:.95rem}
+.rmu-stars span{color:#5b4a7d;cursor:pointer}
+.rmu-stars span.on{color:#fbbf24}
+.rmu-stars b{margin-left:.35rem;color:#fff;font-size:.8rem}
+.rmu-stars small{margin-left:.2rem;color:#b8a3d9;font-size:.72rem}
+.rmu-note{margin:0;font-size:.78rem;font-style:italic;color:#d8c8f5}
+.rmu-linked{align-self:flex-start;background:rgba(139,69,232,.18);border:1px solid rgba(190,150,255,.3);color:#e9d5ff;border-radius:9999px;padding:.2rem .6rem;font-size:.7rem;cursor:pointer;font-family:inherit}
+.rmu-links{display:flex;flex-wrap:wrap;gap:.35rem;margin-top:.15rem}
+.rmu-pl{display:inline-flex;align-items:center;gap:.3rem;padding:.3rem .6rem;border-radius:9999px;border:1px solid;font-size:.7rem;font-weight:700;text-decoration:none;cursor:pointer;font-family:inherit;background:rgba(255,255,255,.04);color:#f3e8ff;border-color:rgba(190,150,255,.3)}
+.rmu-pl i{font-style:normal;font-size:.62rem;display:inline-grid;place-items:center;width:1rem;height:1rem;border-radius:50%}
+.rmu-pl.spotify{border-color:rgba(34,197,94,.5);background:rgba(34,197,94,.1)}
+.rmu-pl.spotify i{background:#1ed760}
+.rmu-pl.youtube{border-color:rgba(239,68,68,.5);background:rgba(239,68,68,.1)}
+.rmu-pl.youtube i{background:#ef4444;color:#fff;border-radius:.25rem;width:1.15rem}
+.rmu-pl.apple{border-color:rgba(244,114,182,.5);background:rgba(244,114,182,.1)}
+.rmu-pl.apple i{background:linear-gradient(135deg,#f472b6,#fb7185)}
+@media (max-width:380px){.rmu-art{width:4.6rem;height:4.6rem}.rmu-pl{padding:.28rem .5rem;font-size:.66rem}}
