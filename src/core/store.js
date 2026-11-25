@@ -1848,22 +1848,48 @@ class RumaStore {
     this.notify();
   }
 
-  sendChatMessage({ text, quote = null }) {
+  sendChatMessage({ text = '', quote = null, media = null }) {
     const user = this.getCurrentUser();
     const allGroups = this.getGroups();
     const group = allGroups.find(g => g.id === this.getActiveGroup()?.id);
-    if (!group || !user || !text.trim()) return;
+    const cleanText = String(text || '').trim();
+    if (!group || !user || (!cleanText && !media && !quote)) return;
     group.messages = group.messages || [];
     group.messages.push({
       id: Utils.generateId('msg'),
       senderId: user.id,
       senderName: user.name,
-      text: text.trim(),
+      senderAvatar: user.avatar || 'assets/ruma_icon_512.png',
+      text: cleanText,
       timestamp: new Date().toISOString(),
-      quote
+      quote,
+      media: media || null
     });
     this.saveGroups(allGroups);
     this.notify();
+  }
+
+  canDeleteChatMessage(group, msg, user = null) {
+    const u = user || this.getCurrentUser();
+    if (!group || !msg || !u) return false;
+    return group.creatorId === u.id || msg.senderId === u.id;
+  }
+
+  deleteChatMessage(messageId) {
+    const user = this.getCurrentUser();
+    const allGroups = this.getGroups();
+    const active = this.getActiveGroup();
+    const group = allGroups.find(g => g.id === active?.id);
+    if (!group || !user) return { ok: false, error: 'Grupo no encontrado' };
+    const msg = (group.messages || []).find(m => m.id === messageId);
+    if (!msg) return { ok: false, error: 'Mensaje no encontrado' };
+    if (!this.canDeleteChatMessage(group, msg, user)) {
+      return { ok: false, error: 'Solo el autor del mensaje o el líder del grupo pueden eliminarlo.' };
+    }
+    group.messages = (group.messages || []).filter(m => m.id !== messageId);
+    this.saveGroups(allGroups);
+    this.notify();
+    return { ok: true };
   }
 }
 

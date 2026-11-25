@@ -58,6 +58,7 @@ import { renderGroupMemoriesView } from './group-memories.js';
 import { renderGroupMoviesView } from './group-movies.js';
 import { renderGroupSeriesView } from './group-series.js';
 import { renderGroupMusicView } from './group-music.js';
+import { renderGroupChatView } from './group-chat.js';
 
 export function renderGroupInterface(container) {
   const user = store.getCurrentUser();
@@ -85,7 +86,7 @@ export function renderGroupInterface(container) {
 
   container.innerHTML = `
     <div class="rg-wrap">
-      ${isHome ? groupHeaderHtml(group, user, tab) + groupHomeHtml(group) : ((tab === 'memories' || tab === 'movies' || tab === 'series' || tab === 'music') ? `<div id="group-tab-viewport"></div>` : `
+      ${isHome ? groupHeaderHtml(group, user, tab) + groupHomeHtml(group) : ((tab === 'memories' || tab === 'movies' || tab === 'series' || tab === 'music' || tab === 'chat') ? `<div id="group-tab-viewport"></div>` : `
         <div class="rg-sectionbar">
           <button type="button" class="rg-back" id="rg-back-home">‹ Grupo</button>
           <h2>${SECTION_TITLES[tab] || ''}</h2>
@@ -1786,122 +1787,11 @@ function renderGoalsAndNotesTab(viewport, group) {
 // 6. PESTAÑA CHAT INTERNO ESTILO WHATSAPP (Con citas a Recuerdos, Películas, Series, Canciones o Mensajes)
 // ============================================================================
 function renderChatTab(viewport, group, user) {
-  const messages = group.messages || [];
-
-  viewport.innerHTML = `
-    <div class="chat-layout">
-      <!-- Cabecera del Chat -->
-      <div style="padding:0.85rem 1.25rem;background:var(--bg-card);border-bottom:1px solid var(--border-subtle);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;">
-        <div>
-          <strong style="font-size:0.95rem;">💬 Chat Interno de ${Utils.sanitize(group.name)}</strong>
-          <div style="font-size:0.76rem;color:var(--text-muted);">
-            Desliza o pulsa "Responder" en cualquier mensaje, o enlaza un recuerdo, película, serie o canción guardada.
-          </div>
-        </div>
-        <button type="button" class="btn btn-secondary btn-sm" id="btn-chat-pick-saved-item">
-          📎 Enlazar Recuerdo / Película / Canción
-        </button>
-      </div>
-
-      <!-- Historial de Mensajes -->
-      <div class="chat-messages" id="chat-messages-scroll">
-        ${messages.map(msg => {
-          const isMine = msg.senderId === user.id;
-          return `
-            <div class="chat-bubble ${isMine ? 'mine' : ''}">
-              <div style="display:flex;align-items:center;justify-content:space-between;gap:0.75rem;margin-bottom:0.3rem;">
-                <strong style="font-size:0.78rem;color:var(--brand-lilac-soft);">${Utils.sanitize(msg.senderName)}</strong>
-                <button type="button" style="background:none;border:none;color:var(--text-muted);font-size:0.72rem;cursor:pointer;" data-reply-msg="${Utils.sanitize(msg.id)}">
-                  ↩ Responder
-                </button>
-              </div>
-
-              ${msg.quote ? `
-                <div class="chat-quote-box" data-jump-quote-type="${Utils.sanitize(msg.quote.type)}">
-                  ${msg.quote.thumb ? `<img src="${Utils.sanitize(msg.quote.thumb)}" alt="thumb" class="chat-quote-thumb">` : ''}
-                  <div style="min-width:0;">
-                    <div style="font-weight:800;color:var(--brand-pink);font-size:0.74rem;">${Utils.sanitize(msg.quote.label)}</div>
-                    <div style="font-weight:700;color:var(--text-main);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${Utils.sanitize(msg.quote.title)}</div>
-                    <div style="color:var(--text-muted);font-size:0.72rem;">${Utils.sanitize(msg.quote.subtitle || '')}</div>
-                  </div>
-                </div>
-              ` : ''}
-
-              <div style="font-size:0.92rem;line-height:1.45;">${Utils.sanitize(msg.text)}</div>
-              <div style="font-size:0.68rem;color:var(--text-muted);text-align:right;margin-top:0.25rem;">
-                ${Utils.formatTime(msg.timestamp)}
-              </div>
-            </div>
-          `;
-        }).join('')}
-      </div>
-
-      <!-- Vista Previa de Cita Activa (Estilo WhatsApp Reply Bar) -->
-      <div id="chat-active-quote-bar" style="display:${pendingChatQuote ? 'flex' : 'none'};align-items:center;justify-content:space-between;padding:0.55rem 1rem;background:var(--bg-card-hover);border-top:1px solid var(--border-strong);">
-        <div style="display:flex;align-items:center;gap:0.6rem;min-width:0;">
-          <span style="color:var(--brand-pink);font-weight:800;font-size:0.8rem;">${Utils.sanitize(pendingChatQuote?.label || '')}:</span>
-          <span style="font-size:0.84rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${Utils.sanitize(pendingChatQuote?.title || '')}</span>
-        </div>
-        <button type="button" class="btn btn-secondary btn-sm" id="btn-clear-chat-quote">✕</button>
-      </div>
-
-      <!-- Barra de Escritura -->
-      <form id="form-chat-send" style="display:flex;gap:0.6rem;padding:0.85rem 1rem;background:var(--bg-card);border-top:1px solid var(--border-subtle);">
-        <input type="text" id="chat-text-inp" class="form-input" placeholder="Escribe un mensaje en relación al grupo..." required>
-        <button type="submit" class="btn btn-primary">Enviar ➤</button>
-      </form>
-    </div>
-  `;
-
-  const scrollBox = document.getElementById('chat-messages-scroll');
-  if (scrollBox) scrollBox.scrollTop = scrollBox.scrollHeight;
-
-  document.getElementById('btn-clear-chat-quote')?.addEventListener('click', () => {
-    pendingChatQuote = null;
-    renderChatTab(viewport, group, user);
-  });
-
-  viewport.querySelectorAll('[data-reply-msg]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const targetMsg = messages.find(m => m.id === btn.getAttribute('data-reply-msg'));
-      if (!targetMsg) return;
-      pendingChatQuote = {
-        type: 'message',
-        itemId: targetMsg.id,
-        label: `💬 Respuesta a ${targetMsg.senderName}`,
-        title: targetMsg.text,
-        subtitle: Utils.formatTime(targetMsg.timestamp),
-        thumb: ''
-      };
-      renderChatTab(viewport, group, user);
-      document.getElementById('chat-text-inp')?.focus();
-    });
-  });
-
-  viewport.querySelectorAll('[data-jump-quote-type]').forEach(box => {
-    box.addEventListener('click', () => {
-      const t = box.getAttribute('data-jump-quote-type');
-      if (t === 'memory') store.navigate('group', { groupTab: 'memories' });
-      else if (t === 'movie') store.navigate('group', { groupTab: 'movies' });
-      else if (t === 'series') store.navigate('group', { groupTab: 'series' });
-      else if (t === 'song') store.navigate('group', { groupTab: 'music' });
-    });
-  });
-
-  document.getElementById('btn-chat-pick-saved-item')?.addEventListener('click', () => {
-    openPickGroupItemToQuoteModal(group, () => {
-      renderChatTab(viewport, group, user);
-      document.getElementById('chat-text-inp')?.focus();
-    });
-  });
-
-  document.getElementById('form-chat-send')?.addEventListener('submit', (e) => {
-    e.preventDefault();
-    const inp = document.getElementById('chat-text-inp');
-    const text = inp?.value.trim();
-    if (!text) return;
-    store.sendChatMessage({ text, quote: pendingChatQuote });
-    pendingChatQuote = null;
+  renderGroupChatView(viewport, group, user, {
+    getPendingQuote: () => pendingChatQuote,
+    setPendingQuote: (q) => { pendingChatQuote = q; },
+    openPickItemModal: openPickGroupItemToQuoteModal,
+    rerender: () => renderChatTab(viewport, group, user)
   });
 }
 
