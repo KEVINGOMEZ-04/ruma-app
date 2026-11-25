@@ -137,7 +137,7 @@ function renderApp() {
     <header class="ruma-topbar">
       <div style="display:flex;align-items:center;gap:0.65rem;">
         <button type="button" class="btn btn-secondary btn-sm" id="nav-back-home" style="border-radius:9999px;padding:0.4rem 0.85rem;">
-          ${iface === 'group' ? '← Mis Grupos' : '← Inicio'}
+          ${iface === 'group' ? (store.currentGroupTab && store.currentGroupTab !== 'home' ? '← Grupo' : '← Mis Grupos') : '← Inicio'}
         </button>
         <div class="ruma-brand" id="nav-brand-home">
           <img src="assets/ruma_home_axolotl.png" alt="ruma" class="ruma-brand-logo" style="box-shadow:none;background:transparent;">
@@ -160,7 +160,13 @@ function renderApp() {
     ${getBottomCapsuleNavHtml(iface)}
   `;
 
-  document.getElementById('nav-back-home')?.addEventListener('click', () => store.navigate('hub'));
+  document.getElementById('nav-back-home')?.addEventListener('click', () => {
+    if (iface === 'group' && store.currentGroupTab && store.currentGroupTab !== 'home') {
+      store.navigate('group', { groupTab: 'home' });
+    } else {
+      store.navigate('hub');
+    }
+  });
   document.getElementById('nav-brand-home')?.addEventListener('click', () => store.navigate('hub'));
   document.getElementById('nav-user-pill')?.addEventListener('click', () => {
     store.navigate('profile', { inspectUserId: user.id });
