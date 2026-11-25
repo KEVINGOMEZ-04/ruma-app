@@ -434,9 +434,23 @@ class RumaStore {
       (winner.activity || []).forEach(a => mergedActMap.set(a.id, a));
       const mergedActivity = Array.from(mergedActMap.values()).sort((a, b) => (b.at || '').localeCompare(a.at || '')).slice(0, 100);
 
+      // Fusionar userStatuses de películas por usuario para no perder el estado individual entre dispositivos
+      const olderMoviesMap = new Map((older.movies || []).map(m => [m.id, m]));
+      const mergedMovies = (winner.movies || []).map(wm => {
+        const om = olderMoviesMap.get(wm.id);
+        if (!om) return wm;
+        return {
+          ...om,
+          ...wm,
+          userStatuses: { ...(om.userStatuses || {}), ...(wm.userStatuses || {}) },
+          ratings: { ...(om.ratings || {}), ...(wm.ratings || {}) }
+        };
+      });
+
       map.set(ig.id, {
         ...older,
         ...winner,
+        movies: mergedMovies,
         activity: mergedActivity,
         members: Array.from(mergedMembersMap.values()),
         messages: Array.from(mergedMessagesMap.values())
@@ -1347,19 +1361,47 @@ class RumaStore {
     return item;
   }
 
-  cycleMovieStatus(movieId) {
+  // Obtiene el estado de una película EXCLUSIVO para un usuario ('Por ver' | 'Vista' | 'Favorita')
+  getUserMovieStatus(movie, userId = null) {
+    if (!movie) return 'Por ver';
+    const uid = userId || this.getCurrentUser()?.id;
+    if (uid && movie.userStatuses && movie.userStatuses[uid]) {
+      return movie.userStatuses[uid];
+    }
+    return 'Por ver';
+  }
+
+  // Fija el estado individual de la película para el usuario actual
+  setUserMovieStatus(movieId, nextStatus) {
+    const user = this.getCurrentUser();
     const allGroups = this.getGroups();
     const group = allGroups.find(g => g.id === this.getActiveGroup()?.id);
-    if (!group) return null;
+    if (!group || !user) return null;
+    const movie = (group.movies || []).find(m => m.id === movieId);
+    if (!movie) return null;
+
+    const valid = ['Por ver', 'Vista', 'Favorita'];
+    const st = valid.includes(nextStatus) ? nextStatus : 'Por ver';
+    movie.userStatuses = movie.userStatuses || {};
+    movie.userStatuses[user.id] = st;
+    this.saveGroups(allGroups);
+    this.notify();
+    return st;
+  }
+
+  cycleMovieStatus(movieId) {
+    const user = this.getCurrentUser();
+    const allGroups = this.getGroups();
+    const group = allGroups.find(g => g.id === this.getActiveGroup()?.id);
+    if (!group || !user) return null;
     const movie = (group.movies || []).find(m => m.id === movieId);
     if (!movie) return null;
 
     const order = ['Por ver', 'Vista', 'Favorita'];
-    const currentIdx = order.indexOf(movie.status || 'Por ver');
-    movie.status = order[(currentIdx + 1) % order.length];
-    this.saveGroups(allGroups);
-    this.notify();
-    return movie.status;
+    const current = this.getUserMovieStatus(movie, user.id);
+    const currentIdx = order.indexOf(current);
+    const next = order[(currentIdx + 1) % order.length];
+    return this.setUserMovieStatus(movieId, next);
   }
 
   rateMovieOrSeries(category, itemId, score, review = '', tags = []) {
@@ -1658,14 +1700,29 @@ class RumaStore {
     this.saveGroups(allGroups);
   }
 
+  canDeleteMediaItem(group, item, user = null) {
+    const u = user || this.getCurrentUser();
+    if (!group || !item || !u) return false;
+    const isLeader = group.creatorId === u.id;
+    const isProposer = (item.proposedBy && item.proposedBy.id === u.id) || (item.addedBy && item.addedBy === u.name);
+    return Boolean(isLeader || isProposer);
+  }
+
   deleteMediaItem(category, itemId) {
+    const user = this.getCurrentUser();
     const allGroups = this.getGroups();
     const active = this.getActiveGroup();
     const group = allGroups.find(g => g.id === active?.id);
-    if (!group) return;
+    if (!group || !user) return { ok: false, error: 'Grupo no disponible.' };
+    const item = (group[category] || []).find(x => x.id === itemId);
+    if (!item) return { ok: false, error: 'Elemento no encontrado.' };
+    if (!this.canDeleteMediaItem(group, item, user)) {
+      return { ok: false, error: 'Solo quien la añadió o el líder del grupo pueden eliminarla.' };
+    }
     group[category] = (group[category] || []).filter(x => x.id !== itemId);
     this.saveGroups(allGroups);
     this.notify();
+    return { ok: true };
   }
 
   // --- PERFIL ESTILO DISCORD: RECOPILACIÓN DE PELÍCULAS Y SERIES CALIFICADAS ---

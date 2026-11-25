@@ -55,6 +55,7 @@ let musicFilterState = {
 import { groupHeaderHtml, bindGroupHeader } from './group-header.js';
 import { groupHomeHtml, bindGroupHome } from './group-home.js';
 import { renderGroupMemoriesView } from './group-memories.js';
+import { renderGroupMoviesView } from './group-movies.js';
 
 export function renderGroupInterface(container) {
   const user = store.getCurrentUser();
@@ -82,7 +83,7 @@ export function renderGroupInterface(container) {
 
   container.innerHTML = `
     <div class="rg-wrap">
-      ${isHome ? groupHeaderHtml(group, user, tab) + groupHomeHtml(group) : (tab === 'memories' ? `<div id="group-tab-viewport"></div>` : `
+      ${isHome ? groupHeaderHtml(group, user, tab) + groupHomeHtml(group) : ((tab === 'memories' || tab === 'movies') ? `<div id="group-tab-viewport"></div>` : `
         <div class="rg-sectionbar">
           <button type="button" class="rg-back" id="rg-back-home">‹ Grupo</button>
           <h2>${SECTION_TITLES[tab] || ''}</h2>
@@ -705,262 +706,26 @@ async function openMemoryDetailModal(group, mem, user) {
 // 2. PESTAÑA PELÍCULAS (Cartelera Colaborativa LUMA + Ruleta + Ficha + Dónde Ver + Comentarios)
 // ============================================================================
 function renderMoviesTab(viewport, group, user) {
-  const allMovies = group.movies || [];
-  const allMemories = group.memories || [];
-  const check = Entitlements.canAddMediaItem(group, 'movies');
-  const maxStr = check.max === Infinity ? 'Ilimitadas ✨' : `${allMovies.length} / ${check.max}`;
-
-  const watchedCount = allMovies.filter(m => m.status === 'Vista' || m.status === 'Favorita').length;
-  const pendingCount = allMovies.filter(m => (m.status || 'Por ver') === 'Por ver').length;
-
-  let movies = [...allMovies];
-  if (movieFilterState === 'Por ver' || movieFilterState === 'Vista' || movieFilterState === 'Favorita') {
-    movies = movies.filter(m => (m.status || 'Por ver') === movieFilterState);
-  } else if (movieFilterState === 'my-proposals') {
-    movies = movies.filter(m => m.proposedBy?.id === user.id || m.addedBy === user.name);
-  }
-
-  viewport.innerHTML = `
-    <div style="display:flex;flex-direction:column;gap:1.25rem;">
-      <!-- Cabecera y Métricas de Cartelera -->
-      <div class="ruma-card" style="display:flex;flex-direction:column;gap:1rem;background:var(--bg-elevated);">
-        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1rem;">
-          <div>
-            <h2 style="font-family:var(--font-display);font-size:1.35rem;">🎬 Cartelera Colaborativa de Películas</h2>
-            <p style="font-size:0.84rem;color:var(--text-secondary);">
-              Mira en qué plataformas reales están disponibles, reséñalas con estrellas en un toque y muéstralas en tu <strong>Perfil estilo Discord</strong>.
-            </p>
-          </div>
-          <div style="display:flex;align-items:center;gap:0.55rem;flex-wrap:wrap;">
-            <span class="badge ${check.allowed ? 'badge-limit' : 'badge-premium'}">Cupo: ${maxStr}</span>
-            ${pendingCount > 0 ? `
-              <button type="button" class="btn btn-secondary btn-sm" id="btn-movie-roulette">🎲 Ruleta ¿Qué vemos hoy?</button>
-            ` : ''}
-            <button type="button" class="btn btn-primary btn-sm" id="btn-add-movie">+ Añadir Película (TMDb)</button>
-          </div>
-        </div>
-
-        <!-- Métricas del Hero (Estilo LUMA) -->
-        <div class="ruma-stats-bar">
-          <div class="ruma-stat-box">
-            <span class="ruma-stat-value">${allMovies.length}</span>
-            <span class="ruma-stat-label">En Cartelera</span>
-          </div>
-          <div class="ruma-stat-box">
-            <span class="ruma-stat-value">${watchedCount}</span>
-            <span class="ruma-stat-label">🍿 Vistas / Favoritas</span>
-          </div>
-          <div class="ruma-stat-box">
-            <span class="ruma-stat-value">${pendingCount}</span>
-            <span class="ruma-stat-label">🌱 Por Ver</span>
-          </div>
-        </div>
-
-        <!-- Chips de Filtrado Rápido -->
-        <div class="ruma-filter-chips">
-          ${[
-            { id: 'all', label: 'Todas' },
-            { id: 'Por ver', label: '🌱 Por ver' },
-            { id: 'Vista', label: '🍿 Vistas' },
-            { id: 'Favorita', label: '❤️ Favoritas' },
-            { id: 'my-proposals', label: '👤 Mis propuestas' }
-          ].map(f => `
-            <button type="button" class="ruma-chip ${movieFilterState === f.id ? 'active' : ''}" data-movie-filter="${f.id}">
-              ${f.label}
-            </button>
-          `).join('')}
-        </div>
-      </div>
-
-      ${movies.length === 0 ? `
-        <div class="ruma-card" style="text-align:center;padding:2.5rem;color:var(--text-secondary);">
-          No hay películas en este filtro todavía. ¡Busca una en TMDb para armar el plan de cine!
-        </div>
-      ` : `
-        <div class="ruma-grid-2">
-          ${movies.map(movie => {
-            const ratingsObj = movie.ratings || {};
-            const ratingEntries = Object.entries(ratingsObj);
-            const avg = ratingEntries.length > 0
-              ? (ratingEntries.reduce((acc, [, r]) => acc + Number(r.score || 0), 0) / ratingEntries.length).toFixed(1)
-              : '—';
-            const myRating = ratingsObj[user.id];
-            const status = movie.status || 'Por ver';
-            const statusIcon = status === 'Favorita' ? '❤️ Favorita' : (status === 'Vista' ? '🍿 Vista' : '🌱 Por ver');
-            const prio = Math.min(5, Math.max(1, Number(movie.priority) || 5));
-            const prioStars = '★'.repeat(prio) + '☆'.repeat(5 - prio);
-            const commentsCount = (movie.comments && movie.comments.length) || 0;
-            const linkedMems = (movie.linkedMemories || []).map(id => allMemories.find(m => m.id === id)).filter(Boolean);
-
-            return `
-              <div class="ruma-card" style="display:flex;gap:1.15rem;flex-wrap:wrap;">
-                <div style="position:relative;width:118px;height:176px;flex-shrink:0;cursor:pointer;" data-open-movie="${Utils.sanitize(movie.id)}">
-                  <img src="${Utils.sanitize(movie.poster || 'assets/ruma_icon_512.png')}" alt="Poster" style="width:100%;height:100%;border-radius:var(--radius-md);object-fit:cover;">
-                  ${movie.tmdbRating ? `
-                    <span class="badge" style="position:absolute;bottom:6px;left:6px;background:rgba(14,7,29,0.88);color:var(--brand-gold);font-size:0.7rem;">
-                      ⭐ TMDb ${Utils.sanitize(movie.tmdbRating)}
-                    </span>
-                  ` : ''}
-                </div>
-
-                <div style="flex:1;min-width:210px;display:flex;flex-direction:column;justify-content:space-between;gap:0.75rem;">
-                  <div>
-                    <div style="display:flex;align-items:center;justify-content:space-between;gap:0.4rem;flex-wrap:wrap;">
-                      <button type="button" class="badge badge-admin" style="cursor:pointer;" data-cycle-movie-status="${Utils.sanitize(movie.id)}" title="Toca para alternar Por ver / Vista / Favorita">
-                        ${statusIcon} ↻
-                      </button>
-                      <span class="badge badge-premium" title="Promedio del grupo">⭐ Grupo: ${avg}</span>
-                    </div>
-
-                    <h3 style="font-family:var(--font-display);font-size:1.22rem;margin-top:0.45rem;cursor:pointer;" data-open-movie="${Utils.sanitize(movie.id)}">
-                      ${Utils.sanitize(movie.title)}
-                    </h3>
-                    <div style="font-size:0.78rem;color:var(--text-muted);margin-top:0.15rem;">
-                      ${Utils.sanitize(movie.year || '')} ${movie.duration ? `• ${Utils.sanitize(movie.duration)}` : ''} • ${Utils.sanitize(movie.genres || 'Cine')}
-                    </div>
-                    <div style="font-size:0.75rem;color:var(--brand-gold);margin-top:0.2rem;" title="Prioridad para ver">
-                      Prioridad: ${prioStars} · Propuesta por <strong>${Utils.sanitize(movie.proposedBy?.name || movie.addedBy || 'Miembro')}</strong>
-                    </div>
-
-                    <!-- Plataformas reales de streaming (TMDb / JustWatch) -->
-                    ${renderProvidersStrip(movie)}
-
-                    <!-- Reseñas del grupo -->
-                    <div style="margin-top:0.6rem;">
-                      ${renderGroupReviews(movie, group, user, { compact: true, category: 'movies' })}
-                    </div>
-
-                    ${linkedMems.length > 0 ? `
-                      <div style="margin-top:0.5rem;">
-                        <button type="button" class="badge badge-free" style="cursor:pointer;" data-jump-linked-mems="${Utils.sanitize(movie.linkedMemories.join(','))}">
-                          📸 Vinculada a ${linkedMems.length} recuerdo(s) ›
-                        </button>
-                      </div>
-                    ` : ''}
-                  </div>
-
-                  <div style="display:flex;gap:0.4rem;flex-wrap:wrap;">
-                    <button type="button" class="btn btn-secondary btn-sm" data-open-movie="${Utils.sanitize(movie.id)}">
-                      🎬 Ficha & Dónde Ver
-                    </button>
-                    <button type="button" class="btn btn-primary btn-sm" data-rate-movie="${Utils.sanitize(movie.id)}">
-                      ${myRating ? `✏️ Mi reseña · ⭐ ${Number(myRating.score).toFixed(1)}` : '✍️ Reseñar'}
-                    </button>
-                    <button type="button" class="btn btn-secondary btn-sm" data-comments-movie="${Utils.sanitize(movie.id)}">
-                      💬 ${commentsCount}
-                    </button>
-                    <button type="button" class="btn btn-secondary btn-sm" data-quote-movie="${Utils.sanitize(movie.id)}">↩</button>
-                    <button type="button" class="btn btn-danger btn-sm" data-delete-movie="${Utils.sanitize(movie.id)}">🗑️</button>
-                  </div>
-                </div>
-              </div>
-            `;
-          }).join('')}
-        </div>
-      `}
-    </div>
-  `;
-
-  // Filtros
-  viewport.querySelectorAll('[data-movie-filter]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      movieFilterState = btn.getAttribute('data-movie-filter');
-      renderMoviesTab(viewport, group, user);
-    });
-  });
-
-  // Ruleta aleatoria para decidir qué película "Por ver" elegir
-  document.getElementById('btn-movie-roulette')?.addEventListener('click', () => {
-    const candidates = allMovies.filter(m => (m.status || 'Por ver') === 'Por ver');
-    if (candidates.length === 0) return;
-    const picked = candidates[Math.floor(Math.random() * candidates.length)];
-    try { confetti({ particleCount: 70, spread: 65, origin: { y: 0.6 } }); } catch (_) {}
-    UI.showToast(`🎲 ¡La ruleta eligió "${picked.title}" para ver hoy! 🍿`, 'success');
-    openMovieDetailModal(group, picked, user);
-  });
-
-  // Añadir película
-  document.getElementById('btn-add-movie')?.addEventListener('click', () => {
-    if (!check.allowed) {
-      UI.showUpgradeModal(check.reason, () => store.upgradeGroupToPremium(group.id));
-      return;
-    }
-    openSearchTmdbModal(group, 'movies');
-  });
-
-  // Alternar estado Por ver / Vista / Favorita
-  viewport.querySelectorAll('[data-cycle-movie-status]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const newSt = store.cycleMovieStatus(btn.getAttribute('data-cycle-movie-status'));
-      UI.showToast(`Estado actualizado a: ${newSt} 🍿`, 'info');
-    });
-  });
-
-  // Abrir ficha completa de la película (Tráiler, Dónde ver, Fotogramas, Sinopsis)
-  viewport.querySelectorAll('[data-open-movie]').forEach(el => {
-    el.addEventListener('click', () => {
-      const movie = allMovies.find(m => m.id === el.getAttribute('data-open-movie'));
-      if (movie) openMovieDetailModal(group, movie, user);
-    });
-  });
-
-  // Calificar
-  viewport.querySelectorAll('[data-rate-movie]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const movie = allMovies.find(m => m.id === btn.getAttribute('data-rate-movie'));
-      if (movie) openReviewModal('movies', movie, user);
-    });
-  });
-  viewport.querySelectorAll('[data-review-item][data-review-cat="movies"]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const movie = allMovies.find(m => m.id === btn.getAttribute('data-review-item'));
-      if (movie) openReviewModal('movies', movie, user);
-    });
-  });
-
-  // Hilo de comentarios y reacciones
-  viewport.querySelectorAll('[data-comments-movie]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const movie = allMovies.find(m => m.id === btn.getAttribute('data-comments-movie'));
-      if (movie) openMediaCommentsModal('movies', movie);
-    });
-  });
-
-  // Saltar a recuerdos vinculados
-  viewport.querySelectorAll('[data-jump-linked-mems]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const ids = btn.getAttribute('data-jump-linked-mems').split(',').filter(Boolean);
-      store.navigate('group', { groupTab: 'memories', memoryFilterIds: ids });
-    });
-  });
-
-  // Citar en chat
-  viewport.querySelectorAll('[data-quote-movie]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const movie = allMovies.find(m => m.id === btn.getAttribute('data-quote-movie'));
-      if (!movie) return;
+  renderGroupMoviesView(viewport, group, user, {
+    getFilterState: () => movieFilterState,
+    setFilterState: (v) => { movieFilterState = v; },
+    openSearchTmdbModal,
+    openMovieDetailModal,
+    openReviewModal,
+    openMediaCommentsModal,
+    onQuoteMovie: (movie) => {
       pendingChatQuote = {
         type: 'movie',
         itemId: movie.id,
         label: '🎬 Película',
         title: `${movie.title} (${movie.year || ''})`,
-        subtitle: `Estado: ${movie.status || 'Por ver'}`,
-        thumb: movie.poster || 'assets/ruma_icon_512.png'
+        subtitle: `Estado: ${store.getUserMovieStatus(movie, user.id)}`,
+        thumb: movie.poster || 'assets/ruma_default_avatar.png'
       };
       store.navigate('group', { groupTab: 'chat' });
-    });
+    },
+    rerender: () => renderMoviesTab(viewport, group, user)
   });
-
-  // Eliminar
-  viewport.querySelectorAll('[data-delete-movie]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      store.deleteMediaItem('movies', btn.getAttribute('data-delete-movie'));
-      UI.showToast('Película eliminada de la cartelera.', 'info');
-    });
-  });
-
-  // Plataformas, tráiler y ficha real desde TMDb en segundo plano
-  hydrateMediaFromTmdb(group, 'movies');
 }
 
 async function openMovieDetailModal(group, movie, user) {
@@ -1004,7 +769,7 @@ async function openMovieDetailModal(group, movie, user) {
           <div style="flex:1;min-width:200px;display:flex;flex-direction:column;justify-content:space-between;gap:0.65rem;">
             <div>
               <div style="display:flex;gap:0.45rem;flex-wrap:wrap;margin-bottom:0.4rem;">
-                <span class="badge badge-admin">${Utils.sanitize(movie.status || 'Por ver')}</span>
+                <span class="badge badge-admin">${Utils.sanitize(store.getUserMovieStatus(movie, user.id))}</span>
                 ${movie.tmdbRating ? `<span class="badge badge-premium">⭐ TMDb ${Utils.sanitize(movie.tmdbRating)}</span>` : ''}
                 ${avg !== null ? `<span class="badge badge-premium">👥 Grupo ${avg.toFixed(1)}</span>` : ''}
                 ${movie.duration ? `<span class="badge badge-free">⏱ ${Utils.sanitize(movie.duration)}</span>` : ''}
