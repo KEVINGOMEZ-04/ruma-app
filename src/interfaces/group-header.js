@@ -112,14 +112,6 @@ export function groupHeaderHtml(group, user, tab) {
         </div>
       </div>
     </section>
-
-    <nav class="rg-tabs" aria-label="Secciones del grupo">
-      ${GROUP_TABS.map(t => `
-        <button type="button" class="rg-tab ${tab === t.id ? 'active' : ''}" data-group-tab="${t.id}" title="${t.label} ${counts[t.id]}">
-          ${svg(t.icon)}
-          <span>${t.label}</span>
-        </button>`).join('')}
-    </nav>
   `;
 }
 

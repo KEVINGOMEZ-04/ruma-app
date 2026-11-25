@@ -53,6 +53,7 @@ let musicFilterState = {
 };
 
 import { groupHeaderHtml, bindGroupHeader } from './group-header.js';
+import { groupHomeHtml, bindGroupHome } from './group-home.js';
 
 export function renderGroupInterface(container) {
   const user = store.getCurrentUser();
@@ -65,7 +66,7 @@ export function renderGroupInterface(container) {
 
   const isPrem = Entitlements.isGroupPremium(group);
   const isAdmin = Entitlements.isGroupAdmin(group, user.id);
-  const tab = store.currentGroupTab || 'memories';
+  const tab = store.currentGroupTab || 'home';
 
   const maxMovies = isPrem ? '∞' : PLAN_LIMITS.free.maxMoviesPerGroup;
   const maxSeries = isPrem ? '∞' : PLAN_LIMITS.free.maxSeriesPerGroup;
@@ -74,20 +75,35 @@ export function renderGroupInterface(container) {
   // Sincronizar playlist global con las canciones del grupo activo
   MusicService.setPlaylist(group.songs || []);
 
+  const SECTION_TITLES = { memories: 'Recuerdos', movies: 'Películas', series: 'Series', music: 'Música', goals_notes: 'Metas & Notas', chat: 'Chat del grupo' };
+  const isHome = tab === 'home';
+  if (tab === 'chat') store.markChatSeen(group);
+
   container.innerHTML = `
     <div class="rg-wrap">
-      ${groupHeaderHtml(group, user, tab)}
-      <div id="group-tab-viewport"></div>
+      ${isHome ? groupHeaderHtml(group, user, tab) + groupHomeHtml(group) : `
+        <div class="rg-sectionbar">
+          <button type="button" class="rg-back" id="rg-back-home">‹ Grupo</button>
+          <h2>${SECTION_TITLES[tab] || ''}</h2>
+        </div>
+        <div id="group-tab-viewport"></div>`}
     </div>
   `;
 
-  bindGroupHeader(container, group, user, {
-    onTab: (nextTab) => {
-      if (nextTab !== 'series') activeSeriesDetailId = null;
-      store.navigate('group', { groupTab: nextTab });
-    }
+  if (isHome) {
+    bindGroupHeader(container, group, user, {
+      onTab: (nextTab) => {
+        if (nextTab !== 'series') activeSeriesDetailId = null;
+        store.navigate('group', { groupTab: nextTab });
+      }
+    });
+    bindGroupHome(container, group);
+    return;
+  }
+  document.getElementById('rg-back-home')?.addEventListener('click', () => {
+    activeSeriesDetailId = null;
+    store.navigate('group', { groupTab: 'home' });
   });
-
 
   const viewport = document.getElementById('group-tab-viewport');
   if (!viewport) return;

@@ -57,3 +57,45 @@
   .rg-tab{font-size:.6rem;padding:.6rem .1rem;gap:.25rem}
   .rg-tab svg{width:20px;height:20px}
 }
+
+/* Home del grupo: explorar + actividad */
+.rg-section-title{display:flex;align-items:center;gap:.6rem;font-family:var(--font-display);font-size:clamp(1.1rem,4.5vw,1.5rem);font-weight:800;margin:.2rem 0 0}
+.rg-section-ico{color:#c084fc;display:grid;place-items:center}
+.rg-section-ico svg{width:24px;height:24px}
+.rg-explore{display:grid;grid-template-columns:1fr 1fr;gap:.6rem}
+.rg-explore-card{display:flex;align-items:center;gap:.6rem;padding:.7rem .65rem;border-radius:1.1rem;border:1px solid rgba(168,120,255,.25);background:linear-gradient(160deg,rgba(40,24,70,.8),rgba(18,12,36,.9));color:#fff;text-align:left;cursor:pointer;font-family:inherit;min-width:0}
+.rg-explore-card:active{transform:scale(.98)}
+.rg-explore-ico{flex:0 0 auto;width:2.7rem;height:2.7rem;border-radius:.8rem;background:rgba(168,85,247,.2);color:#d9b8ff;display:grid;place-items:center}
+.rg-explore-text{flex:1;min-width:0;display:flex;flex-direction:column;gap:.1rem}
+.rg-explore-text b{font-size:clamp(.85rem,3.6vw,1rem)}
+.rg-explore-text small{font-size:clamp(.62rem,2.7vw,.75rem);color:#b8a3d9;line-height:1.25}
+.rg-explore-chev{color:#c9a5ff;font-size:1.4rem}
+.rg-activity{padding:.9rem clamp(.8rem,3.5vw,1.3rem)}
+.rg-activity-head{display:flex;align-items:center;justify-content:space-between;gap:.5rem;padding-bottom:.6rem;border-bottom:1px solid rgba(168,120,255,.18)}
+.rg-activity-head h2{margin:0;font-size:clamp(1rem,4.2vw,1.3rem);font-weight:800;display:flex;align-items:center;gap:.5rem}
+.rg-activity-head .rg-pill{margin:0}
+.rg-act-list{list-style:none;margin:0;padding:0}
+.rg-act-row{display:flex;align-items:center;gap:.55rem;padding:.6rem 0;border-bottom:1px solid rgba(168,120,255,.1)}
+.rg-act-row:last-child{border-bottom:0}
+.rg-act-ico{flex:0 0 auto;width:2.3rem;height:2.3rem;border-radius:.7rem;display:grid;place-items:center;background:rgba(168,85,247,.2);color:#d9b8ff}
+.rg-act-ico svg{width:18px;height:18px}
+.rg-act-ico.a-join{background:rgba(34,197,94,.18);color:#6ee7a0}
+.rg-act-ico.a-movie,.rg-act-ico.a-series{background:rgba(59,130,246,.2);color:#8ec5ff}
+.rg-act-avatar{flex:0 0 auto;width:2rem;height:2rem;border-radius:50%;object-fit:cover;border:1.5px solid #b784ff}
+.rg-act-text{flex:1;min-width:0}
+.rg-act-title{font-size:clamp(.78rem,3.3vw,.92rem)}
+.rg-act-sub{font-size:clamp(.68rem,2.9vw,.8rem);color:#b8a3d9;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rg-act-time{flex:0 0 auto;font-size:clamp(.62rem,2.7vw,.75rem);color:#a691cc;white-space:nowrap}
+.rg-act-empty{display:flex;flex-direction:column;align-items:center;text-align:center;gap:.3rem;padding:1.4rem .5rem;color:#b8a3d9;font-size:.85rem}
+.rg-act-empty b{color:#fff;font-size:1.05rem}
+.rg-act-list-full{max-height:65vh;overflow-y:auto}
+@media (max-width:380px){.rg-act-avatar{display:none}.rg-explore-ico{width:2.2rem;height:2.2rem}}
+
+/* Barra de sección dentro del grupo */
+.rg-sectionbar{display:flex;align-items:center;gap:.7rem}
+.rg-back{display:inline-flex;align-items:center;gap:.4rem;padding:.5rem .9rem;border-radius:9999px;border:1px solid rgba(190,150,255,.3);background:rgba(255,255,255,.05);color:#e9ddff;font-size:.82rem;font-weight:600;cursor:pointer;font-family:inherit}
+.rg-sectionbar h2{margin:0;font-family:var(--font-display);font-size:clamp(1rem,4.5vw,1.4rem);font-weight:800;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* Badge de chat en la cápsula */
+.ruma-capsule-btn{position:relative}
+.cap-badge{position:absolute;top:2px;left:calc(50% + 6px);min-width:1.15rem;height:1.15rem;padding:0 .3rem;border-radius:9999px;background:linear-gradient(135deg,#ec4899,#a855f7);color:#fff;font-size:.68rem;font-weight:800;display:grid;place-items:center;box-shadow:0 0 10px rgba(236,72,153,.7)}

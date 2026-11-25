@@ -39,14 +39,18 @@ function getCloudBadgeHtml(status) {
 }
 
 function getBottomCapsuleNavHtml(iface) {
-  const isHomeActive = iface === 'hub' || iface === 'group';
+  const inGroup = iface === 'group';
+  const isChatActive = inGroup && store.currentGroupTab === 'chat';
+  const isHomeActive = iface === 'hub' || (inGroup && !isChatActive);
   const isProfileActive = iface === 'profile';
+  const unread = inGroup ? store.getUnreadChatCount(store.getActiveGroup()) : 0;
+  const chatBadge = unread > 0 ? `<span class="cap-badge">${unread > 9 ? '9+' : unread}</span>` : '';
   const isSettingsActive = iface === 'settings';
 
   return `
     <div class="ruma-capsule-nav-wrap">
       <nav class="ruma-capsule-nav" aria-label="Navegación principal">
-        <button type="button" class="ruma-capsule-btn ${isHomeActive ? 'active' : ''}" data-nav-iface="hub">
+        <button type="button" class="ruma-capsule-btn ${isHomeActive ? 'active' : ''}" data-nav-iface="hub" ${inGroup ? 'data-nav-group-tab="home"' : ''}>
           <span class="cap-icon" aria-hidden="true">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
               <path d="M4 10.5L12 3.8L20 10.5V19.2C20 20.1941 19.1941 21 18.2 21H14.6V15.4C14.6 14.2954 13.7046 13.4 12.6 13.4H11.4C10.2954 13.4 9.4 14.2954 9.4 15.4V21H5.8C4.80589 21 4 20.1941 4 19.2V10.5Z" fill="${isHomeActive ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/>
@@ -55,7 +59,17 @@ function getBottomCapsuleNavHtml(iface) {
           <span class="cap-label">Inicio</span>
         </button>
 
-        <button type="button" class="ruma-capsule-btn ${isProfileActive ? 'active' : ''}" data-nav-iface="profile">
+        ${inGroup ? `        <button type="button" class="ruma-capsule-btn ${isChatActive ? 'active' : ''}" data-nav-iface="group" data-nav-group-tab="chat">
+          <span class="cap-icon" aria-hidden="true">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+              <path d="M21 12a8 8 0 0 1-11.7 7L4 20l1.1-4.4A8 8 0 1 1 21 12z" stroke="currentColor" stroke-width="2" stroke-linejoin="round" fill="${isChatActive ? 'currentColor' : 'none'}"/>
+            </svg>
+          </span>
+          ${chatBadge}
+          <span class="cap-label">Chat</span>
+        </button>
+
+` : `        <button type="button" class="ruma-capsule-btn ${isProfileActive ? 'active' : ''}" data-nav-iface="profile">
           <span class="cap-icon" aria-hidden="true">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
               <circle cx="12" cy="7.5" r="3.6" stroke="currentColor" stroke-width="2"/>
@@ -64,6 +78,8 @@ function getBottomCapsuleNavHtml(iface) {
           </span>
           <span class="cap-label">Perfil</span>
         </button>
+
+`}
 
         <button type="button" class="ruma-capsule-btn ${isSettingsActive ? 'active' : ''}" data-nav-iface="settings">
           <span class="cap-icon" aria-hidden="true">
@@ -164,7 +180,10 @@ function bindCapsuleNav(root, user) {
   root.querySelectorAll('[data-nav-iface]').forEach(btn => {
     btn.addEventListener('click', () => {
       const target = btn.getAttribute('data-nav-iface');
-      if (target === 'profile') {
+      const groupTab = btn.getAttribute('data-nav-group-tab');
+      if (target === 'group' || (target === 'hub' && groupTab)) {
+        store.navigate('group', { groupTab });
+      } else if (target === 'profile') {
         store.navigate('profile', { inspectUserId: user.id });
       } else {
         store.navigate(target);

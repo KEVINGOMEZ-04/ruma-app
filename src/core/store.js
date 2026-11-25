@@ -348,7 +348,7 @@ class RumaStore {
   constructor() {
     this.listeners = [];
     this.currentInterface = 'hub'; // 'hub' | 'group' | 'profile' | 'settings'
-    this.currentGroupTab = 'memories'; // 'memories' | 'movies' | 'series' | 'music' | 'goals_notes' | 'chat'
+    this.currentGroupTab = 'home'; // 'memories' | 'movies' | 'series' | 'music' | 'goals_notes' | 'chat'
     this.inspectedUserId = null;
     this.memoryFilterIds = null; // Permite filtrar recuerdos vinculados desde una canción o película
     this.clientId = 'cli_' + Math.random().toString(36).slice(2, 10);
@@ -429,9 +429,15 @@ class RumaStore {
       (older.messages || []).forEach(m => mergedMessagesMap.set(m.id, m));
       (winner.messages || []).forEach(m => mergedMessagesMap.set(m.id, m));
 
+      const mergedActMap = new Map();
+      (older.activity || []).forEach(a => mergedActMap.set(a.id, a));
+      (winner.activity || []).forEach(a => mergedActMap.set(a.id, a));
+      const mergedActivity = Array.from(mergedActMap.values()).sort((a, b) => (b.at || '').localeCompare(a.at || '')).slice(0, 100);
+
       map.set(ig.id, {
         ...older,
         ...winner,
+        activity: mergedActivity,
         members: Array.from(mergedMembersMap.values()),
         messages: Array.from(mergedMessagesMap.values())
       });
@@ -838,7 +844,44 @@ class RumaStore {
   setActiveGroup(groupId) {
     localStorage.setItem(CONFIG.storageKeys.activeGroupId, groupId);
     this.currentInterface = 'group';
+    this.currentGroupTab = 'home';
     this.notify();
+  }
+
+  // --- ACTIVIDAD DEL GRUPO ---
+  // Registra un evento (canción, película, serie, recuerdo, ingreso) dentro del grupo.
+  logActivity(group, user, type, detail = '') {
+    if (!group || !user) return;
+    group.activity = group.activity || [];
+    group.activity.unshift({
+      id: Utils.generateId('act'),
+      type,
+      userId: user.id,
+      userName: user.name,
+      userAvatar: user.avatar,
+      detail: String(detail || '').slice(0, 80),
+      at: new Date().toISOString()
+    });
+    if (group.activity.length > 100) group.activity.length = 100;
+  }
+
+  // --- CHAT: mensajes no leídos por usuario y grupo ---
+  _chatSeenKey(groupId) {
+    const u = this.getCurrentUser();
+    return `ruma_chat_seen_${u?.id || 'x'}_${groupId}`;
+  }
+
+  getUnreadChatCount(group) {
+    const u = this.getCurrentUser();
+    if (!group || !u) return 0;
+    const seen = localStorage.getItem(this._chatSeenKey(group.id)) || '';
+    return (group.messages || []).filter(m => m.senderId !== u.id && (m.timestamp || '') > seen).length;
+  }
+
+  markChatSeen(group) {
+    if (!group) return;
+    const last = (group.messages || []).reduce((mx, m) => (m.timestamp > mx ? m.timestamp : mx), '');
+    if (last) localStorage.setItem(this._chatSeenKey(group.id), last);
   }
 
   navigate(interfaceName, options = {}) {
@@ -985,6 +1028,7 @@ class RumaStore {
       role: 'member'
     });
     target.updatedAt = new Date().toISOString();
+    this.logActivity(target, user, 'join');
 
     localStorage.setItem(CONFIG.storageKeys.activeGroupId, target.id);
     this.saveGroups(allGroups);
@@ -1137,6 +1181,7 @@ class RumaStore {
       group.memories[existingIdx] = memoryData;
     } else {
       group.memories.unshift(memoryData);
+      this.logActivity(group, user, 'memory', `${memoryData.filesCount} ${memoryData.filesCount === 1 ? 'archivo' : 'archivos'} · ${memoryData.title}`);
     }
 
     this.saveGroups(allGroups);
@@ -1279,6 +1324,12 @@ class RumaStore {
     };
 
     group[category].unshift(newItem);
+    const actType = { movies: 'movie', series: 'series', songs: 'song' }[category];
+    if (actType) {
+      const label = newItem.title || newItem.name || '';
+      const extra = category === 'songs' && newItem.artist ? ` — ${newItem.artist}` : '';
+      this.logActivity(group, user, actType, `${label}${extra}`);
+    }
     this.saveGroups(allGroups);
     this.notify();
     return { ok: true, item: newItem };
