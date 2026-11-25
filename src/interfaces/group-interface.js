@@ -52,6 +52,8 @@ let musicFilterState = {
   memberName: ''
 };
 
+import { groupHeaderHtml, bindGroupHeader } from './group-header.js';
+
 export function renderGroupInterface(container) {
   const user = store.getCurrentUser();
   const group = store.getActiveGroup();
@@ -73,119 +75,19 @@ export function renderGroupInterface(container) {
   MusicService.setPlaylist(group.songs || []);
 
   container.innerHTML = `
-    <div style="display:flex;flex-direction:column;gap:1.25rem;">
-      <!-- Cabecera del Grupo -->
-      <div class="ruma-card" style="background:var(--grad-surface);padding:1.25rem 1.5rem;">
-        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1rem;">
-          <div>
-            <div style="display:flex;align-items:center;gap:0.45rem;flex-wrap:wrap;margin-bottom:0.4rem;">
-              <button type="button" class="btn btn-secondary btn-sm" id="btn-group-back-hub">← Mis Grupos</button>
-              <span class="badge ${isPrem ? 'badge-premium' : 'badge-free'}">${isPrem ? '✨ Grupo Premium' : '🌱 Grupo Gratis'}</span>
-              <span class="badge badge-admin">${isAdmin ? '🛡️ Administrador' : '👤 Miembro'}</span>
-              <button type="button" class="badge badge-free" id="btn-group-copy-code" style="cursor:pointer;font-family:var(--font-mono);font-size:0.78rem;" title="Toca para copiar el código del grupo">
-                📋 Código: ${Utils.sanitize(group.code)}
-              </button>
-              <button type="button" class="badge badge-admin" id="btn-group-share-invite" style="cursor:pointer;font-size:0.74rem;" title="Copiar enlace directo de invitación">
-                🔗 Invitar amigos
-              </button>
-            </div>
-            <h1 style="font-family:var(--font-display);font-size:1.6rem;font-weight:800;">${Utils.sanitize(group.name)}</h1>
-            <p style="color:var(--text-secondary);font-size:0.86rem;">${Utils.sanitize(group.description || '')}</p>
-          </div>
-
-          <!-- Avatares de Integrantes (Clic para abrir tarjeta estilo Discord) -->
-          <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">
-            ${(group.members || []).map(m => `
-              <div
-                class="avatar-wrap ${Utils.sanitize(m.frameId || 'frame-none')}"
-                style="width:40px;height:40px;cursor:pointer;"
-                title="Ver perfil estilo Discord de ${Utils.sanitize(m.name)}"
-                data-member-profile="${Utils.sanitize(m.id)}"
-              >
-                <img src="${Utils.sanitize(m.avatar || 'assets/ruma_icon_512.png')}" alt="${Utils.sanitize(m.name)}" class="avatar-img">
-              </div>
-            `).join('')}
-            ${!isPrem ? `
-              <button type="button" class="btn btn-premium btn-sm" id="btn-group-header-upgrade">✨ Mejorar Grupo</button>
-            ` : ''}
-          </div>
-        </div>
-      </div>
-
-      <!-- Barra de Sub-Navegación del Grupo -->
-      <nav class="group-subnav" aria-label="Secciones del grupo">
-        <button type="button" class="group-tab-btn ${tab === 'memories' ? 'active' : ''}" data-group-tab="memories">
-          📸 Recuerdos (${(group.memories || []).length})
-        </button>
-        <button type="button" class="group-tab-btn ${tab === 'movies' ? 'active' : ''}" data-group-tab="movies">
-          🎬 Películas (${(group.movies || []).length}/${maxMovies})
-        </button>
-        <button type="button" class="group-tab-btn ${tab === 'series' ? 'active' : ''}" data-group-tab="series">
-          📺 Series (${(group.series || []).length}/${maxSeries})
-        </button>
-        <button type="button" class="group-tab-btn ${tab === 'music' ? 'active' : ''}" data-group-tab="music">
-          🎵 Música (${(group.songs || []).length}/${maxSongs})
-        </button>
-        <button type="button" class="group-tab-btn ${tab === 'goals_notes' ? 'active' : ''}" data-group-tab="goals_notes">
-          🎯 Metas & Notas
-        </button>
-        <button type="button" class="group-tab-btn ${tab === 'chat' ? 'active' : ''}" data-group-tab="chat">
-          💬 Chat (${(group.messages || []).length})
-        </button>
-      </nav>
-
-      <!-- Contenedor Dinámico de la Pestaña Activa -->
+    <div class="rg-wrap">
+      ${groupHeaderHtml(group, user, tab)}
       <div id="group-tab-viewport"></div>
     </div>
   `;
 
-  document.getElementById('btn-group-back-hub')?.addEventListener('click', () => store.navigate('hub'));
-  document.getElementById('btn-group-copy-code')?.addEventListener('click', async () => {
-    try {
-      await navigator.clipboard.writeText(group.code);
-      UI.showToast(`📋 Código "${group.code}" copiado. ¡Compártelo con tu grupo!`, 'success');
-    } catch (_) {
-      UI.showToast(`Código del grupo: ${group.code}`, 'info');
-    }
-  });
-  document.getElementById('btn-group-share-invite')?.addEventListener('click', async () => {
-    const baseUrl = window.location.origin + window.location.pathname;
-    const inviteUrl = `${baseUrl}?join=${encodeURIComponent(group.code)}`;
-    try {
-      if (navigator.share) {
-        await navigator.share({
-          title: `Únete a "${group.name}" en ruma 🌟`,
-          text: `Usa el código ${group.code} o entra directo a nuestro grupo en ruma:`,
-          url: inviteUrl
-        });
-        return;
-      }
-      await navigator.clipboard.writeText(inviteUrl);
-      UI.showToast(`🔗 Enlace de invitación copiado (${group.code}) ✨`, 'success');
-    } catch (_) {
-      UI.showToast(`Código para invitar: ${group.code}`, 'info');
-    }
-  });
-  document.getElementById('btn-group-header-upgrade')?.addEventListener('click', () => {
-    UI.showUpgradeModal(`Mejora "${group.name}" a Grupo Premium ruma Plus para tener películas, series y canciones ilimitadas.`, () => {
-      store.upgradeGroupToPremium(group.id);
-      UI.showToast('¡Grupo mejorado a ruma Plus! ✨🎉', 'success');
-    });
-  });
-
-  container.querySelectorAll('[data-member-profile]').forEach(el => {
-    el.addEventListener('click', () => {
-      store.navigate('profile', { inspectUserId: el.getAttribute('data-member-profile') });
-    });
-  });
-
-  container.querySelectorAll('[data-group-tab]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const nextTab = btn.getAttribute('data-group-tab');
+  bindGroupHeader(container, group, user, {
+    onTab: (nextTab) => {
       if (nextTab !== 'series') activeSeriesDetailId = null;
       store.navigate('group', { groupTab: nextTab });
-    });
+    }
   });
+
 
   const viewport = document.getElementById('group-tab-viewport');
   if (!viewport) return;

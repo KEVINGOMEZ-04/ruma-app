@@ -11,6 +11,7 @@ import './styles/tokens.css';
 import './styles/layout.css';
 import './styles/auth.css';
 import './styles/home.css';
+import './styles/group.css';
 
 import { store } from './core/store.js';
 import { Utils } from './core/utils.js';
@@ -38,7 +39,7 @@ function getCloudBadgeHtml(status) {
 }
 
 function getBottomCapsuleNavHtml(iface) {
-  const isHomeActive = iface === 'hub';
+  const isHomeActive = iface === 'hub' || iface === 'group';
   const isProfileActive = iface === 'profile';
   const isSettingsActive = iface === 'settings';
 
@@ -120,7 +121,7 @@ function renderApp() {
     <header class="ruma-topbar">
       <div style="display:flex;align-items:center;gap:0.65rem;">
         <button type="button" class="btn btn-secondary btn-sm" id="nav-back-home" style="border-radius:9999px;padding:0.4rem 0.85rem;">
-          ← Inicio
+          ${iface === 'group' ? '← Mis Grupos' : '← Inicio'}
         </button>
         <div class="ruma-brand" id="nav-brand-home">
           <img src="assets/ruma_home_axolotl.png" alt="ruma" class="ruma-brand-logo" style="box-shadow:none;background:transparent;">
