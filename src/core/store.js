@@ -384,12 +384,39 @@ class RumaStore {
         });
       }
 
+      if (this.getCurrentUser()) {
+        this.checkPendingInviteFromUrl();
+      }
+
       CloudSync.startRealtimeListener(this.clientId, (remoteData) => {
         this.applyRemoteCloudState(remoteData, true);
       });
     } catch (err) {
       console.warn('CloudSync bootstrap warning:', err);
     }
+  }
+
+  mergeCloudAndLocalGroups(localGroups = [], cloudGroups = []) {
+    const map = new Map();
+    localGroups.forEach(g => map.set(g.id, g));
+    cloudGroups.forEach(cg => {
+      const lg = map.get(cg.id);
+      if (!lg) {
+        map.set(cg.id, cg);
+        return;
+      }
+      // Si el grupo de la nube es más reciente o tiene datos nuevos, usar la nube preservando miniaturas locales en memoria si existieran
+      const mergedMembersMap = new Map();
+      (lg.members || []).forEach(m => mergedMembersMap.set(m.id, m));
+      (cg.members || []).forEach(m => mergedMembersMap.set(m.id, { ...(mergedMembersMap.get(m.id) || {}), ...m }));
+
+      map.set(cg.id, {
+        ...lg,
+        ...cg,
+        members: Array.from(mergedMembersMap.values())
+      });
+    });
+    return Array.from(map.values());
   }
 
   applyRemoteCloudState(cloudData, shouldNotify = true) {
@@ -407,7 +434,9 @@ class RumaStore {
     }
 
     if (Array.isArray(cloudData.groups) && cloudData.groups.length > 0) {
-      localStorage.setItem(CONFIG.storageKeys.groups, JSON.stringify(cloudData.groups));
+      const localGroups = this.getGroups();
+      const mergedGroups = this.mergeCloudAndLocalGroups(localGroups, cloudData.groups);
+      localStorage.setItem(CONFIG.storageKeys.groups, JSON.stringify(mergedGroups));
       changed = true;
     }
 
@@ -430,7 +459,16 @@ class RumaStore {
         groups: this.getGroups(),
         clientId: this.clientId
       });
-    }, 180);
+    }, 120);
+  }
+
+  async syncNowWithCloud() {
+    try {
+      const cloud = await CloudSync.pullCloudState();
+      if (cloud) {
+        this.applyRemoteCloudState(cloud, false);
+      }
+    } catch (_) {}
   }
 
   subscribe(fn) {
@@ -452,7 +490,7 @@ class RumaStore {
     return localStorage.getItem(CONFIG.storageKeys.theme) || 'dark';
   }
 
-  // --- CUENTAS Y AUTENTICACIÓN TRIPLE ---
+  // --- CUENTAS Y AUTENTICACIÓN TRIPLE (CON RESPALDO EN LA NUBE) ---
   getAccounts() {
     try {
       return JSON.parse(localStorage.getItem(CONFIG.storageKeys.accounts)) || DEMO_USERS;
@@ -472,6 +510,11 @@ class RumaStore {
     return this.getAccounts().find(u => u.id === id) || null;
   }
 
+  async loginAsync(identifier, password) {
+    await this.syncNowWithCloud();
+    return this.login(identifier, password);
+  }
+
   login(identifier, password) {
     const clean = String(identifier || '').trim().toLowerCase().replace(/^@/, '');
     const accounts = this.getAccounts();
@@ -482,7 +525,7 @@ class RumaStore {
     );
 
     if (!user) {
-      return { ok: false, error: 'No encontramos una cuenta con ese correo, teléfono o usuario.' };
+      return { ok: false, error: 'No encontramos una cuenta con ese correo, teléfono o @usuario. Si eres nuevo, pulsa en "Crear Cuenta".' };
     }
     if (user.password !== password) {
       return { ok: false, error: 'Contraseña incorrecta.' };
@@ -490,8 +533,14 @@ class RumaStore {
 
     localStorage.setItem(CONFIG.storageKeys.currentUserId, user.id);
     this.currentInterface = 'hub';
+    this.checkPendingInviteFromUrl();
     this.notify();
     return { ok: true, user };
+  }
+
+  async registerAsync(payload) {
+    await this.syncNowWithCloud();
+    return this.register(payload);
   }
 
   register({ name, username, email, phone, password }) {
@@ -510,7 +559,7 @@ class RumaStore {
       (cleanPhone && u.phone === cleanPhone)
     );
     if (exists) {
-      return { ok: false, error: 'Ese correo, teléfono o @usuario ya está registrado.' };
+      return { ok: false, error: 'Ese correo, teléfono o @usuario ya está registrado. Usa "Iniciar Sesión".' };
     }
 
     const newUser = {
@@ -525,13 +574,15 @@ class RumaStore {
       bannerColor: '#7C3AED',
       bio: '✨ Nuevo en ruma',
       showcaseIds: [],
-      isPremium: false
+      isPremium: false,
+      createdAt: new Date().toISOString()
     };
 
     accounts.push(newUser);
     this.saveAccounts(accounts);
     localStorage.setItem(CONFIG.storageKeys.currentUserId, newUser.id);
     this.currentInterface = 'hub';
+    this.checkPendingInviteFromUrl();
     this.notify();
     return { ok: true, user: newUser };
   }
@@ -748,6 +799,31 @@ class RumaStore {
     return { ok: true, group: newGroup };
   }
 
+  checkPendingInviteFromUrl() {
+    if (typeof window === 'undefined') return null;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const joinCode = params.get('join') || params.get('code');
+      if (joinCode && joinCode.trim()) {
+        const cleanCode = joinCode.trim().toUpperCase();
+        const url = new URL(window.location.href);
+        url.searchParams.delete('join');
+        url.searchParams.delete('code');
+        window.history.replaceState({}, '', url.toString());
+        if (this.getCurrentUser()) {
+          this.joinGroupByCodeOrQuery(cleanCode);
+        }
+        return cleanCode;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  async joinGroupByCodeOrQueryAsync(codeOrQuery) {
+    await this.syncNowWithCloud();
+    return this.joinGroupByCodeOrQuery(codeOrQuery);
+  }
+
   joinGroupByCodeOrQuery(codeOrQuery) {
     const user = this.getCurrentUser();
     const allGroups = this.getGroups();
@@ -759,7 +835,7 @@ class RumaStore {
     );
 
     if (!target) {
-      return { ok: false, reason: 'No se encontró ningún grupo con ese código o nombre.' };
+      return { ok: false, reason: 'No se encontró ningún grupo en la nube con ese código o nombre. Verifica los 6 caracteres.' };
     }
 
     if ((target.members || []).some(m => m.id === user.id)) {

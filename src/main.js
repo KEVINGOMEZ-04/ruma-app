@@ -66,19 +66,19 @@ function renderApp() {
         ${getCloudBadgeHtml(CloudSync.getStatus())}
       </div>
 
-      <!-- Selector de las 4 Macro-Interfaces -->
-      <nav class="ruma-nav-interfaces" aria-label="Interfaces principales de ruma">
+      <!-- Navegación Principal (Escritorio) -->
+      <nav class="ruma-nav-interfaces" aria-label="Navegación principal">
         <button type="button" class="ruma-iface-btn ${iface === 'hub' ? 'active' : ''}" data-nav-iface="hub">
-          <span>🏠</span> <span class="label-text">1. Principal</span>
+          <span>🏠</span> <span class="label-text">Mis Grupos</span>
         </button>
         <button type="button" class="ruma-iface-btn ${iface === 'group' ? 'active' : ''}" data-nav-iface="group">
-          <span>🌟</span> <span class="label-text">2. ${Utils.sanitize(activeGroup ? activeGroup.name : 'Grupo')}</span>
+          <span>🌟</span> <span class="label-text">${Utils.sanitize(activeGroup ? activeGroup.name : 'Refugio Activo')}</span>
         </button>
         <button type="button" class="ruma-iface-btn ${iface === 'profile' ? 'active' : ''}" data-nav-iface="profile">
-          <span>🎮</span> <span class="label-text">3. Perfil Discord</span>
+          <span>🎮</span> <span class="label-text">Mi Perfil</span>
         </button>
         <button type="button" class="ruma-iface-btn ${iface === 'settings' ? 'active' : ''}" data-nav-iface="settings">
-          <span>⚙️</span> <span class="label-text">4. Ajustes</span>
+          <span>⚙️</span> <span class="label-text">Ajustes</span>
         </button>
       </nav>
 
@@ -92,6 +92,26 @@ function renderApp() {
     </header>
 
     <main class="ruma-container" id="ruma-view-root"></main>
+
+    <!-- Barra de Navegación Inferior Nativa para Móviles -->
+    <nav class="ruma-mobile-bottom-nav" aria-label="Navegación móvil">
+      <button type="button" class="ruma-mob-nav-btn ${iface === 'hub' ? 'active' : ''}" data-nav-iface="hub">
+        <span class="mob-icon">🏠</span>
+        <span class="mob-label">Grupos</span>
+      </button>
+      <button type="button" class="ruma-mob-nav-btn ${iface === 'group' ? 'active' : ''}" data-nav-iface="group">
+        <span class="mob-icon">🌟</span>
+        <span class="mob-label">${Utils.sanitize(activeGroup ? (activeGroup.name.length > 10 ? activeGroup.name.slice(0, 10) + '…' : activeGroup.name) : 'Refugio')}</span>
+      </button>
+      <button type="button" class="ruma-mob-nav-btn ${iface === 'profile' ? 'active' : ''}" data-nav-iface="profile">
+        <span class="mob-icon">🎮</span>
+        <span class="mob-label">Perfil</span>
+      </button>
+      <button type="button" class="ruma-mob-nav-btn ${iface === 'settings' ? 'active' : ''}" data-nav-iface="settings">
+        <span class="mob-icon">⚙️</span>
+        <span class="mob-label">Ajustes</span>
+      </button>
+    </nav>
   `;
 
   document.getElementById('nav-brand-home')?.addEventListener('click', () => store.navigate('hub'));

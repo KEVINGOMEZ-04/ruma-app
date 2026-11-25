@@ -131,17 +131,19 @@ export function renderHubInterface(container) {
               return `
                 <div class="ruma-card" style="display:flex;flex-direction:column;justify-content:space-between;gap:1.25rem;">
                   <div>
-                    <div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;margin-bottom:0.75rem;">
+                    <div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;margin-bottom:0.75rem;flex-wrap:wrap;">
                       <div style="display:flex;gap:0.45rem;flex-wrap:wrap;">
                         <span class="badge ${gPrem ? 'badge-premium' : 'badge-free'}">${gPrem ? '✨ Grupo Premium' : '🌱 Grupo Gratis'}</span>
                         <span class="badge badge-admin">${isCreator ? '👑 Creador & Admin' : (isAdmin ? '🛡️ Administrador' : '👤 Miembro')}</span>
                       </div>
-                      <span style="font-family:var(--font-mono);font-size:0.82rem;color:var(--brand-lilac);font-weight:700;">
-                        Código: ${Utils.sanitize(g.code)}
-                      </span>
+                      <div style="display:flex;align-items:center;gap:0.35rem;">
+                        <button type="button" class="badge badge-free" style="cursor:pointer;font-family:var(--font-mono);font-size:0.78rem;" data-copy-group-code="${Utils.sanitize(g.code)}" title="Toca para copiar el código de invitación">
+                          📋 Código: ${Utils.sanitize(g.code)}
+                        </button>
+                      </div>
                     </div>
 
-                    <h3 style="font-family:var(--font-display);font-size:1.4rem;font-weight:800;margin-bottom:0.35rem;">
+                    <h3 style="font-family:var(--font-display);font-size:1.4rem;font-weight:800;margin-bottom:0.35rem;cursor:pointer;" data-enter-group="${Utils.sanitize(g.id)}">
                       ${Utils.sanitize(g.name)}
                     </h3>
                     <p style="color:var(--text-secondary);font-size:0.88rem;line-height:1.5;">
@@ -154,6 +156,7 @@ export function renderHubInterface(container) {
                       <span>👥 ${(g.members || []).length} miembros</span>
                       <span>📸 ${(g.memories || []).length} recuerdos</span>
                       <span>🎬 ${(g.movies || []).length}/${gPrem ? '∞' : '5'}</span>
+                      <span>💬 ${(g.messages || []).length}</span>
                     </div>
                     <button type="button" class="btn btn-primary btn-sm" data-enter-group="${Utils.sanitize(g.id)}">
                       Entrar al Grupo ➔
@@ -178,10 +181,32 @@ export function renderHubInterface(container) {
   document.getElementById('btn-open-create-free')?.addEventListener('click', () => openCreateGroupModal('free'));
   document.getElementById('btn-open-create-premium')?.addEventListener('click', () => openCreateGroupModal('premium'));
 
-  document.getElementById('form-hub-join-group')?.addEventListener('submit', (e) => {
+  container.querySelectorAll('[data-copy-group-code]').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const code = btn.getAttribute('data-copy-group-code');
+      try {
+        await navigator.clipboard.writeText(code);
+        UI.showToast(`📋 Código "${code}" copiado. ¡Compártelo para que se unan!`, 'success');
+      } catch (_) {
+        UI.showToast(`Código del grupo: ${code}`, 'info');
+      }
+    });
+  });
+
+  document.getElementById('form-hub-join-group')?.addEventListener('submit', async (e) => {
     e.preventDefault();
+    const submitBtn = e.currentTarget.querySelector('button[type="submit"]');
     const query = document.getElementById('input-hub-join-code')?.value || '';
-    const res = store.joinGroupByCodeOrQuery(query);
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Buscando...';
+    }
+    const res = await store.joinGroupByCodeOrQueryAsync(query);
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Unirme';
+    }
     if (!res.ok) {
       if (res.needsUpgrade) {
         UI.showUpgradeModal(res.reason, () => openCreateGroupModal('premium'));
@@ -397,11 +422,20 @@ function renderAuthScreen(container) {
     tabLogin.className = 'btn btn-secondary btn-sm';
   });
 
-  loginForm?.addEventListener('submit', (e) => {
+  loginForm?.addEventListener('submit', async (e) => {
     e.preventDefault();
+    const btn = loginForm.querySelector('button[type="submit"]');
     const id = document.getElementById('login-identifier')?.value;
     const pw = document.getElementById('login-password')?.value;
-    const res = store.login(id, pw);
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = '⏳ Entrando...';
+    }
+    const res = await store.loginAsync(id, pw);
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'Entrar a ruma ➔';
+    }
     if (!res.ok) {
       UI.showToast(res.error, 'error');
       return;
@@ -409,20 +443,29 @@ function renderAuthScreen(container) {
     UI.showToast(`¡Bienvenido de nuevo, ${res.user.name}! 💜`, 'success');
   });
 
-  regForm?.addEventListener('submit', (e) => {
+  regForm?.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const res = store.register({
+    const btn = regForm.querySelector('button[type="submit"]');
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = '⏳ Creando cuenta en la nube...';
+    }
+    const res = await store.registerAsync({
       name: document.getElementById('reg-name')?.value,
       username: document.getElementById('reg-username')?.value,
       email: document.getElementById('reg-email')?.value,
       phone: document.getElementById('reg-phone')?.value,
       password: document.getElementById('reg-password')?.value
     });
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'Registrarme y Entrar ✨';
+    }
     if (!res.ok) {
       UI.showToast(res.error, 'error');
       return;
     }
-    UI.showToast(`¡Cuenta creada con éxito, ${res.user.name}! 🎉`, 'success');
+    UI.showToast(`¡Cuenta creada y respaldada en la nube, ${res.user.name}! 🎉`, 'success');
   });
 }
 

@@ -78,11 +78,16 @@ export function renderGroupInterface(container) {
       <div class="ruma-card" style="background:var(--grad-surface);padding:1.25rem 1.5rem;">
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1rem;">
           <div>
-            <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.35rem;">
+            <div style="display:flex;align-items:center;gap:0.45rem;flex-wrap:wrap;margin-bottom:0.4rem;">
               <button type="button" class="btn btn-secondary btn-sm" id="btn-group-back-hub">← Mis Grupos</button>
               <span class="badge ${isPrem ? 'badge-premium' : 'badge-free'}">${isPrem ? '✨ Grupo Premium' : '🌱 Grupo Gratis'}</span>
               <span class="badge badge-admin">${isAdmin ? '🛡️ Administrador' : '👤 Miembro'}</span>
-              <span style="font-family:var(--font-mono);font-size:0.78rem;color:var(--brand-lilac);">Código: ${Utils.sanitize(group.code)}</span>
+              <button type="button" class="badge badge-free" id="btn-group-copy-code" style="cursor:pointer;font-family:var(--font-mono);font-size:0.78rem;" title="Toca para copiar el código del grupo">
+                📋 Código: ${Utils.sanitize(group.code)}
+              </button>
+              <button type="button" class="badge badge-admin" id="btn-group-share-invite" style="cursor:pointer;font-size:0.74rem;" title="Copiar enlace directo de invitación">
+                🔗 Invitar amigos
+              </button>
             </div>
             <h1 style="font-family:var(--font-display);font-size:1.6rem;font-weight:800;">${Utils.sanitize(group.name)}</h1>
             <p style="color:var(--text-secondary);font-size:0.86rem;">${Utils.sanitize(group.description || '')}</p>
@@ -110,7 +115,7 @@ export function renderGroupInterface(container) {
       <!-- Barra de Sub-Navegación del Grupo -->
       <nav class="group-subnav" aria-label="Secciones del grupo">
         <button type="button" class="group-tab-btn ${tab === 'memories' ? 'active' : ''}" data-group-tab="memories">
-          📸 Recuerdos Drive (${(group.memories || []).length})
+          📸 Recuerdos (${(group.memories || []).length})
         </button>
         <button type="button" class="group-tab-btn ${tab === 'movies' ? 'active' : ''}" data-group-tab="movies">
           🎬 Películas (${(group.movies || []).length}/${maxMovies})
@@ -125,7 +130,7 @@ export function renderGroupInterface(container) {
           🎯 Metas & Notas
         </button>
         <button type="button" class="group-tab-btn ${tab === 'chat' ? 'active' : ''}" data-group-tab="chat">
-          💬 Chat Interno (${(group.messages || []).length})
+          💬 Chat (${(group.messages || []).length})
         </button>
       </nav>
 
@@ -135,6 +140,32 @@ export function renderGroupInterface(container) {
   `;
 
   document.getElementById('btn-group-back-hub')?.addEventListener('click', () => store.navigate('hub'));
+  document.getElementById('btn-group-copy-code')?.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(group.code);
+      UI.showToast(`📋 Código "${group.code}" copiado. ¡Compártelo con tu grupo!`, 'success');
+    } catch (_) {
+      UI.showToast(`Código del grupo: ${group.code}`, 'info');
+    }
+  });
+  document.getElementById('btn-group-share-invite')?.addEventListener('click', async () => {
+    const baseUrl = window.location.origin + window.location.pathname;
+    const inviteUrl = `${baseUrl}?join=${encodeURIComponent(group.code)}`;
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: `Únete a "${group.name}" en ruma 🌟`,
+          text: `Usa el código ${group.code} o entra directo a nuestro grupo en ruma:`,
+          url: inviteUrl
+        });
+        return;
+      }
+      await navigator.clipboard.writeText(inviteUrl);
+      UI.showToast(`🔗 Enlace de invitación copiado (${group.code}) ✨`, 'success');
+    } catch (_) {
+      UI.showToast(`Código para invitar: ${group.code}`, 'info');
+    }
+  });
   document.getElementById('btn-group-header-upgrade')?.addEventListener('click', () => {
     UI.showUpgradeModal(`Mejora "${group.name}" a Grupo Premium ruma Plus para tener películas, series y canciones ilimitadas.`, () => {
       store.upgradeGroupToPremium(group.id);
