@@ -95,16 +95,19 @@ export function renderGroupMusicView(viewport, group, user, ctx) {
           <span>${q || state.type !== 'all' ? 'Prueba con otro filtro o búsqueda.' : 'Añade la primera canción para empezar la playlist del grupo.'}</span>
         </div>` : `
         <div class="rmv-list">
-          ${songs.map(song => {
+          ${(() => {
+            const lockedIds = Entitlements.getLockedMediaIds(group, 'songs');
+            return songs.map(song => {
+            const isLocked = lockedIds.has(song.id);
             const id = Utils.sanitize(song.id);
             const rating = Number(song.rating || 5);
             const linked = (song.linkedMemories || []).map(mid => allMemories.find(m => m.id === mid)).filter(Boolean);
             const playing = MusicService.getCurrentPlayingId() === song.id;
             return `
-            <article class="rg-card rmu-card">
+            <article class="rg-card rmu-card ${isLocked ? 'is-locked' : ''}">
               <div class="rmu-art">
                 <img src="${Utils.sanitize(song.artwork || 'assets/ruma_icon_512.png')}" alt="${Utils.sanitize(song.title)}">
-                <button type="button" class="rmu-play" data-mu-play="${id}" aria-label="Reproducir fragmento">${playing ? '⏸' : '▶'}</button>
+                <button type="button" class="rmu-play" ${isLocked ? 'data-locked-song' : `data-mu-play="${id}"`} aria-label="${isLocked ? 'Bloqueada' : 'Reproducir fragmento'}">${isLocked ? '🔒' : (playing ? '⏸' : '▶')}</button>
               </div>
               <div class="rmu-body">
                 <div class="rmu-top">
@@ -113,25 +116,33 @@ export function renderGroupMusicView(viewport, group, user, ctx) {
                     <div class="rmu-artist"><b>${Utils.sanitize(song.artist || '')}</b>${song.album ? ` <span>· ${Utils.sanitize(song.album)}</span>` : ''}</div>
                   </div>
                   <div class="rmu-top-actions">
-                    <button type="button" class="rmu-comm" data-mu-comm="${id}">${svg(ICO.comment, 14)} ${(song.comments || []).length}</button>
+                    ${isLocked ? '' : `<button type="button" class="rmu-comm" data-mu-comm="${id}">${svg(ICO.comment, 14)} ${(song.comments || []).length}</button>`}
                     <button type="button" class="rmv-more-btn" data-mu-more="${id}" aria-label="Más opciones">⋯</button>
                   </div>
                 </div>
-                <div class="rmu-stars">
-                  ${[1, 2, 3, 4, 5].map(st => `<span class="${st <= Math.round(rating) ? 'on' : ''}" data-mu-star="${id}" data-star="${st}">★</span>`).join('')}
-                  <b>${rating.toFixed(1)}</b><small>(${song.ratingCount || 1})</small>
-                </div>
-                ${song.note ? `<p class="rmu-note">“${Utils.sanitize(song.note)}”</p>` : ''}
-                ${linked.length ? `<button type="button" class="rmu-linked" data-mu-linked="${Utils.sanitize(song.linkedMemories.join(','))}">🎴 Usada en ${linked.length} recuerdo(s) ›</button>` : ''}
-                <div class="rmu-links">
-                  <a class="rmu-pl spotify" target="_blank" rel="noopener" href="${Utils.sanitize(song.spotifyUrl || MusicService.buildSpotifyUrl(song.title, song.artist))}"><i></i>Spotify</a>
-                  <a class="rmu-pl youtube" target="_blank" rel="noopener" href="${Utils.sanitize(song.youtubeUrl || MusicService.buildYoutubeUrl(song.title, song.artist))}"><i>▶</i>YouTube</a>
-                  <a class="rmu-pl apple" target="_blank" rel="noopener" href="${Utils.sanitize(song.appleMusicUrl || MusicService.buildAppleMusicUrl(song.title, song.artist))}"><i></i>Apple</a>
-                  <button type="button" class="rmu-pl lyrics" data-mu-lyrics="${id}">${svg(ICO.mic, 13)}Letra</button>
-                </div>
+                ${isLocked ? `
+                  <div class="rmv-watched-some" style="color:#fca5a5;">🔒 Excede el límite de 5 canciones del Plan Free</div>
+                  <div class="rmu-links">
+                    <button type="button" class="rms-btn is-locked" data-locked-song>🔒 Bloqueada · Activar ruma Plus</button>
+                  </div>
+                ` : `
+                  <div class="rmu-stars">
+                    ${[1, 2, 3, 4, 5].map(st => `<span class="${st <= Math.round(rating) ? 'on' : ''}" data-mu-star="${id}" data-star="${st}">★</span>`).join('')}
+                    <b>${rating.toFixed(1)}</b><small>(${song.ratingCount || 1})</small>
+                  </div>
+                  ${song.note ? `<p class="rmu-note">“${Utils.sanitize(song.note)}”</p>` : ''}
+                  ${linked.length ? `<button type="button" class="rmu-linked" data-mu-linked="${Utils.sanitize(song.linkedMemories.join(','))}">🎴 Usada en ${linked.length} recuerdo(s) ›</button>` : ''}
+                  <div class="rmu-links">
+                    <a class="rmu-pl spotify" target="_blank" rel="noopener" href="${Utils.sanitize(song.spotifyUrl || MusicService.buildSpotifyUrl(song.title, song.artist))}"><i></i>Spotify</a>
+                    <a class="rmu-pl youtube" target="_blank" rel="noopener" href="${Utils.sanitize(song.youtubeUrl || MusicService.buildYoutubeUrl(song.title, song.artist))}"><i>▶</i>YouTube</a>
+                    <a class="rmu-pl apple" target="_blank" rel="noopener" href="${Utils.sanitize(song.appleMusicUrl || MusicService.buildAppleMusicUrl(song.title, song.artist))}"><i></i>Apple</a>
+                    <button type="button" class="rmu-pl lyrics" data-mu-lyrics="${id}">${svg(ICO.mic, 13)}Letra</button>
+                  </div>
+                `}
               </div>
             </article>`;
-          }).join('')}
+          }).join('');
+          })()}
         </div>`}
     </div>`;
 
@@ -156,6 +167,11 @@ export function renderGroupMusicView(viewport, group, user, ctx) {
     if (!check.allowed) { UI.showUpgradeModal(check.reason, () => store.upgradeGroupToPremium(group.id)); return; }
     openAddSongModal(group);
   });
+
+  viewport.querySelectorAll('[data-locked-song]').forEach(el => el.addEventListener('click', (e) => {
+    e.stopPropagation();
+    UI.showUpgradeModal('En el Plan Free el límite es de 5 canciones por grupo. Las más recientes quedaron bloqueadas; activa ruma Plus para desbloquearlas.', () => store.upgradeGroupToPremium(group.id));
+  }));
 
   viewport.querySelectorAll('[data-mu-play]').forEach(btn => btn.addEventListener('click', async () => {
     const song = find(btn.getAttribute('data-mu-play'));

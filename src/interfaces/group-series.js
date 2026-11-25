@@ -138,7 +138,10 @@ export function renderGroupSeriesView(viewport, group, user, ctx) {
         </div>
       ` : `
         <div class="rmv-list">
-          ${list.map(s => {
+          ${(() => {
+            const lockedIds = Entitlements.getLockedMediaIds(group, 'series');
+            return list.map(s => {
+            const isLocked = lockedIds.has(s.id);
             const st = statusOf.get(s.id);
             const bm = badgeMeta(st);
             const avg = getAverage(s);
@@ -148,30 +151,41 @@ export function renderGroupSeriesView(viewport, group, user, ctx) {
             const pr = progressInfo(s, user.id, st);
             const id = Utils.sanitize(s.id);
             return `
-              <article class="rg-card rmv-card rms-card">
-                <img class="rmv-poster" src="${Utils.sanitize(s.poster || 'assets/ruma_icon_512.png')}" alt="${Utils.sanitize(s.title)}" data-sr-open="${id}">
+              <article class="rg-card rmv-card rms-card ${isLocked ? 'is-locked' : ''}">
+                <img class="rmv-poster" src="${Utils.sanitize(s.poster || 'assets/ruma_icon_512.png')}" alt="${Utils.sanitize(s.title)}" ${isLocked ? 'data-locked-series' : `data-sr-open="${id}"`}>
                 <div class="rmv-body">
                   <div class="rmv-top">
-                    <h3 class="rmv-title" data-sr-open="${id}">${Utils.sanitize(s.title)}</h3>
+                    <h3 class="rmv-title" ${isLocked ? 'data-locked-series' : `data-sr-open="${id}"`}>${Utils.sanitize(s.title)}</h3>
                     <button type="button" class="rmv-more-btn" data-sr-more="${id}" aria-label="Más opciones">⋯</button>
                   </div>
                   <div class="rmv-meta">${Utils.sanitize(meta || 'Serie')}</div>
                   <div class="rms-row">
                     <span class="rmv-rating-pill">⭐ <b>${Utils.sanitize(String(ratingNum))}</b></span>
-                    <span class="rms-badge ${bm.cls}">${bm.icon} ${bm.label}</span>
+                    ${isLocked
+                      ? `<span class="rms-badge is-locked">🔒 Plan Free</span>`
+                      : `<span class="rms-badge ${bm.cls}">${bm.icon} ${bm.label}</span>`}
                   </div>
-                  <div class="rms-progress">
-                    <span class="rms-prog-txt">${pr.label} (${pr.pct}%)</span>
-                    <div class="rms-bar"><i style="width:${pr.pct}%"></i></div>
-                  </div>
+                  ${isLocked ? `
+                    <div class="rmv-watched-some" style="color:#fca5a5;">🔒 Excede el límite de 5 series del Plan Free</div>
+                  ` : `
+                    <div class="rms-progress">
+                      <span class="rms-prog-txt">${pr.label} (${pr.pct}%)</span>
+                      <div class="rms-bar"><i style="width:${pr.pct}%"></i></div>
+                    </div>
+                  `}
                   <div class="rms-actions">
-                    <button type="button" class="rms-btn rms-btn-main" data-sr-open="${id}">▶ Capítulos<span class="rms-mar"> &amp; Maratón</span></button>
-                    <button type="button" class="rms-btn" data-sr-rate="${id}">✏ Reseña</button>
-                    <button type="button" class="rms-btn" data-sr-comm="${id}">💬 ${(s.comments || []).length}</button>
+                    ${isLocked ? `
+                      <button type="button" class="rms-btn is-locked" data-locked-series>🔒 Bloqueada · Activar ruma Plus</button>
+                    ` : `
+                      <button type="button" class="rms-btn rms-btn-main" data-sr-open="${id}">▶ Capítulos<span class="rms-mar"> &amp; Maratón</span></button>
+                      <button type="button" class="rms-btn" data-sr-rate="${id}">✏ Reseña</button>
+                      <button type="button" class="rms-btn" data-sr-comm="${id}">💬 ${(s.comments || []).length}</button>
+                    `}
                   </div>
                 </div>
               </article>`;
-          }).join('')}
+          }).join('');
+          })()}
         </div>
       `}
     </div>
@@ -224,6 +238,10 @@ export function renderGroupSeriesView(viewport, group, user, ctx) {
   viewport.querySelectorAll('[data-sr-open]').forEach(el => el.addEventListener('click', () => {
     const s = find(el.getAttribute('data-sr-open'));
     if (s) openSeriesDetail(s);
+  }));
+  viewport.querySelectorAll('[data-locked-series]').forEach(el => el.addEventListener('click', (e) => {
+    e.stopPropagation();
+    UI.showUpgradeModal('En el Plan Free el límite es de 5 series por grupo. Las más recientes quedaron bloqueadas; activa ruma Plus para desbloquearlas.', () => store.upgradeGroupToPremium(group.id));
   }));
   viewport.querySelectorAll('[data-sr-rate]').forEach(el => el.addEventListener('click', () => {
     const s = find(el.getAttribute('data-sr-rate'));

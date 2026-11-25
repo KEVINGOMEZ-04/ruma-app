@@ -504,3 +504,5 @@
 /* Grupo bloqueado por límite Freemium */
 .ruma-home-group-card.is-locked{opacity:.72;border-color:rgba(248,113,113,.38)}
 .ruma-home-group-enter.is-locked{background:rgba(127,29,29,.45);border:1px solid rgba(248,113,113,.5);color:#fecaca;box-shadow:none}
+.rmv-card.is-locked,.rmu-card.is-locked{opacity:.72;border-color:rgba(248,113,113,.38)}
+.rmv-status-pill.is-locked,.rmv-ficha-btn.is-locked,.rms-badge.is-locked,.rms-btn.is-locked{background:rgba(127,29,29,.4);border-color:rgba(248,113,113,.5);color:#fecaca}

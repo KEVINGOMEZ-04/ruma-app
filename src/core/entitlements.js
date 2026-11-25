@@ -200,5 +200,35 @@ export const Entitlements = {
 
     ordered.slice(maxAllowed).forEach(entry => locked.add(entry.g.id));
     return locked;
+  },
+
+  /**
+   * Devuelve un Set con los IDs de ítems bloqueados (movies | series | songs) en un grupo Free cuando exceden 5.
+   * Conserva los 5 más antiguos y bloquea los más recientes agregados.
+   */
+  getLockedMediaIds(group, category) {
+    const locked = new Set();
+    if (!group || this.isGroupPremium(group)) return locked;
+    const list = group[category] || [];
+    const maxMap = {
+      movies: PLAN_LIMITS.free.maxMoviesPerGroup,
+      series: PLAN_LIMITS.free.maxSeriesPerGroup,
+      songs: PLAN_LIMITS.free.maxSongsPerGroup
+    };
+    const max = maxMap[category] ?? 5;
+    if (list.length <= max) return locked;
+
+    // addMediaToActiveGroup usa unshift (nuevos al inicio), así que sin createdAt los más antiguos tienen mayor índice
+    const orderedOldestFirst = list.map((item, idx) => ({
+      item,
+      idx,
+      ts: item?.createdAt || ''
+    })).sort((a, b) => {
+      if (a.ts && b.ts && a.ts !== b.ts) return a.ts.localeCompare(b.ts);
+      return b.idx - a.idx;
+    });
+
+    orderedOldestFirst.slice(max).forEach(e => locked.add(e.item.id));
+    return locked;
   }
 };

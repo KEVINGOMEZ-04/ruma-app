@@ -219,7 +219,10 @@ export function renderGroupMoviesView(viewport, group, user, ctx) {
         </div>
       ` : `
         <div class="rmv-list">
-          ${movies.map(movie => {
+          ${(() => {
+            const lockedIds = Entitlements.getLockedMediaIds(group, 'movies');
+            return movies.map(movie => {
+            const isLocked = lockedIds.has(movie.id);
             const myStatus = store.getUserMovieStatus(movie, user.id);
             const stMeta = statusBadgeMeta(myStatus);
             const avg = getAverage(movie);
@@ -228,16 +231,22 @@ export function renderGroupMoviesView(viewport, group, user, ctx) {
             const watchedLine = renderGroupWatchedLine(movie, group);
 
             return `
-              <article class="rg-card rmv-card">
-                <img class="rmv-poster" src="${Utils.sanitize(movie.poster || 'assets/ruma_default_avatar.png')}" alt="${Utils.sanitize(movie.title)}" data-open-ficha="${Utils.sanitize(movie.id)}">
+              <article class="rg-card rmv-card ${isLocked ? 'is-locked' : ''}">
+                <img class="rmv-poster" src="${Utils.sanitize(movie.poster || 'assets/ruma_default_avatar.png')}" alt="${Utils.sanitize(movie.title)}" ${isLocked ? 'data-locked-movie' : `data-open-ficha="${Utils.sanitize(movie.id)}"`}>
                 <div class="rmv-body">
                   <div class="rmv-top">
-                    <h3 class="rmv-title" data-open-ficha="${Utils.sanitize(movie.id)}">${Utils.sanitize(movie.title)}</h3>
+                    <h3 class="rmv-title" ${isLocked ? 'data-locked-movie' : `data-open-ficha="${Utils.sanitize(movie.id)}"`}>${Utils.sanitize(movie.title)}</h3>
                     <div class="rmv-actions-top">
-                      <button type="button" class="rmv-status-pill ${stMeta.cls}" data-pick-status="${Utils.sanitize(movie.id)}" title="Cambiar tu estado personal (Por ver / Vistas / Favorita)">
-                        <span>${stMeta.icon}</span>
-                        <span>${stMeta.label}</span>
-                      </button>
+                      ${isLocked ? `
+                        <button type="button" class="rmv-status-pill is-locked" data-locked-movie>
+                          <span>🔒</span><span>Plan Free</span>
+                        </button>
+                      ` : `
+                        <button type="button" class="rmv-status-pill ${stMeta.cls}" data-pick-status="${Utils.sanitize(movie.id)}" title="Cambiar tu estado personal (Por ver / Vistas / Favorita)">
+                          <span>${stMeta.icon}</span>
+                          <span>${stMeta.label}</span>
+                        </button>
+                      `}
                       <button type="button" class="rmv-more-btn" data-more-movie="${Utils.sanitize(movie.id)}" aria-label="Más opciones">⋯</button>
                     </div>
                   </div>
@@ -248,18 +257,18 @@ export function renderGroupMoviesView(viewport, group, user, ctx) {
                     <span class="rmv-rating-pill">⭐ <b>${Utils.sanitize(String(ratingNum))}</b></span>
                   </div>
 
-                  ${watchedLine}
+                  ${isLocked ? `<div class="rmv-watched-some" style="color:#fca5a5;">🔒 Excede el límite de 5 películas del Plan Free</div>` : watchedLine}
 
                   <div class="rmv-bottom">
                     ${renderCompactProviders(movie)}
-                    <button type="button" class="rmv-ficha-btn" data-open-ficha="${Utils.sanitize(movie.id)}">
-                      ${svg(ICO.clapper, 15)}
-                      <span>Ver ficha</span>
+                    <button type="button" class="rmv-ficha-btn ${isLocked ? 'is-locked' : ''}" ${isLocked ? 'data-locked-movie' : `data-open-ficha="${Utils.sanitize(movie.id)}"`}>
+                      ${isLocked ? '🔒 Bloqueada' : `${svg(ICO.clapper, 15)}<span>Ver ficha</span>`}
                     </button>
                   </div>
                 </div>
               </article>`;
-          }).join('')}
+          }).join('');
+          })()}
         </div>
       `}
     </div>
@@ -353,6 +362,13 @@ export function renderGroupMoviesView(viewport, group, user, ctx) {
     el.addEventListener('click', () => {
       const movie = allMovies.find(m => m.id === el.getAttribute('data-open-ficha'));
       if (movie) openMovieDetailModal(group, movie, user);
+    });
+  });
+
+  viewport.querySelectorAll('[data-locked-movie]').forEach(el => {
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      UI.showUpgradeModal('En el Plan Free el límite es de 5 películas por grupo. Las más recientes quedaron bloqueadas; activa ruma Plus para desbloquearlas.', () => store.upgradeGroupToPremium(group.id));
     });
   });
 
