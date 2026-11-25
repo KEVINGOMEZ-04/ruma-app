@@ -133,9 +133,9 @@ export function renderGroupMusicView(viewport, group, user, ctx) {
                   ${song.note ? `<p class="rmu-note">“${Utils.sanitize(song.note)}”</p>` : ''}
                   ${linked.length ? `<button type="button" class="rmu-linked" data-mu-linked="${Utils.sanitize(song.linkedMemories.join(','))}">🎴 Usada en ${linked.length} recuerdo(s) ›</button>` : ''}
                   <div class="rmu-links">
-                    <a class="rmu-pl spotify" target="_blank" rel="noopener" href="${Utils.sanitize(song.spotifyUrl || MusicService.buildSpotifyUrl(song.title, song.artist))}"><i></i>Spotify</a>
-                    <a class="rmu-pl youtube" target="_blank" rel="noopener" href="${Utils.sanitize(song.youtubeUrl || MusicService.buildYoutubeUrl(song.title, song.artist))}"><i>▶</i>YouTube</a>
-                    <a class="rmu-pl apple" target="_blank" rel="noopener" href="${Utils.sanitize(song.appleMusicUrl || MusicService.buildAppleMusicUrl(song.title, song.artist))}"><i></i>Apple</a>
+                    <a class="rmu-pl spotify" target="_blank" rel="noopener" href="${Utils.sanitize(song.spotifyUrl || MusicService.buildSpotifyUrl(song.title, song.artist))}" title="Escuchar en Spotify"><img class="rmu-brand-icon" src="assets/logos/spotify.svg" alt="" width="14" height="14">Spotify</a>
+                    <a class="rmu-pl youtube" target="_blank" rel="noopener" href="${Utils.sanitize(song.youtubeUrl || MusicService.buildYoutubeUrl(song.title, song.artist))}" title="Ver en YouTube"><img class="rmu-brand-icon" src="assets/logos/youtube.svg" alt="" width="14" height="14">YouTube</a>
+                    <a class="rmu-pl apple" target="_blank" rel="noopener" href="${Utils.sanitize(song.appleMusicUrl || MusicService.buildAppleMusicUrl(song.title, song.artist))}" title="Escuchar en Apple Music"><img class="rmu-brand-icon" src="assets/logos/apple-music.svg" alt="" width="14" height="14">Apple</a>
                     <button type="button" class="rmu-pl lyrics" data-mu-lyrics="${id}">${svg(ICO.mic, 13)}Letra</button>
                   </div>
                 `}

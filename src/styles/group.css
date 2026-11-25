@@ -309,16 +309,19 @@
 .rmu-stars small{margin-left:.2rem;color:#b8a3d9;font-size:.72rem}
 .rmu-note{margin:0;font-size:.78rem;font-style:italic;color:#d8c8f5}
 .rmu-linked{align-self:flex-start;background:rgba(139,69,232,.18);border:1px solid rgba(190,150,255,.3);color:#e9d5ff;border-radius:9999px;padding:.2rem .6rem;font-size:.7rem;cursor:pointer;font-family:inherit}
-.rmu-links{display:flex;flex-wrap:wrap;gap:.35rem;margin-top:.15rem}
-.rmu-pl{display:inline-flex;align-items:center;gap:.3rem;padding:.3rem .6rem;border-radius:9999px;border:1px solid;font-size:.7rem;font-weight:700;text-decoration:none;cursor:pointer;font-family:inherit;background:rgba(255,255,255,.04);color:#f3e8ff;border-color:rgba(190,150,255,.3)}
+.rmu-links{display:flex;flex-wrap:wrap;gap:.32rem;margin-top:.2rem}
+.rmu-pl{display:inline-flex;align-items:center;gap:.32rem;padding:.26rem .55rem;border-radius:9999px;border:1px solid;font-size:.69rem;font-weight:700;text-decoration:none;cursor:pointer;font-family:inherit;background:rgba(255,255,255,.05);color:#f3e8ff;border-color:rgba(190,150,255,.25);transition:all .18s ease}
+.rmu-pl:hover{transform:translateY(-1px);filter:brightness(1.15)}
+.rmu-brand-icon{width:13px;height:13px;object-fit:contain;flex-shrink:0;display:inline-block;border-radius:3px}
 .rmu-pl i{font-style:normal;font-size:.62rem;display:inline-grid;place-items:center;width:1rem;height:1rem;border-radius:50%}
-.rmu-pl.spotify{border-color:rgba(34,197,94,.5);background:rgba(34,197,94,.1)}
+.rmu-pl.spotify{border-color:rgba(29,185,84,.45);background:rgba(29,185,84,.12);color:#86efac}
 .rmu-pl.spotify i{background:#1ed760}
-.rmu-pl.youtube{border-color:rgba(239,68,68,.5);background:rgba(239,68,68,.1)}
+.rmu-pl.youtube{border-color:rgba(255,0,0,.45);background:rgba(255,0,0,.12);color:#fca5a5}
 .rmu-pl.youtube i{background:#ef4444;color:#fff;border-radius:.25rem;width:1.15rem}
-.rmu-pl.apple{border-color:rgba(244,114,182,.5);background:rgba(244,114,182,.1)}
+.rmu-pl.apple{border-color:rgba(252,60,68,.45);background:rgba(252,60,68,.12);color:#fda4af}
 .rmu-pl.apple i{background:linear-gradient(135deg,#f472b6,#fb7185)}
-@media (max-width:380px){.rmu-art{width:4.6rem;height:4.6rem}.rmu-pl{padding:.28rem .5rem;font-size:.66rem}}
+.rmu-pl.lyrics{border-color:rgba(190,150,255,.35);background:rgba(139,92,246,.12);color:#e9d5ff}
+@media (max-width:390px){.rmu-art{width:4.4rem;height:4.4rem}.rmu-pl{padding:.22rem .46rem;font-size:.65rem;gap:.25rem}.rmu-brand-icon{width:12px;height:12px}}
 
 /* ===== Chat del Grupo (rch-*) ===== */
 .rch-wrap{display:flex;flex-direction:column;height:calc(100dvh - 10.6rem);min-height:24rem;gap:.55rem}

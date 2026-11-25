@@ -36,12 +36,12 @@ const SUGGESTED_TAGS = [
 ];
 
 const LINK_PLATFORMS = [
-  { id: 'spotify', label: 'Spotify', icon: '🟢' },
-  { id: 'instagram', label: 'Instagram', icon: '📸' },
-  { id: 'tiktok', label: 'TikTok', icon: '🎵' },
-  { id: 'youtube', label: 'YouTube', icon: '▶️' },
-  { id: 'letterboxd', label: 'Letterboxd', icon: '🎞️' },
-  { id: 'web', label: 'Web / Otro', icon: '🌐' }
+  { id: 'spotify', label: 'Spotify', logo: 'assets/logos/spotify.svg', icon: '🟢' },
+  { id: 'instagram', label: 'Instagram', logo: 'assets/logos/instagram.svg', icon: '📸' },
+  { id: 'tiktok', label: 'TikTok', logo: 'assets/logos/tiktok.svg', icon: '🎵' },
+  { id: 'youtube', label: 'YouTube', logo: 'assets/logos/youtube.svg', icon: '▶️' },
+  { id: 'letterboxd', label: 'Letterboxd', logo: 'assets/logos/letterboxd.svg', icon: '🎞️' },
+  { id: 'web', label: 'Web / Otro', logo: null, icon: '🌐' }
 ];
 
 function countRatedSongs(userId) {
@@ -198,9 +198,12 @@ export function renderProfileInterface(container) {
             <div class="rpf-links-list">
               ${links.map(lk => {
                 const meta = LINK_PLATFORMS.find(p => p.id === lk.platform) || LINK_PLATFORMS[5];
+                const badge = meta.logo
+                  ? `<img src="${meta.logo}" alt="" width="16" height="16" style="vertical-align:middle;border-radius:3px;object-fit:contain;flex-shrink:0;">`
+                  : `<span>${meta.icon}</span>`;
                 return `
                   <a class="rpf-link-item" href="${Utils.sanitize(lk.url)}" target="_blank" rel="noopener noreferrer">
-                    <span>${meta.icon}</span>
+                    ${badge}
                     <b>${Utils.sanitize(lk.label || meta.label)}</b>
                     <i>↗</i>
                   </a>`;
