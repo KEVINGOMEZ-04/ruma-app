@@ -76,39 +76,13 @@ export function renderHomeInterface(container) {
           </div>
 
           <div class="ruma-home-account-wrap" id="home-account-wrap">
-            <button type="button" class="ruma-home-account-pill" id="btn-home-account-pill" aria-expanded="false">
+            <button type="button" class="ruma-home-account-pill" id="btn-home-account-pill" title="Abrir mi Perfil">
               <img src="${Utils.sanitize(avatarSrc)}" alt="${Utils.sanitize(firstName)}" class="ruma-home-avatar">
               <div class="ruma-home-account-meta">
                 <span class="ruma-home-account-name">${Utils.sanitize(firstName)}</span>
                 <span class="ruma-home-account-sub">${Utils.sanitize(accountSubLabel)}</span>
               </div>
-              <span class="ruma-home-account-chevron" aria-hidden="true">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
-                  <polyline points="6 9 12 15 18 9"></polyline>
-                </svg>
-              </span>
             </button>
-
-            <!-- Menú Desplegable Rápido -->
-            <div class="ruma-home-dropdown" id="home-account-dropdown" role="menu">
-              <div class="ruma-home-dd-status">
-                <div class="ruma-home-dd-plan">
-                  <span>${Utils.sanitize(quotaLabel)}</span>
-                </div>
-                <div class="ruma-home-dd-cloud">
-                  <span>${cloudOnline ? '🟢 Sincronizado en la nube' : '📴 Modo local'}</span>
-                </div>
-              </div>
-              <button type="button" class="ruma-home-dd-item" id="dd-go-profile">
-                <span>👤</span> <span>Mi Perfil (@${Utils.sanitize(user.username || firstName.toLowerCase())})</span>
-              </button>
-              <button type="button" class="ruma-home-dd-item" id="dd-go-settings">
-                <span>⚙️</span> <span>Ajustes y Plan Freemium</span>
-              </button>
-              <button type="button" class="ruma-home-dd-item danger" id="dd-logout">
-                <span>🚪</span> <span>Cerrar sesión</span>
-              </button>
-            </div>
           </div>
         </header>
 
@@ -275,34 +249,9 @@ export function renderHomeInterface(container) {
     </div>
   `;
 
-  // Menú desplegable de cuenta personal
-  const accountWrap = document.getElementById('home-account-wrap');
-  const accountBtn = document.getElementById('btn-home-account-pill');
-
-  accountBtn?.addEventListener('click', (e) => {
-    e.stopPropagation();
-    const isOpen = accountWrap.classList.toggle('open');
-    accountBtn.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
-  });
-
-  document.addEventListener('click', (e) => {
-    if (accountWrap && !accountWrap.contains(e.target)) {
-      accountWrap.classList.remove('open');
-      accountBtn?.setAttribute('aria-expanded', 'false');
-    }
-  }, { once: true });
-
-  document.getElementById('dd-go-profile')?.addEventListener('click', () => {
+  // Píldora de usuario en barra superior: acción fija -> abrir Mi Perfil
+  document.getElementById('btn-home-account-pill')?.addEventListener('click', () => {
     store.navigate('profile', { inspectUserId: user.id });
-  });
-
-  document.getElementById('dd-go-settings')?.addEventListener('click', () => {
-    store.navigate('settings');
-  });
-
-  document.getElementById('dd-logout')?.addEventListener('click', () => {
-    store.logout();
-    UI.showToast('Sesión cerrada correctamente 👋', 'info');
   });
 
   // Botón Crear grupo -> Modal con selector Freemium (Gratis vs Plus)

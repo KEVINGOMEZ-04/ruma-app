@@ -148,13 +148,13 @@ function renderApp() {
         ${getCloudBadgeHtml(CloudSync.getStatus())}
       </div>
 
-      <!-- Píldora de Usuario Actual -->
-      <div class="ruma-user-pill" id="nav-user-pill" title="Abrir mi Perfil">
+      <!-- Píldora de Usuario Actual (siempre abre Mi Perfil) -->
+      <button type="button" class="ruma-user-pill" id="nav-user-pill" title="Abrir mi Perfil">
         <div class="avatar-wrap ${Utils.sanitize(user.frameId || 'frame-axolotl')}" style="width:30px;height:30px;">
           <img src="${Utils.sanitize(avatarSrc)}" alt="Avatar" class="avatar-img">
         </div>
         <span style="font-size:0.84rem;font-weight:700;">${Utils.sanitize(user.name.split(' ')[0])}</span>
-      </div>
+      </button>
     </header>
 
     <main class="ruma-container" id="ruma-view-root" style="padding-bottom:6.5rem;"></main>
