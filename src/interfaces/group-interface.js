@@ -1753,10 +1753,10 @@ function renderChatTab(viewport, group, user) {
 }
 
 function openPickGroupItemToQuoteModal(group, onPicked) {
-  const lockedMovies = Entitlements.getLockedItemIds(group, 'movies');
-  const lockedSeries = Entitlements.getLockedItemIds(group, 'series');
-  const lockedSongs = Entitlements.getLockedItemIds(group, 'songs');
-  const lockedBooks = Entitlements.getLockedItemIds(group, 'books');
+  const lockedMovies = Entitlements.getLockedMediaIds(group, 'movies');
+  const lockedSeries = Entitlements.getLockedMediaIds(group, 'series');
+  const lockedSongs = Entitlements.getLockedMediaIds(group, 'songs');
+  const lockedBooks = Entitlements.getLockedMediaIds(group, 'books');
 
   const items = [
     ...(group.movies || []).filter(m => !lockedMovies.has(m.id)).map(m => ({
