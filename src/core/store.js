@@ -576,7 +576,11 @@ class RumaStore {
 
   async registerAsync(payload) {
     await this.syncNowWithCloud();
-    return this.register(payload);
+    const res = this.register(payload);
+    if (res.ok) {
+      await this.pushMergedStateToCloud();
+    }
+    return res;
   }
 
   register({ name, username, email, phone, password }) {
@@ -856,8 +860,15 @@ class RumaStore {
   }
 
   async joinGroupByCodeOrQueryAsync(codeOrQuery) {
-    await this.syncNowWithCloud();
-    return this.joinGroupByCodeOrQuery(codeOrQuery);
+    const cloud = await CloudSync.pullCloudState(true);
+    if (cloud) {
+      this.applyRemoteCloudState(cloud, false);
+    }
+    const res = this.joinGroupByCodeOrQuery(codeOrQuery);
+    if (res.ok) {
+      await this.pushMergedStateToCloud();
+    }
+    return res;
   }
 
   joinGroupByCodeOrQuery(codeOrQuery) {
