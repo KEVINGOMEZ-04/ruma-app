@@ -1591,7 +1591,7 @@ function openAddSongModal(group) {
             <label class="form-label">🎴 Vincular a Recuerdos del Grupo (Opcional)</label>
             <div style="display:flex;gap:0.5rem;flex-wrap:wrap;max-height:85px;overflow-y:auto;padding:0.4rem;background:var(--bg-elevated);border-radius:var(--radius-sm);">
               ${memories.map(m => `
-                <label style="display:inline-flex;align-items:center;gap:0.35rem;font-size:0.78rem;cursor:pointer;background:rgba(18,7,38,0.8);padding:0.25rem 0.55rem;border-radius:var(--radius-xs);">
+                <label style="display:inline-flex;align-items:center;gap:0.35rem;font-size:0.78rem;cursor:pointer;background:var(--surface);border:1px solid var(--border);padding:0.25rem 0.55rem;border-radius:var(--radius-xs);">
                   <input type="checkbox" name="song_linked_memory" value="${Utils.sanitize(m.id)}">
                   <span>📸 ${Utils.sanitize(m.title)}</span>
                 </label>

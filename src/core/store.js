@@ -561,9 +561,12 @@ class RumaStore {
   }
 
   setTheme(theme, emit = true) {
-    document.documentElement.setAttribute('data-theme', theme);
-    document.body.setAttribute('data-theme', theme);
-    localStorage.setItem(CONFIG.storageKeys.theme, theme);
+    const normalized = theme === 'light' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', normalized);
+    document.body.setAttribute('data-theme', normalized);
+    const metaTheme = document.querySelector('meta[name="theme-color"]');
+    if (metaTheme) metaTheme.setAttribute('content', normalized === 'light' ? '#FCFAFF' : '#15111E');
+    localStorage.setItem(CONFIG.storageKeys.theme, normalized);
     if (emit) this.notify();
   }
 

@@ -4,8 +4,8 @@
   "description": "ruma — Santuario digital privado para grupos: recuerdos en Google Drive, club de cine/series/música, perfil estilo Discord y chat contextual.",
   "start_url": "./index.html",
   "display": "standalone",
-  "background_color": "#0E071D",
-  "theme_color": "#0E071D",
+  "background_color": "#15111E",
+  "theme_color": "#15111E",
   "orientation": "portrait-primary",
   "icons": [
     {

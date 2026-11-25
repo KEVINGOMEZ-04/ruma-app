@@ -1,5 +1,6 @@
 /**
- * ruma 🌟 — Estilos Exclusivos de Login y Registro (Luxury Neon Dark - 100% Responsive)
+ * ruma — Estilos de Login y Registro (Sistema Cromático Global)
+ * Adaptado 100% a Tema Oscuro y Tema Claro mediante Design Tokens.
  */
 
 .ruma-auth-root {
@@ -24,12 +25,10 @@
     clamp(1.1rem, 4.5vw, 1.75rem)
     calc(clamp(0.9rem, 2.4dvh, 2rem) + env(safe-area-inset-bottom, 0px));
   overflow-x: hidden;
-  background:
-    radial-gradient(circle at 50% 13%, rgba(147, 51, 234, 0.30) 0%, rgba(16, 5, 36, 0) 50%),
-    radial-gradient(circle at 88% 12%, rgba(168, 85, 247, 0.24) 0%, transparent 45%),
-    radial-gradient(circle at 12% 36%, rgba(192, 132, 252, 0.18) 0%, transparent 40%),
-    radial-gradient(circle at 85% 92%, rgba(168, 85, 247, 0.26) 0%, transparent 45%),
-    linear-gradient(180deg, #100523 0%, #0A0316 55%, #080212 100%);
+  background-color: var(--bg-main);
+  background-image:
+    radial-gradient(circle at 50% 8%, var(--primary-soft) 0%, transparent 52%),
+    radial-gradient(circle at 88% 88%, var(--accent-soft) 0%, transparent 45%);
 }
 
 .ruma-auth-waves-svg {
@@ -39,6 +38,11 @@
   height: 100%;
   pointer-events: none;
   z-index: 0;
+  opacity: 0.24;
+}
+
+[data-theme="light"] .ruma-auth-waves-svg {
+  opacity: 0.14;
 }
 
 .ruma-auth-wrap {
@@ -54,19 +58,18 @@
 }
 
 .ruma-auth-logo-box {
-  width: clamp(82px, 12.2dvh, 110px);
-  height: clamp(82px, 12.2dvh, 110px);
+  width: clamp(84px, 12.2dvh, 112px);
+  height: clamp(84px, 12.2dvh, 112px);
   border-radius: clamp(22px, 3.3dvh, 30px);
   overflow: hidden;
   flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1.5px solid rgba(192, 132, 252, 0.55);
-  box-shadow:
-    0 12px 34px rgba(124, 58, 237, 0.45),
-    0 0 26px rgba(192, 132, 252, 0.32);
-  transition: transform 0.25s ease;
+  border: 1px solid var(--border);
+  background: transparent;
+  box-shadow: var(--shadow-md);
+  transition: transform 0.22s ease;
 }
 
 .ruma-auth-logo-box:hover {
@@ -76,81 +79,80 @@
 .ruma-auth-logo-img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
   display: block;
-  transform: scale(1.06);
 }
 
 .ruma-auth-title {
-  font-family: var(--font-sans);
+  font-family: var(--font-display);
   font-size: clamp(2.45rem, 5.4dvh, 3.35rem);
   font-weight: 800;
   letter-spacing: -0.03em;
   line-height: 1;
-  margin: clamp(0.5rem, 1.3dvh, 0.9rem) 0 0;
+  margin: clamp(0.55rem, 1.3dvh, 0.9rem) 0 0;
 }
 
 .ruma-title-ru {
-  color: #FFFFFF;
+  color: var(--text-primary);
 }
 
 .ruma-title-ma {
-  background: linear-gradient(90deg, #E9D5FF 0%, #D8B4FE 45%, #C084FC 100%);
+  background: var(--grad-axolotl);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 
 .ruma-auth-tagline {
   margin: clamp(0.35rem, 0.9dvh, 0.65rem) 0 clamp(0.95rem, 2.2dvh, 1.65rem);
-  font-size: clamp(0.8rem, 3.6vw, 0.94rem);
+  font-size: clamp(0.82rem, 3.6vw, 0.94rem);
   font-weight: 500;
-  color: #D1CFE2;
+  color: var(--text-secondary);
   letter-spacing: -0.01em;
   line-height: 1.35;
 }
 
 .ruma-auth-tagline .dot {
-  color: rgba(209, 207, 226, 0.6);
+  color: var(--text-muted);
   margin: 0 0.16rem;
 }
 
 .ruma-auth-tagline .accent {
-  color: #C084FC;
-  font-weight: 600;
+  color: var(--primary);
+  font-weight: 700;
 }
 
 .ruma-auth-segmented {
   width: 96%;
-  background: rgba(29, 19, 52, 0.85);
-  border: 1px solid rgba(192, 132, 252, 0.22);
-  border-radius: 9999px;
+  background: var(--surface-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
   padding: 4px;
   display: grid;
   grid-template-columns: 1fr 1fr;
   margin-bottom: clamp(0.85rem, 1.8dvh, 1.3rem);
-  box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.45);
 }
 
 .ruma-auth-seg-btn {
-  border: none;
+  border: 1px solid transparent;
   background: transparent;
-  color: #C4B5FD;
+  color: var(--text-secondary);
   font-family: var(--font-sans);
   font-size: clamp(0.86rem, 3.6vw, 0.95rem);
   font-weight: 700;
   padding: clamp(0.54rem, 1.25dvh, 0.72rem) 0.75rem;
-  border-radius: 9999px;
+  border-radius: var(--radius-full);
   cursor: pointer;
-  transition: all 0.22s ease;
+  transition: all 0.2s ease;
+}
+
+.ruma-auth-seg-btn:hover:not(.active) {
+  color: var(--text-primary);
 }
 
 .ruma-auth-seg-btn.active {
-  color: #FFFFFF;
-  background: linear-gradient(135deg, #A855F7 0%, #9333EA 55%, #7E22CE 100%);
-  border: 1px solid rgba(233, 213, 255, 0.45);
-  box-shadow:
-    0 4px 20px rgba(168, 85, 247, 0.55),
-    0 0 14px rgba(192, 132, 252, 0.4);
+  color: var(--on-primary);
+  background: var(--primary-solid);
+  box-shadow: var(--shadow-sm);
 }
 
 .ruma-auth-form {
@@ -163,9 +165,9 @@
 .ruma-auth-field {
   width: 100%;
   height: clamp(47px, 6.6dvh, 56px);
-  background: rgba(31, 22, 53, 0.82);
-  border: 1px solid rgba(192, 132, 252, 0.22);
-  border-radius: 17px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
   padding: 0 1rem;
   display: flex;
   align-items: center;
@@ -174,18 +176,20 @@
 }
 
 .ruma-auth-field:focus-within {
-  border-color: rgba(192, 132, 252, 0.65);
-  background: rgba(37, 25, 64, 0.92);
-  box-shadow: 0 0 0 3px rgba(168, 85, 247, 0.18);
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-soft);
 }
 
 .ruma-auth-field-icon {
-  color: #C4B5FD;
+  color: var(--text-secondary);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  opacity: 0.88;
+}
+
+.ruma-auth-field:focus-within .ruma-auth-field-icon {
+  color: var(--primary);
 }
 
 .ruma-auth-input {
@@ -194,14 +198,14 @@
   background: transparent;
   border: none;
   outline: none;
-  color: #F8FAFC;
+  color: var(--text-primary);
   font-family: var(--font-sans);
   font-size: 1rem;
   font-weight: 500;
 }
 
 .ruma-auth-input::placeholder {
-  color: #9F96B8;
+  color: var(--text-muted);
   font-weight: 400;
   font-size: clamp(0.88rem, 3.6vw, 0.96rem);
 }
@@ -209,20 +213,18 @@
 .ruma-auth-eye-btn {
   background: transparent;
   border: none;
-  color: #C4B5FD;
+  color: var(--text-secondary);
   cursor: pointer;
   padding: 0.25rem;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  opacity: 0.82;
-  transition: opacity 0.15s ease, color 0.15s ease;
+  transition: color 0.15s ease;
 }
 
 .ruma-auth-eye-btn:hover,
 .ruma-auth-eye-btn.showing {
-  opacity: 1;
-  color: #E9D5FF;
+  color: var(--primary);
 }
 
 .ruma-auth-forgot-row {
@@ -236,7 +238,7 @@
 .ruma-auth-forgot-link {
   background: transparent;
   border: none;
-  color: #C084FC;
+  color: var(--primary);
   font-family: var(--font-sans);
   font-size: clamp(0.8rem, 3.3vw, 0.85rem);
   font-weight: 600;
@@ -246,39 +248,40 @@
 }
 
 .ruma-auth-forgot-link:hover {
-  color: #E9D5FF;
+  color: var(--primary-hover);
   text-decoration: underline;
 }
 
 .ruma-auth-cta {
   width: 100%;
   height: clamp(47px, 6.6dvh, 56px);
-  border-radius: 17px;
-  border: 1px solid rgba(233, 213, 255, 0.55);
-  background: linear-gradient(90deg, #A855F7 0%, #8B5CF6 50%, #9333EA 100%);
-  color: #FFFFFF;
+  border-radius: 16px;
+  border: 1px solid transparent;
+  background: var(--grad-primary);
+  color: var(--on-primary);
   font-family: var(--font-sans);
-  font-size: clamp(1rem, 2.2dvh, 1.12rem);
+  font-size: clamp(1rem, 2.2dvh, 1.08rem);
   font-weight: 700;
   letter-spacing: -0.01em;
   cursor: pointer;
-  box-shadow:
-    0 8px 28px rgba(147, 51, 234, 0.55),
-    0 0 22px rgba(192, 132, 252, 0.38),
-    inset 0 1px 1px rgba(255, 255, 255, 0.35);
-  transition: transform 0.18s ease, box-shadow 0.18s ease, filter 0.18s ease;
+  box-shadow: var(--shadow-glow);
+  transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
 }
 
 .ruma-auth-cta:hover {
   transform: translateY(-1px);
-  filter: brightness(1.06);
-  box-shadow:
-    0 12px 34px rgba(147, 51, 234, 0.7),
-    0 0 28px rgba(192, 132, 252, 0.5);
+  background: var(--primary-hover);
+}
+
+.ruma-auth-cta:active {
+  background: var(--primary-active);
+  transform: scale(0.99);
 }
 
 .ruma-auth-cta:disabled {
-  opacity: 0.65;
+  background: var(--disabled-bg);
+  color: var(--disabled-text);
+  box-shadow: none;
   cursor: wait;
 }
 
@@ -293,12 +296,12 @@
 .ruma-auth-divider .line {
   flex: 1;
   height: 1px;
-  background: rgba(192, 132, 252, 0.22);
+  background: var(--border);
 }
 
 .ruma-auth-divider .text {
   font-size: clamp(0.78rem, 3.2vw, 0.84rem);
-  color: #9F96B8;
+  color: var(--text-muted);
   font-weight: 500;
   white-space: nowrap;
 }
@@ -314,37 +317,36 @@
   width: clamp(58px, 8.2dvh, 68px);
   height: clamp(46px, 6.5dvh, 56px);
   border-radius: 15px;
-  background: rgba(31, 22, 53, 0.88);
-  border: 1px solid rgba(192, 132, 252, 0.18);
+  background: var(--surface);
+  border: 1px solid var(--border);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.38);
+  box-shadow: var(--shadow-sm);
   transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
 }
 
 .ruma-auth-google-box:hover {
-  transform: translateY(-2px);
-  border-color: rgba(192, 132, 252, 0.48);
-  background: rgba(41, 28, 70, 0.95);
+  transform: translateY(-1px);
+  border-color: var(--primary);
+  background: var(--surface-secondary);
 }
 
 .ruma-auth-legal {
   font-size: clamp(0.74rem, 3.1vw, 0.8rem);
   line-height: 1.5;
-  color: #9F96B8;
+  color: var(--text-muted);
   margin: 0;
 }
 
 .ruma-auth-legal a {
-  color: #C084FC;
+  color: var(--primary);
   font-weight: 600;
   text-decoration: none;
 }
 
 .ruma-auth-legal a:hover {
-  color: #E9D5FF;
   text-decoration: underline;
 }
 

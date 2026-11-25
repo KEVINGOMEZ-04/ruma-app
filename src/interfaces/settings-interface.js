@@ -18,7 +18,9 @@ const ICO = {
   users: '<circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><circle cx="17" cy="9" r="2.4"/><path d="M17 14c2.5 0 4.5 2 4.5 4.5"/>',
   clapper: '<rect x="3" y="7" width="18" height="13" rx="2.2"/><path d="m3 7 3-4h4L7 7m3 0 3-4h4l-3 4"/>',
   tv: '<rect x="3" y="6" width="18" height="13" rx="2.2"/><path d="m8 2 4 4 4-4"/>',
-  note: '<path d="M9 18V5l11-2v13"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="17.5" cy="16" r="2.5"/>'
+  note: '<path d="M9 18V5l11-2v13"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="17.5" cy="16" r="2.5"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32 1.41 1.41M2 12h2m16 0h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>',
+  moon: '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>'
 };
 
 export function renderSettingsInterface(container) {
@@ -97,6 +99,28 @@ export function renderSettingsInterface(container) {
         </div>
       </section>
 
+      <!-- Apariencia -->
+      <section class="rg-card rst-card">
+        <div class="rst-sec-head">
+          <div class="rst-sec-ico">${svg(store.getTheme() === 'light' ? ICO.sun : ICO.moon, 20)}</div>
+          <div>
+            <h2>Apariencia</h2>
+            <p>Elige entre tema claro u oscuro según tu preferencia.</p>
+          </div>
+        </div>
+
+        <div class="rst-theme-switch" role="group" aria-label="Seleccionar tema">
+          <button type="button" class="rst-theme-opt ${store.getTheme() === 'light' ? 'active' : ''}" data-set-theme="light">
+            ${svg(ICO.sun, 16)}
+            <span>Tema Claro</span>
+          </button>
+          <button type="button" class="rst-theme-opt ${store.getTheme() !== 'light' ? 'active' : ''}" data-set-theme="dark">
+            ${svg(ICO.moon, 16)}
+            <span>Tema Oscuro</span>
+          </button>
+        </div>
+      </section>
+
       <!-- Plan y Límites -->
       <section class="rg-card rst-card">
         <div class="rst-sec-head">
@@ -146,6 +170,15 @@ export function renderSettingsInterface(container) {
   container.querySelector('#rst-logout-btn')?.addEventListener('click', () => {
     store.logout();
     UI.showToast('Has cerrado sesión correctamente.', 'info');
+  });
+
+  container.querySelectorAll('[data-set-theme]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const nextTheme = btn.getAttribute('data-set-theme');
+      if (nextTheme === store.getTheme()) return;
+      store.setTheme(nextTheme);
+      UI.showToast(nextTheme === 'light' ? 'Tema claro activado ☀️' : 'Tema oscuro activado 🌙', 'info');
+    });
   });
 
   container.querySelector('#rst-toggle-plus')?.addEventListener('click', () => {
