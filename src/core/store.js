@@ -970,6 +970,7 @@ class RumaStore {
       movies: [],
       series: [],
       songs: [],
+      books: [],
       goals: [],
       notes: [],
       messages: []
@@ -1361,10 +1362,11 @@ class RumaStore {
     };
 
     group[category].unshift(newItem);
-    const actType = { movies: 'movie', series: 'series', songs: 'song' }[category];
+    const actType = { movies: 'movie', series: 'series', songs: 'song', books: 'book' }[category];
     if (actType) {
       const label = newItem.title || newItem.name || '';
-      const extra = category === 'songs' && newItem.artist ? ` — ${newItem.artist}` : '';
+      const extra = (category === 'songs' && newItem.artist) || (category === 'books' && newItem.author)
+        ? ` — ${newItem.artist || newItem.author}` : '';
       this.logActivity(group, user, actType, `${label}${extra}`);
     }
     this.saveGroups(allGroups);
@@ -1425,6 +1427,53 @@ class RumaStore {
     const currentIdx = order.indexOf(current);
     const next = order[(currentIdx + 1) % order.length];
     return this.setUserMovieStatus(movieId, next);
+  }
+
+  getUserBookProgress(book, userId) {
+    const uid = userId || this.getCurrentUser()?.id;
+    const up = book?.userProgress?.[uid];
+    if (up) return { status: up.status || 'Por leer', currentPage: Number(up.currentPage || 0) };
+    return { status: book?.status || 'Por leer', currentPage: 0 };
+  }
+
+  setUserBookProgress(bookId, { status, currentPage } = {}) {
+    const user = this.getCurrentUser();
+    const allGroups = this.getGroups();
+    const group = allGroups.find(g => g.id === this.getActiveGroup()?.id);
+    if (!group || !user) return null;
+    const book = (group.books || []).find(b => b.id === bookId);
+    if (!book) return null;
+
+    book.userProgress = book.userProgress || {};
+    const prev = this.getUserBookProgress(book, user.id);
+    const total = Number(book.pages || 0);
+    let nextPage = currentPage !== undefined ? Math.max(0, Number(currentPage) || 0) : prev.currentPage;
+    if (total > 0) nextPage = Math.min(total, nextPage);
+
+    let nextStatus = status || prev.status;
+    if (status === 'Leído' && total > 0) nextPage = total;
+    else if (status === 'Por leer' && currentPage === undefined) nextPage = 0;
+    else if (currentPage !== undefined && status === undefined) {
+      if (total > 0 && nextPage >= total) nextStatus = 'Leído';
+      else if (nextPage > 0) nextStatus = 'Leyendo';
+      else nextStatus = 'Por leer';
+    }
+
+    book.userProgress[user.id] = { status: nextStatus, currentPage: nextPage, userName: user.name };
+    this.saveGroups(allGroups);
+    this.notify();
+    return book.userProgress[user.id];
+  }
+
+  cycleBookStatus(bookId) {
+    const user = this.getCurrentUser();
+    const group = this.getActiveGroup();
+    const book = (group?.books || []).find(b => b.id === bookId);
+    if (!book || !user) return null;
+    const order = ['Por leer', 'Leyendo', 'Leído'];
+    const cur = this.getUserBookProgress(book, user.id).status;
+    const next = order[(order.indexOf(cur) + 1) % order.length];
+    return this.setUserBookProgress(bookId, { status: next });
   }
 
   rateMovieOrSeries(category, itemId, score, review = '', tags = []) {

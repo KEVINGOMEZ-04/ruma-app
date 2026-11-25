@@ -9,6 +9,8 @@ const ICONS = {
   movies: '<rect x="3" y="7" width="18" height="13" rx="2"/><path d="m3 7 3-4h4L7 7m3 0 3-4h4l-3 4m3 0 3-4"/>',
   series: '<rect x="3" y="7" width="18" height="13" rx="2"/><path d="m8 3 4 4 4-4"/>',
   music: '<path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/>',
+  books: '<path d="M2 5.5A2.5 2.5 0 0 1 4.5 3H12v17H4.5A2.5 2.5 0 0 0 2 22V5.5Z"/><path d="M22 5.5A2.5 2.5 0 0 0 19.5 3H12v17h7.5a2.5 2.5 0 0 1 2.5 2V5.5Z"/>',
+  goals_notes: '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1.2" fill="currentColor"/><path d="m15.5 8.5 4.5-4.5M17 4h3v3"/>',
   join: '<circle cx="10" cy="8" r="3.2"/><path d="M4 20c0-3.3 2.7-6 6-6s6 2.7 6 6M19 8v6M16 11h6"/>'
 };
 
@@ -16,13 +18,16 @@ const EXPLORE = [
   { tab: 'memories', title: 'Recuerdos', sub: 'Fotos, videos y momentos compartidos' },
   { tab: 'movies', title: 'Películas', sub: 'Catálogo de películas del grupo' },
   { tab: 'series', title: 'Series', sub: 'Series que seguimos juntos' },
-  { tab: 'music', title: 'Música', sub: 'Canciones y playlists del grupo' }
+  { tab: 'music', title: 'Música', sub: 'Canciones y playlists del grupo' },
+  { tab: 'books', title: 'Libros', sub: 'Libros que leemos y recomendamos' },
+  { tab: 'goals_notes', title: 'Objetivos', sub: 'Metas y retos del grupo' }
 ];
 
 const ACT_META = {
   song: { icon: 'music', cls: 'a-song', text: 'añadió una canción' },
   movie: { icon: 'movies', cls: 'a-movie', text: 'agregó una película' },
   series: { icon: 'series', cls: 'a-series', text: 'agregó una serie' },
+  book: { icon: 'books', cls: 'a-series', text: 'añadió un libro' },
   memory: { icon: 'memories', cls: 'a-memory', text: 'subió un recuerdo' },
   join: { icon: 'join', cls: 'a-join', text: 'se unió al grupo' }
 };

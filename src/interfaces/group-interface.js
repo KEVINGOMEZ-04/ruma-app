@@ -51,6 +51,7 @@ let musicFilterState = {
   type: 'all', // 'all' | 'top-rated' | 'with-memories' | 'my-songs' | 'by-member'
   memberName: ''
 };
+let booksFilterState = 'all';
 
 import { groupHeaderHtml, bindGroupHeader } from './group-header.js';
 import { groupHomeHtml, bindGroupHome } from './group-home.js';
@@ -58,6 +59,7 @@ import { renderGroupMemoriesView } from './group-memories.js';
 import { renderGroupMoviesView } from './group-movies.js';
 import { renderGroupSeriesView } from './group-series.js';
 import { renderGroupMusicView } from './group-music.js';
+import { renderGroupBooksView } from './group-books.js';
 import { renderGroupChatView } from './group-chat.js';
 
 export function renderGroupInterface(container) {
@@ -80,13 +82,13 @@ export function renderGroupInterface(container) {
   // Sincronizar playlist global con las canciones del grupo activo
   MusicService.setPlaylist(group.songs || []);
 
-  const SECTION_TITLES = { memories: 'Recuerdos', movies: 'Películas', series: 'Series', music: 'Música', goals_notes: 'Metas & Notas', chat: 'Chat del grupo' };
+  const SECTION_TITLES = { memories: 'Recuerdos', movies: 'Películas', series: 'Series', music: 'Música', books: 'Libros', goals_notes: 'Objetivos', chat: 'Chat del grupo' };
   const isHome = tab === 'home';
   if (tab === 'chat') store.markChatSeen(group);
 
   container.innerHTML = `
     <div class="rg-wrap">
-      ${isHome ? groupHeaderHtml(group, user, tab) + groupHomeHtml(group) : ((tab === 'memories' || tab === 'movies' || tab === 'series' || tab === 'music' || tab === 'chat') ? `<div id="group-tab-viewport"></div>` : `
+      ${isHome ? groupHeaderHtml(group, user, tab) + groupHomeHtml(group) : ((tab === 'memories' || tab === 'movies' || tab === 'series' || tab === 'music' || tab === 'books' || tab === 'chat') ? `<div id="group-tab-viewport"></div>` : `
         <div class="rg-sectionbar">
           <button type="button" class="rg-back" id="rg-back-home">‹ Grupo</button>
           <h2>${SECTION_TITLES[tab] || ''}</h2>
@@ -117,6 +119,7 @@ export function renderGroupInterface(container) {
   else if (tab === 'movies') renderMoviesTab(viewport, group, user);
   else if (tab === 'series') renderSeriesTab(viewport, group, user);
   else if (tab === 'music') renderMusicTab(viewport, group, user);
+  else if (tab === 'books') renderBooksTab(viewport, group, user);
   else if (tab === 'goals_notes') renderGoalsAndNotesTab(viewport, group);
   else if (tab === 'chat') renderChatTab(viewport, group, user);
 }
@@ -1786,6 +1789,27 @@ function renderGoalsAndNotesTab(viewport, group) {
 // ============================================================================
 // 6. PESTAÑA CHAT INTERNO ESTILO WHATSAPP (Con citas a Recuerdos, Películas, Series, Canciones o Mensajes)
 // ============================================================================
+function renderBooksTab(viewport, group, user) {
+  renderGroupBooksView(viewport, group, user, {
+    getFilterState: () => booksFilterState,
+    setFilterState: (v) => { booksFilterState = v; },
+    openReviewModal,
+    openMediaCommentsModal,
+    onQuoteBook: (book) => {
+      pendingChatQuote = {
+        type: 'book',
+        itemId: book.id,
+        label: '📚 Libro',
+        title: book.title,
+        subtitle: book.author || 'Libro',
+        thumb: book.poster || 'assets/ruma_icon_512.png'
+      };
+      store.navigate('group', { groupTab: 'chat' });
+    },
+    rerender: () => renderBooksTab(viewport, group, user)
+  });
+}
+
 function renderChatTab(viewport, group, user) {
   renderGroupChatView(viewport, group, user, {
     getPendingQuote: () => pendingChatQuote,
@@ -1828,6 +1852,14 @@ function openPickGroupItemToQuoteModal(group, onPicked) {
       title: s.title,
       subtitle: s.artist,
       thumb: s.artwork || 'assets/ruma_icon_512.png'
+    })),
+    ...(group.books || []).map(b => ({
+      type: 'book',
+      itemId: b.id,
+      label: '📚 Libro',
+      title: b.title,
+      subtitle: b.author || 'Libro',
+      thumb: b.poster || 'assets/ruma_icon_512.png'
     }))
   ];
 

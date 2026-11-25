@@ -22,6 +22,7 @@ export const PLAN_LIMITS = {
     maxMoviesPerGroup: 5,
     maxSeriesPerGroup: 5,
     maxSongsPerGroup: 5,
+    maxBooksPerGroup: 5,
     maxFilesPerMemoryUpload: 10, // Sin límite de MB/GB porque va a Google Drive
     customThemes: false,
     premiumFrames: false
@@ -33,6 +34,7 @@ export const PLAN_LIMITS = {
     maxMoviesPerGroup: Infinity,
     maxSeriesPerGroup: Infinity,
     maxSongsPerGroup: Infinity,
+    maxBooksPerGroup: Infinity,
     maxFilesPerMemoryUpload: 50,
     customThemes: true,
     premiumFrames: true
@@ -135,12 +137,14 @@ export const Entitlements = {
     const mapMax = {
       movies: limits.maxMoviesPerGroup,
       series: limits.maxSeriesPerGroup,
-      songs: limits.maxSongsPerGroup
+      songs: limits.maxSongsPerGroup,
+      books: limits.maxBooksPerGroup
     };
     const labelMap = {
       movies: 'películas',
       series: 'series',
-      songs: 'canciones'
+      songs: 'canciones',
+      books: 'libros'
     };
 
     const currentList = group[category] || [];
@@ -213,7 +217,8 @@ export const Entitlements = {
     const maxMap = {
       movies: PLAN_LIMITS.free.maxMoviesPerGroup,
       series: PLAN_LIMITS.free.maxSeriesPerGroup,
-      songs: PLAN_LIMITS.free.maxSongsPerGroup
+      songs: PLAN_LIMITS.free.maxSongsPerGroup,
+      books: PLAN_LIMITS.free.maxBooksPerGroup
     };
     const max = maxMap[category] ?? 5;
     if (list.length <= max) return locked;
