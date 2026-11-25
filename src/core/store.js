@@ -396,24 +396,33 @@ class RumaStore {
     }
   }
 
-  mergeCloudAndLocalGroups(localGroups = [], cloudGroups = []) {
+  mergeCloudAndLocalGroups(baseGroups = [], incomingGroups = []) {
     const map = new Map();
-    localGroups.forEach(g => map.set(g.id, g));
-    cloudGroups.forEach(cg => {
-      const lg = map.get(cg.id);
-      if (!lg) {
-        map.set(cg.id, cg);
+    baseGroups.forEach(g => map.set(g.id, g));
+    incomingGroups.forEach(ig => {
+      const bg = map.get(ig.id);
+      if (!bg) {
+        map.set(ig.id, ig);
         return;
       }
-      // Si el grupo de la nube es más reciente o tiene datos nuevos, usar la nube preservando miniaturas locales en memoria si existieran
-      const mergedMembersMap = new Map();
-      (lg.members || []).forEach(m => mergedMembersMap.set(m.id, m));
-      (cg.members || []).forEach(m => mergedMembersMap.set(m.id, { ...(mergedMembersMap.get(m.id) || {}), ...m }));
+      const bTime = bg.updatedAt ? new Date(bg.updatedAt).getTime() : 0;
+      const iTime = ig.updatedAt ? new Date(ig.updatedAt).getTime() : 0;
+      const winner = iTime >= bTime ? ig : bg;
+      const older = iTime >= bTime ? bg : ig;
 
-      map.set(cg.id, {
-        ...lg,
-        ...cg,
-        members: Array.from(mergedMembersMap.values())
+      const mergedMembersMap = new Map();
+      (older.members || []).forEach(m => mergedMembersMap.set(m.id, m));
+      (winner.members || []).forEach(m => mergedMembersMap.set(m.id, { ...(mergedMembersMap.get(m.id) || {}), ...m }));
+
+      const mergedMessagesMap = new Map();
+      (older.messages || []).forEach(m => mergedMessagesMap.set(m.id, m));
+      (winner.messages || []).forEach(m => mergedMessagesMap.set(m.id, m));
+
+      map.set(ig.id, {
+        ...older,
+        ...winner,
+        members: Array.from(mergedMembersMap.values()),
+        messages: Array.from(mergedMessagesMap.values())
       });
     });
     return Array.from(map.values());
@@ -759,6 +768,15 @@ class RumaStore {
   }
 
   saveGroups(groups, syncCloud = true) {
+    const nowIso = new Date().toISOString();
+    const activeId = localStorage.getItem(CONFIG.storageKeys.activeGroupId);
+    if (Array.isArray(groups)) {
+      groups.forEach(g => {
+        if (!g.updatedAt || g.id === activeId) {
+          g.updatedAt = nowIso;
+        }
+      });
+    }
     localStorage.setItem(CONFIG.storageKeys.groups, JSON.stringify(groups));
     if (syncCloud) this.scheduleCloudPush();
   }
@@ -788,6 +806,14 @@ class RumaStore {
     if (options.memoryFilterIds !== undefined) this.memoryFilterIds = options.memoryFilterIds;
     else if (options.groupTab && options.groupTab !== 'memories') this.memoryFilterIds = null;
     this.notify();
+  }
+
+  async createGroupAsync(payload) {
+    const res = this.createGroup(payload);
+    if (res.ok) {
+      await this.pushMergedStateToCloud();
+    }
+    return res;
   }
 
   createGroup({ name, description, driveFolderUrl, plan = 'free' }) {
@@ -903,7 +929,9 @@ class RumaStore {
       frameId: user.frameId || 'frame-none',
       role: 'member'
     });
+    target.updatedAt = new Date().toISOString();
 
+    localStorage.setItem(CONFIG.storageKeys.activeGroupId, target.id);
     this.saveGroups(allGroups);
     this.setActiveGroup(target.id);
     return { ok: true, group: target };

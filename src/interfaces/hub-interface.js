@@ -196,8 +196,10 @@ export function renderHubInterface(container) {
 
   document.getElementById('form-hub-join-group')?.addEventListener('submit', async (e) => {
     e.preventDefault();
+    const inputEl = document.getElementById('input-hub-join-code');
+    const query = (inputEl?.value || '').trim();
+    if (!query) return;
     const submitBtn = e.currentTarget.querySelector('button[type="submit"]');
-    const query = document.getElementById('input-hub-join-code')?.value || '';
     if (submitBtn) {
       submitBtn.disabled = true;
       submitBtn.textContent = 'Buscando...';
@@ -268,20 +270,29 @@ function openCreateGroupModal(defaultPlan = 'free') {
     `,
     onMount: () => {
       document.getElementById('btn-cancel-create-grp')?.addEventListener('click', () => UI.closeModal());
-      document.getElementById('form-modal-create-group')?.addEventListener('submit', (e) => {
+      document.getElementById('form-modal-create-group')?.addEventListener('submit', async (e) => {
         e.preventDefault();
+        const btn = e.currentTarget.querySelector('button[type="submit"]');
         const name = document.getElementById('create-grp-name')?.value;
         const description = document.getElementById('create-grp-desc')?.value;
         const driveFolderUrl = document.getElementById('create-grp-drive')?.value;
         const plan = document.getElementById('create-grp-plan')?.value;
 
-        const res = store.createGroup({ name, description, driveFolderUrl, plan });
+        if (btn) {
+          btn.disabled = true;
+          btn.textContent = '⏳ Creando en la nube...';
+        }
+        const res = await store.createGroupAsync({ name, description, driveFolderUrl, plan });
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = 'Crear Grupo';
+        }
         if (!res.ok) {
           UI.showToast(res.reason, 'error');
           return;
         }
         UI.closeModal();
-        UI.showToast(`¡Grupo "${res.group.name}" creado con código ${res.group.code}! 🎉`, 'success');
+        UI.showToast(`¡Grupo "${res.group.name}" creado en la nube con código ${res.group.code}! 🎉`, 'success');
       });
     }
   });
