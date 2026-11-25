@@ -43,12 +43,15 @@ export const CloudSync = {
   /**
    * Descarga el estado completo de la nube (cuentas + grupos)
    */
-  async pullCloudState() {
+  async pullCloudState(force = false) {
     if (!CONFIG.cloudSync?.enabled) return null;
     try {
       const res = await fetch(`${BASE_URL}/state.json`, { cache: 'no-store' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
+      if (data && data.rev && (force || data.rev > lastKnownCloudRev)) {
+        lastKnownCloudRev = data.rev;
+      }
       setStatus('online');
       return data;
     } catch (err) {

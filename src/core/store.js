@@ -454,26 +454,36 @@ class RumaStore {
   scheduleCloudPush() {
     if (this.cloudPushTimer) clearTimeout(this.cloudPushTimer);
     this.cloudPushTimer = setTimeout(() => {
-      CloudSync.pushCloudState({
+      this.pushMergedStateToCloud();
+    }, 100);
+  }
+
+  async pushMergedStateToCloud() {
+    try {
+      if (this.cloudPushTimer) {
+        clearTimeout(this.cloudPushTimer);
+        this.cloudPushTimer = null;
+      }
+      // Antes de subir, fusionar con lo que haya en la nube para nunca borrar cuentas o grupos creados por otro celular
+      const remote = await CloudSync.pullCloudState(true);
+      if (remote) {
+        this.applyRemoteCloudState(remote, false);
+      }
+      await CloudSync.pushCloudState({
         accounts: this.getAccounts(),
         groups: this.getGroups(),
         clientId: this.clientId
       });
-    }, 120);
+    } catch (_) {}
   }
 
   async syncNowWithCloud() {
     try {
       if (this.cloudPushTimer) {
-        clearTimeout(this.cloudPushTimer);
-        this.cloudPushTimer = null;
-        await CloudSync.pushCloudState({
-          accounts: this.getAccounts(),
-          groups: this.getGroups(),
-          clientId: this.clientId
-        });
+        await this.pushMergedStateToCloud();
+        return;
       }
-      const cloud = await CloudSync.pullCloudState();
+      const cloud = await CloudSync.pullCloudState(true);
       if (cloud) {
         this.applyRemoteCloudState(cloud, false);
       }
