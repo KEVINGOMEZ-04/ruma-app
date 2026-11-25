@@ -184,7 +184,7 @@ function openGroupMenu(group, user) {
     title: 'Opciones del grupo',
     contentHtml: `
       <div style="display:flex;flex-direction:column;gap:.6rem;">
-        <button type="button" class="btn btn-secondary" id="rg-menu-goals">🎯 Metas &amp; Notas</button>
+        <button type="button" class="btn btn-secondary" id="rg-menu-goals">🎯 Objetivos y Actividades</button>
         ${isCreator ? `<button type="button" class="btn" id="rg-menu-delete" style="background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.5);color:#fca5a5;">🗑️ Eliminar grupo</button>` : ''}
       </div>`,
     onMount: () => {

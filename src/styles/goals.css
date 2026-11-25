@@ -1,0 +1,1899 @@
+/* ==========================================================================
+   ruma 🌟 — Sección «Objetivos» (Actividades grupales, Metas y Notas)
+   Prefijo exclusivo: .rgl-* · Mobile-first · Identidad oscura violeta-magenta
+   ========================================================================== */
+
+.rgl-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  width: 100%;
+  padding-bottom: calc(5.25rem + env(safe-area-inset-bottom, 0px));
+}
+
+/* --------------------------------------------------------------------------
+   1. ENCABEZADO COMPACTO + RESUMEN VISUAL ELEGANTE
+   -------------------------------------------------------------------------- */
+.rgl-header {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.72rem;
+  padding: 0.95rem 1rem 0.9rem;
+  border-radius: 1.35rem;
+  border: 1px solid rgba(192, 132, 252, 0.24);
+  background:
+    radial-gradient(95% 150% at 88% 0%, rgba(236, 72, 153, 0.22), transparent 55%),
+    radial-gradient(80% 130% at 10% 100%, rgba(124, 58, 237, 0.25), transparent 60%),
+    linear-gradient(160deg, rgba(36, 18, 68, 0.92), rgba(16, 8, 34, 0.95));
+  box-shadow: 0 10px 30px rgba(8, 3, 20, 0.42);
+  overflow: hidden;
+}
+
+.rgl-header-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.7rem;
+}
+
+.rgl-title-group {
+  display: flex;
+  align-items: center;
+  gap: 0.68rem;
+  min-width: 0;
+}
+
+.rgl-header-ico {
+  width: 2.5rem;
+  height: 2.5rem;
+  flex: 0 0 auto;
+  border-radius: 0.85rem;
+  background: linear-gradient(145deg, rgba(168, 85, 247, 0.28), rgba(236, 72, 153, 0.22));
+  border: 1px solid rgba(216, 180, 254, 0.4);
+  color: #f0abfc;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 0 16px rgba(168, 85, 247, 0.26);
+}
+
+.rgl-title-text {
+  min-width: 0;
+}
+
+.rgl-title-text h1 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: clamp(1.22rem, 4.6vw, 1.5rem);
+  font-weight: 800;
+  line-height: 1.12;
+  letter-spacing: -0.02em;
+  color: var(--text-main);
+}
+
+.rgl-title-text p {
+  margin: 0.14rem 0 0;
+  font-size: 0.76rem;
+  color: #c4b5fd;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rgl-add-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.34rem;
+  padding: 0.5rem 0.92rem;
+  min-height: 38px;
+  border-radius: 9999px;
+  border: 1px solid rgba(244, 114, 182, 0.52);
+  background: linear-gradient(135deg, #8b5cf6 0%, #c026d3 55%, #ec4899 100%);
+  color: #ffffff;
+  font-family: var(--font-sans);
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  box-shadow: 0 6px 18px rgba(192, 38, 211, 0.34);
+  transition: transform 0.16s ease, filter 0.18s ease, box-shadow 0.18s ease;
+}
+
+.rgl-add-btn:hover {
+  filter: brightness(1.08);
+  box-shadow: 0 8px 22px rgba(236, 72, 153, 0.45);
+}
+
+.rgl-add-btn:active {
+  transform: scale(0.96);
+}
+
+/* Resumen visual compacto (4 indicadores útiles, sin recargar) */
+.rgl-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.4rem;
+}
+
+.rgl-sum-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.08rem;
+  padding: 0.44rem 0.25rem;
+  border-radius: 0.85rem;
+  border: 1px solid rgba(192, 132, 252, 0.16);
+  background: rgba(12, 5, 26, 0.5);
+  color: var(--text-main);
+  font-family: inherit;
+  cursor: pointer;
+  text-align: center;
+  min-width: 0;
+  transition: border-color 0.18s ease, background 0.18s ease, transform 0.14s ease;
+}
+
+.rgl-sum-item:hover {
+  border-color: rgba(216, 180, 254, 0.38);
+  background: rgba(26, 12, 52, 0.72);
+}
+
+.rgl-sum-item:active {
+  transform: scale(0.97);
+}
+
+.rgl-sum-item b {
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  font-weight: 800;
+  line-height: 1.1;
+  color: #ffffff;
+}
+
+.rgl-sum-item.is-accent b {
+  color: #f0abfc;
+}
+
+.rgl-sum-item span {
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: #b8a3d9;
+  line-height: 1.15;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+/* Atajo ultra-compacto a la próxima actividad */
+.rgl-next-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.48rem;
+  width: 100%;
+  padding: 0.44rem 0.7rem;
+  border-radius: 0.85rem;
+  border: 1px solid rgba(236, 72, 153, 0.26);
+  background: linear-gradient(90deg, rgba(124, 58, 237, 0.2), rgba(236, 72, 153, 0.12));
+  color: #f5f0ff;
+  font-family: inherit;
+  font-size: 0.76rem;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.18s ease, background 0.18s ease;
+}
+
+.rgl-next-bar:hover {
+  border-color: rgba(244, 114, 182, 0.5);
+  background: linear-gradient(90deg, rgba(124, 58, 237, 0.28), rgba(236, 72, 153, 0.2));
+}
+
+.rgl-next-tag {
+  flex: 0 0 auto;
+  font-size: 0.64rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.14rem 0.44rem;
+  border-radius: 9999px;
+  background: rgba(236, 72, 153, 0.22);
+  color: #f9a8d4;
+}
+
+.rgl-next-title {
+  flex: 1;
+  min-width: 0;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rgl-next-date {
+  flex: 0 0 auto;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #d8b4fe;
+  white-space: nowrap;
+}
+
+/* --------------------------------------------------------------------------
+   2. NAVEGACIÓN PRINCIPAL DE 3 PESTAÑAS (METAS | ACTIVIDADES | NOTAS)
+   -------------------------------------------------------------------------- */
+.rgl-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.3rem;
+  padding: 0.3rem;
+  border-radius: 1.05rem;
+  background: rgba(16, 8, 34, 0.82);
+  border: 1px solid rgba(192, 132, 252, 0.2);
+  box-shadow: 0 4px 16px rgba(5, 2, 14, 0.28);
+}
+
+.rgl-tab-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.34rem;
+  min-height: 40px;
+  padding: 0.45rem 0.4rem;
+  border-radius: 0.8rem;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #cbbbe6;
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  min-width: 0;
+  transition: all 0.2s ease;
+}
+
+.rgl-tab-btn:hover {
+  color: #ffffff;
+  background: rgba(192, 132, 252, 0.08);
+}
+
+.rgl-tab-btn.active {
+  background: linear-gradient(135deg, #8b5cf6 0%, #c026d3 65%, #ec4899 100%);
+  border-color: rgba(245, 208, 254, 0.55);
+  color: #ffffff;
+  box-shadow: 0 4px 16px rgba(168, 85, 247, 0.38);
+}
+
+.rgl-tab-count {
+  font-size: 0.68rem;
+  font-weight: 800;
+  padding: 0.06rem 0.36rem;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #e9d5ff;
+}
+
+.rgl-tab-btn.active .rgl-tab-count {
+  background: rgba(255, 255, 255, 0.24);
+  color: #ffffff;
+}
+
+/* --------------------------------------------------------------------------
+   3. FILTROS HORIZONTALES COMPACTOS (CHIPS DESLIZABLES)
+   -------------------------------------------------------------------------- */
+.rgl-chips {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  overflow-x: auto;
+  padding: 0.08rem 0 0.14rem;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.rgl-chips::-webkit-scrollbar {
+  display: none;
+}
+
+.rgl-chip {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.32rem;
+  min-height: 34px;
+  padding: 0.34rem 0.76rem;
+  border-radius: 9999px;
+  border: 1px solid rgba(192, 132, 252, 0.22);
+  background: rgba(255, 255, 255, 0.04);
+  color: #dcd0f5;
+  font-family: inherit;
+  font-size: 0.77rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.18s ease;
+}
+
+.rgl-chip:hover {
+  background: rgba(192, 132, 252, 0.12);
+  color: #ffffff;
+}
+
+.rgl-chip.active {
+  background: linear-gradient(135deg, #8b5cf6, #c026d3);
+  border-color: rgba(245, 208, 254, 0.65);
+  color: #ffffff;
+  box-shadow: 0 4px 14px rgba(168, 85, 247, 0.36);
+}
+
+.rgl-chip-n {
+  font-size: 0.68rem;
+  font-weight: 800;
+  padding: 0.04rem 0.34rem;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.rgl-chip.active .rgl-chip-n {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+/* --------------------------------------------------------------------------
+   4. TARJETAS COMPACTAS DE ACTIVIDADES
+   -------------------------------------------------------------------------- */
+.rgl-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.rgl-act-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  padding: 0.85rem 0.9rem;
+  border-radius: 1.2rem;
+  border: 1px solid rgba(192, 132, 252, 0.2);
+  background: linear-gradient(160deg, rgba(34, 18, 64, 0.86), rgba(16, 9, 32, 0.94));
+  box-shadow: 0 6px 22px rgba(5, 2, 14, 0.35);
+  cursor: pointer;
+  transition: transform 0.16s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.rgl-act-card:hover {
+  border-color: rgba(216, 180, 254, 0.44);
+  box-shadow: 0 10px 28px rgba(124, 58, 237, 0.2);
+}
+
+.rgl-act-card:active {
+  transform: scale(0.99);
+}
+
+.rgl-act-card.is-done {
+  opacity: 0.84;
+  border-color: rgba(52, 211, 153, 0.24);
+}
+
+.rgl-act-top {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.72rem;
+}
+
+.rgl-icon-badge {
+  width: 2.75rem;
+  height: 2.75rem;
+  flex: 0 0 auto;
+  border-radius: 0.92rem;
+  background: linear-gradient(145deg, rgba(168, 85, 247, 0.24), rgba(236, 72, 153, 0.18));
+  border: 1px solid rgba(216, 180, 254, 0.32);
+  display: grid;
+  place-items: center;
+  font-size: 1.35rem;
+  line-height: 1;
+  box-shadow: 0 4px 14px rgba(124, 58, 237, 0.2);
+}
+
+.rgl-act-head-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.rgl-act-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.45rem;
+}
+
+.rgl-act-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: 800;
+  line-height: 1.24;
+  color: #ffffff;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: break-word;
+}
+
+.rgl-act-meta {
+  font-size: 0.76rem;
+  color: #b8a3d9;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.32rem;
+  line-height: 1.3;
+}
+
+.rgl-meta-sep {
+  opacity: 0.55;
+}
+
+/* Estados semánticos de Actividades */
+.rgl-status-pill {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.26rem;
+  padding: 0.18rem 0.54rem;
+  border-radius: 9999px;
+  font-size: 0.69rem;
+  font-weight: 700;
+  line-height: 1.2;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.rgl-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.rgl-status-pill.st-planning {
+  background: rgba(139, 92, 246, 0.2);
+  border-color: rgba(192, 132, 252, 0.45);
+  color: #e9d5ff;
+}
+
+.rgl-status-pill.st-confirmed {
+  background: rgba(34, 211, 238, 0.14);
+  border-color: rgba(103, 232, 249, 0.42);
+  color: #a5f3fc;
+}
+
+.rgl-status-pill.st-ongoing {
+  background: rgba(244, 114, 182, 0.18);
+  border-color: rgba(244, 114, 182, 0.5);
+  color: #fbcfe8;
+}
+
+.rgl-status-pill.st-done {
+  background: rgba(16, 185, 129, 0.16);
+  border-color: rgba(52, 211, 153, 0.45);
+  color: #6ee7b7;
+}
+
+/* Progreso de la actividad en tarjeta */
+.rgl-prog-track {
+  width: 100%;
+  height: 6px;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.09);
+  overflow: hidden;
+}
+
+.rgl-prog-track.is-lg {
+  height: 8px;
+}
+
+.rgl-prog-fill {
+  display: block;
+  height: 100%;
+  border-radius: 9999px;
+  background: linear-gradient(90deg, #8b5cf6 0%, #c026d3 58%, #ec4899 100%);
+  transition: width 0.32s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.rgl-prog-fill.is-complete {
+  background: linear-gradient(90deg, #10b981 0%, #34d399 100%);
+}
+
+.rgl-act-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.rgl-act-foot-left {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.rgl-avatar-stack {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+}
+
+.rgl-avatar-stack img {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid #1b0f36;
+  background: #140929;
+  margin-left: -6px;
+}
+
+.rgl-avatar-stack img:first-child {
+  margin-left: 0;
+}
+
+.rgl-avatar-more {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  margin-left: -6px;
+  border: 2px solid #1b0f36;
+  background: rgba(139, 92, 246, 0.38);
+  color: #f3e8ff;
+  font-size: 0.62rem;
+  font-weight: 800;
+  display: grid;
+  place-items: center;
+}
+
+.rgl-act-tasks-txt {
+  font-size: 0.74rem;
+  color: #cbbbe6;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rgl-act-foot-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.38rem;
+  flex: 0 0 auto;
+}
+
+.rgl-mine-badge {
+  font-size: 0.66rem;
+  font-weight: 800;
+  padding: 0.14rem 0.46rem;
+  border-radius: 9999px;
+  background: rgba(236, 72, 153, 0.16);
+  border: 1px solid rgba(244, 114, 182, 0.38);
+  color: #f9a8d4;
+  white-space: nowrap;
+}
+
+.rgl-pct-pill {
+  font-family: var(--font-display);
+  font-size: 0.8rem;
+  font-weight: 800;
+  color: #f0abfc;
+}
+
+.rgl-pct-pill.is-complete {
+  color: #6ee7b7;
+}
+
+.rgl-chev {
+  color: #9f8ac2;
+  display: inline-flex;
+  align-items: center;
+}
+
+/* --------------------------------------------------------------------------
+   5. VISTA DEDICADA DE DETALLE DE ACTIVIDAD
+   -------------------------------------------------------------------------- */
+.rgl-det-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.rgl-back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  min-height: 36px;
+  padding: 0.38rem 0.85rem 0.38rem 0.65rem;
+  border-radius: 9999px;
+  border: 1px solid rgba(192, 132, 252, 0.28);
+  background: rgba(22, 11, 46, 0.78);
+  color: #f3e8ff;
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.18s ease, border-color 0.18s ease;
+}
+
+.rgl-back-btn:hover {
+  background: rgba(42, 20, 82, 0.86);
+  border-color: rgba(216, 180, 254, 0.52);
+}
+
+.rgl-det-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.38rem;
+}
+
+.rgl-icon-act {
+  min-width: 36px;
+  height: 36px;
+  padding: 0 0.65rem;
+  border-radius: 9999px;
+  border: 1px solid rgba(192, 132, 252, 0.26);
+  background: rgba(22, 11, 46, 0.78);
+  color: #e9ddff;
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.32rem;
+  cursor: pointer;
+  transition: all 0.16s ease;
+}
+
+.rgl-icon-act:hover {
+  background: rgba(44, 22, 86, 0.85);
+  border-color: rgba(216, 180, 254, 0.52);
+  color: #ffffff;
+}
+
+.rgl-icon-act.is-round {
+  width: 36px;
+  padding: 0;
+}
+
+.rgl-icon-act.danger {
+  border-color: rgba(248, 113, 113, 0.34);
+  background: rgba(239, 68, 68, 0.12);
+  color: #fca5a5;
+}
+
+.rgl-icon-act.danger:hover {
+  background: rgba(239, 68, 68, 0.22);
+  border-color: rgba(248, 113, 113, 0.55);
+}
+
+/* Tarjeta Hero del detalle */
+.rgl-det-hero {
+  display: flex;
+  flex-direction: column;
+  gap: 0.82rem;
+  padding: 1rem;
+  border-radius: 1.35rem;
+  border: 1px solid rgba(192, 132, 252, 0.24);
+  background:
+    radial-gradient(90% 130% at 90% 0%, rgba(236, 72, 153, 0.2), transparent 56%),
+    radial-gradient(80% 120% at 8% 100%, rgba(124, 58, 237, 0.22), transparent 60%),
+    linear-gradient(160deg, rgba(36, 18, 68, 0.92), rgba(16, 8, 34, 0.96));
+  box-shadow: 0 10px 30px rgba(8, 3, 20, 0.42);
+}
+
+.rgl-det-head {
+  display: flex;
+  align-items: center;
+  gap: 0.78rem;
+}
+
+.rgl-det-ico {
+  width: 3.1rem;
+  height: 3.1rem;
+  flex: 0 0 auto;
+  border-radius: 1rem;
+  background: linear-gradient(145deg, rgba(168, 85, 247, 0.3), rgba(236, 72, 153, 0.22));
+  border: 1px solid rgba(216, 180, 254, 0.42);
+  display: grid;
+  place-items: center;
+  font-size: 1.6rem;
+  box-shadow: 0 6px 20px rgba(168, 85, 247, 0.28);
+}
+
+.rgl-det-titles {
+  flex: 1;
+  min-width: 0;
+}
+
+.rgl-det-titles h1 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: clamp(1.18rem, 4.6vw, 1.48rem);
+  font-weight: 800;
+  line-height: 1.18;
+  color: #ffffff;
+  overflow-wrap: break-word;
+}
+
+.rgl-det-submeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.38rem;
+  margin-top: 0.4rem;
+}
+
+.rgl-info-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.22rem 0.58rem;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(192, 132, 252, 0.2);
+  color: #e9ddff;
+  font-size: 0.74rem;
+  font-weight: 600;
+}
+
+.rgl-info-chip.is-add {
+  background: rgba(168, 85, 247, 0.14);
+  border-style: dashed;
+  border-color: rgba(216, 180, 254, 0.42);
+  color: #e879f9;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.rgl-det-desc {
+  margin: 0;
+  padding: 0.68rem 0.82rem;
+  border-radius: 0.9rem;
+  background: rgba(10, 4, 22, 0.46);
+  border: 1px solid rgba(192, 132, 252, 0.14);
+  font-size: 0.84rem;
+  line-height: 1.5;
+  color: #dcd0f5;
+  white-space: pre-line;
+}
+
+/* Selector rápido de estado en 1 toque */
+.rgl-status-selector {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.36rem;
+}
+
+@media (min-width: 440px) {
+  .rgl-status-selector {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.rgl-st-choice {
+  min-height: 34px;
+  padding: 0.34rem 0.24rem;
+  border-radius: 0.75rem;
+  border: 1px solid rgba(192, 132, 252, 0.2);
+  background: rgba(255, 255, 255, 0.04);
+  color: #cbbbe6;
+  font-family: inherit;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: all 0.16s ease;
+}
+
+.rgl-st-choice:hover {
+  background: rgba(192, 132, 252, 0.12);
+  color: #ffffff;
+}
+
+.rgl-st-choice.active.st-planning {
+  background: linear-gradient(135deg, #7c3aed, #a855f7);
+  border-color: rgba(233, 213, 255, 0.6);
+  color: #ffffff;
+}
+
+.rgl-st-choice.active.st-confirmed {
+  background: linear-gradient(135deg, #0891b2, #38bdf8);
+  border-color: rgba(186, 230, 253, 0.65);
+  color: #082f49;
+}
+
+.rgl-st-choice.active.st-ongoing {
+  background: linear-gradient(135deg, #c026d3, #ec4899);
+  border-color: rgba(251, 207, 232, 0.65);
+  color: #ffffff;
+}
+
+.rgl-st-choice.active.st-done {
+  background: linear-gradient(135deg, #059669, #10b981);
+  border-color: rgba(167, 243, 208, 0.65);
+  color: #ffffff;
+}
+
+/* Participantes */
+.rgl-det-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.42rem;
+}
+
+.rgl-block-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.rgl-block-label {
+  font-size: 0.71rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #b8a3d9;
+}
+
+.rgl-mini-link {
+  background: none;
+  border: 0;
+  color: #e879f9;
+  font-family: inherit;
+  font-size: 0.74rem;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0.12rem 0.25rem;
+}
+
+.rgl-participants-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.38rem;
+}
+
+.rgl-part-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.36rem;
+  padding: 0.22rem 0.58rem 0.22rem 0.24rem;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(192, 132, 252, 0.2);
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: #f3e8ff;
+}
+
+.rgl-part-pill img {
+  width: 21px;
+  height: 21px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+/* Progreso en detalle */
+.rgl-det-prog {
+  padding: 0.72rem 0.85rem;
+  border-radius: 0.98rem;
+  background: rgba(12, 5, 26, 0.56);
+  border: 1px solid rgba(192, 132, 252, 0.18);
+  display: flex;
+  flex-direction: column;
+  gap: 0.42rem;
+}
+
+.rgl-det-prog-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.rgl-det-prog-top span {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #e9ddff;
+}
+
+.rgl-det-prog-pct {
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+  font-weight: 800;
+  background: linear-gradient(135deg, #c084fc, #f472b6);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.rgl-det-prog-pct.is-complete {
+  background: linear-gradient(135deg, #34d399, #6ee7b7);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.rgl-det-prog-sub {
+  font-size: 0.74rem;
+  color: #b8a3d9;
+}
+
+/* --------------------------------------------------------------------------
+   6. LISTA DE RESPONSABILIDADES VINCULADAS A LA ACTIVIDAD
+   -------------------------------------------------------------------------- */
+.rgl-tasks-sec {
+  display: flex;
+  flex-direction: column;
+  gap: 0.68rem;
+}
+
+.rgl-sec-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.rgl-sec-title {
+  display: flex;
+  align-items: center;
+  gap: 0.42rem;
+  min-width: 0;
+}
+
+.rgl-sec-title h2 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: #ffffff;
+}
+
+.rgl-sec-count {
+  font-size: 0.72rem;
+  font-weight: 800;
+  padding: 0.12rem 0.5rem;
+  border-radius: 9999px;
+  background: rgba(168, 85, 247, 0.2);
+  border: 1px solid rgba(192, 132, 252, 0.32);
+  color: #e9d5ff;
+}
+
+.rgl-task-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.rgl-task-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  padding: 0.72rem 0.72rem 0.72rem 0.68rem;
+  border-radius: 1.05rem;
+  border: 1px solid rgba(192, 132, 252, 0.2);
+  background: linear-gradient(160deg, rgba(32, 17, 60, 0.84), rgba(16, 9, 32, 0.92));
+  transition: border-color 0.18s ease, background 0.18s ease, opacity 0.2s ease;
+}
+
+.rgl-task-row.is-mine {
+  border-color: rgba(216, 180, 254, 0.36);
+}
+
+.rgl-task-row.is-done {
+  opacity: 0.68;
+  background: rgba(18, 10, 36, 0.65);
+  border-color: rgba(192, 132, 252, 0.12);
+}
+
+/* Checkbox circular táctil */
+.rgl-check-btn {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  margin: -2px 0 0 -2px;
+  border: 0;
+  background: transparent;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  padding: 0;
+}
+
+.rgl-check-circle {
+  width: 23px;
+  height: 23px;
+  border-radius: 50%;
+  border: 2px solid rgba(192, 132, 252, 0.58);
+  background: rgba(12, 5, 26, 0.6);
+  display: grid;
+  place-items: center;
+  color: transparent;
+  transition: all 0.18s ease;
+}
+
+.rgl-check-btn:hover .rgl-check-circle {
+  border-color: #f472b6;
+  background: rgba(236, 72, 153, 0.15);
+}
+
+.rgl-check-btn.checked .rgl-check-circle {
+  border-color: #34d399;
+  background: linear-gradient(135deg, #10b981, #34d399);
+  color: #06281c;
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.42);
+}
+
+.rgl-task-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.rgl-task-title {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #ffffff;
+  line-height: 1.3;
+  overflow-wrap: break-word;
+}
+
+.rgl-task-row.is-done .rgl-task-title {
+  text-decoration: line-through;
+  color: #a996ca;
+}
+
+.rgl-task-desc {
+  font-size: 0.77rem;
+  color: #b8a3d9;
+  line-height: 1.38;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: break-word;
+}
+
+.rgl-task-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.38rem;
+  margin-top: 0.06rem;
+}
+
+.rgl-assignee-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.34rem;
+  padding: 0.16rem 0.52rem 0.16rem 0.2rem;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(192, 132, 252, 0.22);
+  color: #ece4ff;
+  font-size: 0.72rem;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.rgl-assignee-pill.is-me {
+  background: rgba(168, 85, 247, 0.2);
+  border-color: rgba(216, 180, 254, 0.45);
+  color: #f5f0ff;
+}
+
+.rgl-assignee-pill.is-unassigned {
+  padding-left: 0.52rem;
+  border-style: dashed;
+  color: #b8a3d9;
+}
+
+.rgl-assignee-pill img {
+  width: 19px;
+  height: 19px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.rgl-due-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.24rem;
+  padding: 0.16rem 0.48rem;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(192, 132, 252, 0.18);
+  color: #cbbbe6;
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+.rgl-due-pill.is-overdue {
+  background: rgba(244, 63, 94, 0.16);
+  border-color: rgba(251, 113, 133, 0.42);
+  color: #fda4af;
+}
+
+.rgl-more-btn {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  margin: -2px -2px 0 0;
+  border-radius: 50%;
+  border: 0;
+  background: transparent;
+  color: #b8a3d9;
+  font-size: 1.12rem;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: background 0.16s ease, color 0.16s ease;
+}
+
+.rgl-more-btn:hover {
+  background: rgba(192, 132, 252, 0.14);
+  color: #ffffff;
+}
+
+.rgl-group-divider {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.3rem;
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #9e8ac2;
+}
+
+.rgl-group-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: rgba(192, 132, 252, 0.16);
+}
+
+.rgl-det-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  padding-top: 0.45rem;
+  border-top: 1px solid rgba(192, 132, 252, 0.14);
+}
+
+/* --------------------------------------------------------------------------
+   7. TARJETAS DE METAS GRUPALES (LARGO PLAZO / PROYECTOS)
+   -------------------------------------------------------------------------- */
+.rgl-goal-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.58rem;
+  padding: 0.85rem 0.9rem;
+  border-radius: 1.2rem;
+  border: 1px solid rgba(192, 132, 252, 0.2);
+  background: linear-gradient(160deg, rgba(34, 18, 64, 0.84), rgba(16, 9, 32, 0.93));
+  box-shadow: 0 6px 22px rgba(5, 2, 14, 0.34);
+  cursor: pointer;
+  transition: transform 0.16s ease, border-color 0.2s ease;
+}
+
+.rgl-goal-card:hover {
+  border-color: rgba(216, 180, 254, 0.42);
+}
+
+.rgl-goal-card:active {
+  transform: scale(0.992);
+}
+
+.rgl-goal-card.is-done {
+  border-color: rgba(52, 211, 153, 0.26);
+  opacity: 0.85;
+}
+
+.rgl-goal-top {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.68rem;
+}
+
+.rgl-goal-ico {
+  width: 2.5rem;
+  height: 2.5rem;
+  flex: 0 0 auto;
+  border-radius: 0.85rem;
+  background: linear-gradient(145deg, rgba(124, 58, 237, 0.24), rgba(236, 72, 153, 0.16));
+  border: 1px solid rgba(216, 180, 254, 0.3);
+  display: grid;
+  place-items: center;
+  font-size: 1.25rem;
+}
+
+.rgl-goal-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.rgl-goal-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 0.98rem;
+  font-weight: 800;
+  color: #ffffff;
+  line-height: 1.24;
+  overflow-wrap: break-word;
+}
+
+.rgl-goal-card.is-done .rgl-goal-title {
+  text-decoration: line-through;
+  color: #b8a3d9;
+}
+
+.rgl-goal-tags {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.34rem;
+  margin-top: 0.22rem;
+}
+
+.rgl-cat-chip {
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 0.14rem 0.48rem;
+  border-radius: 9999px;
+  background: rgba(168, 85, 247, 0.18);
+  border: 1px solid rgba(192, 132, 252, 0.32);
+  color: #e9d5ff;
+}
+
+.rgl-goal-desc {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #cbbbe6;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.rgl-goal-prog-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.74rem;
+  color: #b8a3d9;
+}
+
+.rgl-goal-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+  flex: 0 0 auto;
+}
+
+/* --------------------------------------------------------------------------
+   8. TARJETAS COMPACTAS DE NOTAS COMPARTIDAS
+   -------------------------------------------------------------------------- */
+.rgl-note-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.48rem;
+  padding: 0.85rem 0.92rem;
+  border-radius: 1.15rem;
+  border: 1px solid rgba(192, 132, 252, 0.2);
+  border-left: 3px solid #a855f7;
+  background: linear-gradient(160deg, rgba(32, 17, 60, 0.84), rgba(16, 9, 32, 0.93));
+  box-shadow: 0 6px 20px rgba(5, 2, 14, 0.32);
+}
+
+.rgl-note-card.cat-idea { border-left-color: #a855f7; }
+.rgl-note-card.cat-reminder { border-left-color: #fbbf24; }
+.rgl-note-card.cat-message { border-left-color: #38bdf8; }
+.rgl-note-card.cat-proposal { border-left-color: #f472b6; }
+.rgl-note-card.cat-important { border-left-color: #fb7185; }
+
+.rgl-note-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.45rem;
+}
+
+.rgl-note-badges {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.34rem;
+  flex-wrap: wrap;
+}
+
+.rgl-note-cat {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.24rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 9999px;
+  font-size: 0.69rem;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(192, 132, 252, 0.22);
+  color: #e9d5ff;
+}
+
+.rgl-note-pin-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.14rem 0.46rem;
+  border-radius: 9999px;
+  font-size: 0.67rem;
+  font-weight: 800;
+  background: rgba(236, 72, 153, 0.16);
+  border: 1px solid rgba(244, 114, 182, 0.38);
+  color: #fbcfe8;
+}
+
+.rgl-note-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 0.96rem;
+  font-weight: 800;
+  color: #ffffff;
+  line-height: 1.25;
+  overflow-wrap: break-word;
+}
+
+.rgl-note-content {
+  margin: 0;
+  font-size: 0.83rem;
+  line-height: 1.48;
+  color: #dcd0f5;
+  white-space: pre-line;
+  overflow-wrap: break-word;
+}
+
+.rgl-note-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding-top: 0.22rem;
+  border-top: 1px solid rgba(192, 132, 252, 0.12);
+}
+
+.rgl-note-author {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.36rem;
+  font-size: 0.72rem;
+  color: #b8a3d9;
+  font-weight: 600;
+  min-width: 0;
+}
+
+.rgl-note-author img {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.rgl-note-time {
+  font-size: 0.7rem;
+  color: #9e8ac2;
+  white-space: nowrap;
+}
+
+/* --------------------------------------------------------------------------
+   9. ESTADOS VACÍOS Y PLANTILLAS RÁPIDAS
+   -------------------------------------------------------------------------- */
+.rgl-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0.55rem;
+  padding: 1.75rem 1.1rem;
+  border-radius: 1.3rem;
+  border: 1px dashed rgba(192, 132, 252, 0.28);
+  background: rgba(20, 10, 42, 0.6);
+}
+
+.rgl-empty-ico {
+  width: 3rem;
+  height: 3rem;
+  border-radius: 1rem;
+  background: linear-gradient(145deg, rgba(168, 85, 247, 0.22), rgba(236, 72, 153, 0.16));
+  color: #f0abfc;
+  display: grid;
+  place-items: center;
+  font-size: 1.45rem;
+}
+
+.rgl-empty b {
+  font-family: var(--font-display);
+  font-size: 1rem;
+  color: #ffffff;
+}
+
+.rgl-empty span {
+  font-size: 0.8rem;
+  color: #b8a3d9;
+  max-width: 22rem;
+  line-height: 1.42;
+}
+
+.rgl-quick-ideas {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.4rem;
+  margin-top: 0.25rem;
+  max-width: 24rem;
+}
+
+.rgl-idea-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.36rem 0.7rem;
+  border-radius: 9999px;
+  border: 1px solid rgba(192, 132, 252, 0.28);
+  background: rgba(139, 92, 246, 0.14);
+  color: #f3e8ff;
+  font-family: inherit;
+  font-size: 0.76rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.16s ease;
+}
+
+.rgl-idea-chip:hover {
+  background: rgba(168, 85, 247, 0.28);
+  border-color: rgba(244, 114, 182, 0.5);
+  transform: translateY(-1px);
+}
+
+/* --------------------------------------------------------------------------
+   10. MODALES, SELECTORES RÁPIDOS DE ICONOS / MIEMBROS Y ACTION SHEETS
+   -------------------------------------------------------------------------- */
+.rgl-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.rgl-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.32rem;
+}
+
+.rgl-field label,
+.rgl-seg-label {
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #c4b5fd;
+}
+
+.rgl-field input,
+.rgl-field textarea,
+.rgl-field select {
+  width: 100%;
+  padding: 0.68rem 0.85rem;
+  border-radius: 0.88rem;
+  border: 1px solid rgba(192, 132, 252, 0.26);
+  background: rgba(10, 4, 22, 0.82);
+  color: #ffffff;
+  font-family: inherit;
+  font-size: 0.9rem;
+  outline: none;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.rgl-field input:focus,
+.rgl-field textarea:focus,
+.rgl-field select:focus {
+  border-color: #f472b6;
+  box-shadow: 0 0 0 3px rgba(244, 114, 182, 0.2);
+}
+
+.rgl-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.55rem;
+}
+
+/* Selector visual de emojis */
+.rgl-emoji-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 0.36rem;
+}
+
+.rgl-emoji-opt {
+  height: 40px;
+  border-radius: 0.78rem;
+  border: 1px solid rgba(192, 132, 252, 0.2);
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 1.2rem;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.rgl-emoji-opt:hover {
+  background: rgba(168, 85, 247, 0.18);
+}
+
+.rgl-emoji-opt.active {
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.42), rgba(236, 72, 153, 0.32));
+  border-color: rgba(244, 114, 182, 0.75);
+  box-shadow: 0 0 12px rgba(192, 38, 211, 0.32);
+  transform: scale(1.04);
+}
+
+/* Selector 1-toque de integrantes (responsable / participantes) */
+.rgl-member-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.42rem;
+}
+
+.rgl-member-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 36px;
+  padding: 0.24rem 0.72rem 0.24rem 0.28rem;
+  border-radius: 9999px;
+  border: 1px solid rgba(192, 132, 252, 0.24);
+  background: rgba(255, 255, 255, 0.04);
+  color: #dcd0f5;
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.16s ease;
+}
+
+.rgl-member-chip.no-avatar {
+  padding-left: 0.72rem;
+}
+
+.rgl-member-chip img {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.rgl-member-chip.active {
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.82), rgba(192, 38, 211, 0.78));
+  border-color: rgba(245, 208, 254, 0.75);
+  color: #ffffff;
+  box-shadow: 0 4px 12px rgba(168, 85, 247, 0.34);
+}
+
+.rgl-opt-toggle {
+  align-self: flex-start;
+  background: none;
+  border: 0;
+  color: #e879f9;
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0.18rem 0;
+}
+
+.rgl-opt-box {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  padding: 0.72rem;
+  border-radius: 0.95rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(192, 132, 252, 0.16);
+}
+
+.rgl-modal-foot {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.55rem;
+  padding-top: 0.2rem;
+}
+
+.rgl-modal-foot .btn {
+  width: 100%;
+  min-height: 40px;
+  justify-content: center;
+}
+
+/* Action sheet limpio */
+.rgl-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.rgl-sheet-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.42rem;
+}
+
+.rgl-sheet-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  min-height: 44px;
+  padding: 0.52rem 0.75rem;
+  border-radius: 0.9rem;
+  border: 1px solid rgba(192, 132, 252, 0.18);
+  background: rgba(20, 10, 42, 0.72);
+  color: #f3e8ff;
+  font-family: inherit;
+  font-size: 0.84rem;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.16s ease, border-color 0.16s ease;
+}
+
+.rgl-sheet-row:hover {
+  background: rgba(44, 22, 82, 0.78);
+  border-color: rgba(216, 180, 254, 0.42);
+}
+
+.rgl-sheet-row.danger {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.34);
+  color: #fca5a5;
+}
+
+.rgl-sheet-row.danger:hover {
+  background: rgba(239, 68, 68, 0.18);
+}
+
+.rgl-sheet-ico {
+  width: 1.95rem;
+  height: 1.95rem;
+  border-radius: 0.6rem;
+  background: rgba(139, 92, 246, 0.18);
+  color: #d8b4fe;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+}
+
+.rgl-sheet-row.danger .rgl-sheet-ico {
+  background: rgba(239, 68, 68, 0.18);
+  color: #fca5a5;
+}
+
+.rgl-sheet-txt {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.22;
+}
+
+.rgl-sheet-txt small {
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: #b8a3d9;
+  margin-top: 0.1rem;
+}
+
+/* Progreso manual en modal de Meta */
+.rgl-step-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.38rem;
+}
+
+.rgl-step-btn {
+  min-height: 36px;
+  border-radius: 0.72rem;
+  border: 1px solid rgba(192, 132, 252, 0.28);
+  background: rgba(139, 92, 246, 0.14);
+  color: #f3e8ff;
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.rgl-step-btn:hover {
+  background: rgba(168, 85, 247, 0.28);
+}
+
+.rgl-inline-add {
+  display: flex;
+  gap: 0.42rem;
+}
+
+.rgl-inline-add input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.55rem 0.78rem;
+  border-radius: 0.8rem;
+  border: 1px solid rgba(192, 132, 252, 0.26);
+  background: rgba(10, 4, 22, 0.8);
+  color: #ffffff;
+  font-family: inherit;
+  font-size: 0.84rem;
+  outline: none;
+}
+
+.rgl-inline-add input:focus {
+  border-color: #f472b6;
+}
+
+.rgl-check-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.58rem 0.75rem;
+  border-radius: 0.85rem;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(192, 132, 252, 0.18);
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #ece4ff;
+  cursor: pointer;
+}
+
+/* --------------------------------------------------------------------------
+   11. RESPONSIVE PANTALLAS PEQUEÑAS Y TEMA CLARO
+   -------------------------------------------------------------------------- */
+@media (max-width: 380px) {
+  .rgl-header {
+    padding: 0.82rem 0.82rem 0.78rem;
+  }
+  .rgl-summary {
+    gap: 0.3rem;
+  }
+  .rgl-sum-item {
+    padding: 0.38rem 0.15rem;
+  }
+  .rgl-sum-item b {
+    font-size: 0.96rem;
+  }
+  .rgl-sum-item span {
+    font-size: 0.61rem;
+  }
+  .rgl-tab-btn {
+    font-size: 0.76rem;
+    gap: 0.22rem;
+    padding: 0.42rem 0.2rem;
+  }
+  .rgl-act-card {
+    padding: 0.78rem 0.78rem;
+  }
+  .rgl-act-foot {
+    gap: 0.35rem;
+  }
+  .rgl-act-foot-left {
+    gap: 0.36rem;
+  }
+  .rgl-avatar-stack img,
+  .rgl-avatar-more {
+    width: 21px;
+    height: 21px;
+    margin-left: -7px;
+  }
+  .rgl-avatar-stack img:first-child {
+    margin-left: 0;
+  }
+  .rgl-act-tasks-txt {
+    font-size: 0.7rem;
+  }
+  .rgl-mine-badge {
+    font-size: 0.62rem;
+    padding: 0.12rem 0.38rem;
+  }
+  .rgl-act-foot-right {
+    gap: 0.26rem;
+  }
+  .rgl-emoji-grid {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+}
+
+[data-theme="light"] .rgl-header,
+[data-theme="light"] .rgl-act-card,
+[data-theme="light"] .rgl-goal-card,
+[data-theme="light"] .rgl-note-card,
+[data-theme="light"] .rgl-det-hero,
+[data-theme="light"] .rgl-task-row,
+[data-theme="light"] .rgl-empty,
+[data-theme="light"] .rgl-tabs,
+[data-theme="light"] .rgl-sum-item,
+[data-theme="light"] .rgl-det-prog,
+[data-theme="light"] .rgl-sheet-row {
+  background: var(--bg-card);
+  border-color: var(--border-subtle);
+  box-shadow: var(--shadow-sm);
+}
+
+[data-theme="light"] .rgl-title-text h1,
+[data-theme="light"] .rgl-act-title,
+[data-theme="light"] .rgl-det-titles h1,
+[data-theme="light"] .rgl-sec-title h2,
+[data-theme="light"] .rgl-task-title,
+[data-theme="light"] .rgl-goal-title,
+[data-theme="light"] .rgl-note-title,
+[data-theme="light"] .rgl-sum-item b,
+[data-theme="light"] .rgl-empty b,
+[data-theme="light"] .rgl-sheet-row {
+  color: var(--text-main);
+}
+
+[data-theme="light"] .rgl-title-text p,
+[data-theme="light"] .rgl-sum-item span,
+[data-theme="light"] .rgl-act-meta,
+[data-theme="light"] .rgl-act-tasks-txt,
+[data-theme="light"] .rgl-task-desc,
+[data-theme="light"] .rgl-det-desc,
+[data-theme="light"] .rgl-goal-desc,
+[data-theme="light"] .rgl-note-content,
+[data-theme="light"] .rgl-note-author,
+[data-theme="light"] .rgl-tab-btn:not(.active),
+[data-theme="light"] .rgl-chip:not(.active),
+[data-theme="light"] .rgl-back-btn,
+[data-theme="light"] .rgl-icon-act:not(.danger),
+[data-theme="light"] .rgl-assignee-pill,
+[data-theme="light"] .rgl-part-pill,
+[data-theme="light"] .rgl-info-chip {
+  color: var(--text-secondary);
+}
+
+[data-theme="light"] .rgl-field input,
+[data-theme="light"] .rgl-field textarea,
+[data-theme="light"] .rgl-field select,
+[data-theme="light"] .rgl-inline-add input {
+  background: var(--bg-input);
+  color: var(--text-main);
+  border-color: var(--border-subtle);
+}
+
+[data-theme="light"] .rgl-det-desc {
+  background: var(--bg-input);
+}
+
+[data-theme="light"] .rgl-back-btn,
+[data-theme="light"] .rgl-icon-act:not(.danger) {
+  background: var(--bg-surface);
+}

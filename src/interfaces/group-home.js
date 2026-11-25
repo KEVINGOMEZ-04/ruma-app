@@ -20,7 +20,7 @@ const EXPLORE = [
   { tab: 'series', title: 'Series', sub: 'Series que seguimos juntos' },
   { tab: 'music', title: 'Música', sub: 'Canciones y playlists del grupo' },
   { tab: 'books', title: 'Libros', sub: 'Libros que leemos y recomendamos' },
-  { tab: 'goals_notes', title: 'Objetivos', sub: 'Metas y retos del grupo' }
+  { tab: 'goals_notes', title: 'Objetivos', sub: 'Actividades, metas y notas' }
 ];
 
 const ACT_META = {
@@ -28,6 +28,9 @@ const ACT_META = {
   movie: { icon: 'movies', cls: 'a-movie', text: 'agregó una película' },
   series: { icon: 'series', cls: 'a-series', text: 'agregó una serie' },
   book: { icon: 'books', cls: 'a-series', text: 'añadió un libro' },
+  activity: { icon: 'goals_notes', cls: 'a-memory', text: 'creó una actividad' },
+  goal: { icon: 'goals_notes', cls: 'a-memory', text: 'creó una meta' },
+  note: { icon: 'goals_notes', cls: 'a-memory', text: 'publicó una nota' },
   memory: { icon: 'memories', cls: 'a-memory', text: 'subió un recuerdo' },
   join: { icon: 'join', cls: 'a-join', text: 'se unió al grupo' }
 };

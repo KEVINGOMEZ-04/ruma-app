@@ -451,6 +451,10 @@ class RumaStore {
         ...older,
         ...winner,
         movies: mergedMovies,
+        activities: Array.isArray(winner.activities) ? winner.activities : (older.activities || []),
+        goals: Array.isArray(winner.goals) ? winner.goals : (older.goals || []),
+        notes: Array.isArray(winner.notes) ? winner.notes : (older.notes || []),
+        books: Array.isArray(winner.books) ? winner.books : (older.books || []),
         activity: mergedActivity,
         members: Array.from(mergedMembersMap.values()),
         messages: Array.from(mergedMessagesMap.values())
@@ -971,6 +975,7 @@ class RumaStore {
       series: [],
       songs: [],
       books: [],
+      activities: [],
       goals: [],
       notes: [],
       messages: []
@@ -1902,21 +1907,320 @@ class RumaStore {
     this.updateCurrentUser({ showcaseIds: current });
   }
 
-  // --- METAS, NOTAS Y CHAT CON CITAS ESTILO WHATSAPP ---
-  addGoalToActiveGroup({ title, category }) {
+  // --- ACTIVIDADES GRUPALES, RESPONSABILIDADES, METAS Y NOTAS ---
+  getActivityProgress(activity) {
+    const tasks = Array.isArray(activity?.tasks) ? activity.tasks : [];
+    const total = tasks.length;
+    const done = tasks.filter(t => Boolean(t.completed)).length;
+    const pending = Math.max(0, total - done);
+    const pct = total > 0
+      ? Math.round((done / total) * 100)
+      : (activity?.status === 'Completada' ? 100 : 0);
+    return { total, done, pending, pct };
+  }
+
+  addActivityToActiveGroup({ title, icon, description, date, time, location, status, participantIds }) {
+    const user = this.getCurrentUser();
     const allGroups = this.getGroups();
     const group = allGroups.find(g => g.id === this.getActiveGroup()?.id);
-    if (!group) return;
-    group.goals = group.goals || [];
-    group.goals.unshift({
-      id: Utils.generateId('gol'),
-      title: title.trim(),
-      category: category || 'General',
-      progress: 0,
-      completed: false
-    });
+    const cleanTitle = String(title || '').trim();
+    if (!group || !user || !cleanTitle) return null;
+
+    const validStatuses = ['Planeando', 'Confirmada', 'En curso', 'Completada'];
+    const safeStatus = validStatuses.includes(status) ? status : 'Planeando';
+    const memberIds = (group.members || []).map(m => m.id);
+    const participants = Array.isArray(participantIds) && participantIds.length > 0
+      ? Array.from(new Set(participantIds.filter(id => memberIds.includes(id))))
+      : memberIds;
+
+    const nowIso = new Date().toISOString();
+    const newActivity = {
+      id: Utils.generateId('actv'),
+      icon: String(icon || '🎉').trim() || '🎉',
+      title: cleanTitle,
+      description: String(description || '').trim(),
+      date: String(date || '').trim(),
+      time: String(time || '').trim(),
+      location: String(location || '').trim(),
+      status: safeStatus,
+      participantIds: participants.length > 0 ? participants : [user.id],
+      tasks: [],
+      createdBy: user.id,
+      createdByName: user.name,
+      createdAt: nowIso,
+      updatedAt: nowIso
+    };
+
+    group.activities = group.activities || [];
+    group.activities.unshift(newActivity);
+    this.logActivity(group, user, 'activity', `${newActivity.icon} ${newActivity.title}`);
     this.saveGroups(allGroups);
     this.notify();
+    return newActivity;
+  }
+
+  updateActivityInActiveGroup(activityId, patch = {}) {
+    const allGroups = this.getGroups();
+    const group = allGroups.find(g => g.id === this.getActiveGroup()?.id);
+    if (!group) return null;
+    const act = (group.activities || []).find(a => a.id === activityId);
+    if (!act) return null;
+
+    const validStatuses = ['Planeando', 'Confirmada', 'En curso', 'Completada'];
+    if (patch.title !== undefined) {
+      const t = String(patch.title).trim();
+      if (t) act.title = t;
+    }
+    if (patch.icon !== undefined) act.icon = String(patch.icon || '🎉').trim() || '🎉';
+    if (patch.description !== undefined) act.description = String(patch.description || '').trim();
+    if (patch.date !== undefined) act.date = String(patch.date || '').trim();
+    if (patch.time !== undefined) act.time = String(patch.time || '').trim();
+    if (patch.location !== undefined) act.location = String(patch.location || '').trim();
+    if (patch.status !== undefined && validStatuses.includes(patch.status)) {
+      act.status = patch.status;
+    }
+    if (Array.isArray(patch.participantIds)) {
+      const validIds = new Set((group.members || []).map(m => m.id));
+      act.participantIds = Array.from(new Set(patch.participantIds.filter(id => validIds.has(id))));
+    }
+    act.updatedAt = new Date().toISOString();
+
+    this.saveGroups(allGroups);
+    this.notify();
+    return act;
+  }
+
+  setActivityStatus(activityId, nextStatus) {
+    return this.updateActivityInActiveGroup(activityId, { status: nextStatus });
+  }
+
+  toggleActivityParticipant(activityId, memberId) {
+    const allGroups = this.getGroups();
+    const group = allGroups.find(g => g.id === this.getActiveGroup()?.id);
+    if (!group || !memberId) return null;
+    const act = (group.activities || []).find(a => a.id === activityId);
+    if (!act) return null;
+
+    act.participantIds = Array.isArray(act.participantIds) ? [...act.participantIds] : [];
+    const idx = act.participantIds.indexOf(memberId);
+    if (idx >= 0) {
+      act.participantIds.splice(idx, 1);
+    } else {
+      act.participantIds.push(memberId);
+    }
+    act.updatedAt = new Date().toISOString();
+    this.saveGroups(allGroups);
+    this.notify();
+    return act;
+  }
+
+  deleteActivityFromActiveGroup(activityId) {
+    const allGroups = this.getGroups();
+    const group = allGroups.find(g => g.id === this.getActiveGroup()?.id);
+    if (!group) return false;
+    group.activities = (group.activities || []).filter(a => a.id !== activityId);
+    this.saveGroups(allGroups);
+    this.notify();
+    return true;
+  }
+
+  addTaskToActivity(activityId, { title, description, assigneeId, dueDate }) {
+    const user = this.getCurrentUser();
+    const allGroups = this.getGroups();
+    const group = allGroups.find(g => g.id === this.getActiveGroup()?.id);
+    const cleanTitle = String(title || '').trim();
+    if (!group || !user || !cleanTitle) return null;
+
+    const act = (group.activities || []).find(a => a.id === activityId);
+    if (!act) return null;
+
+    const assignee = assigneeId ? (group.members || []).find(m => m.id === assigneeId) : null;
+    const nowIso = new Date().toISOString();
+    const newTask = {
+      id: Utils.generateId('tsk'),
+      title: cleanTitle,
+      description: String(description || '').trim(),
+      assigneeId: assignee ? assignee.id : '',
+      assigneeName: assignee ? assignee.name : '',
+      assigneeAvatar: assignee ? (assignee.avatar || '') : '',
+      dueDate: String(dueDate || '').trim(),
+      completed: false,
+      completedAt: '',
+      createdBy: user.id,
+      createdAt: nowIso
+    };
+
+    act.tasks = Array.isArray(act.tasks) ? act.tasks : [];
+    act.tasks.push(newTask);
+
+    // Si el responsable aún no estaba listado como participante, sumarlo automáticamente
+    if (assignee) {
+      act.participantIds = Array.isArray(act.participantIds) ? act.participantIds : [];
+      if (!act.participantIds.includes(assignee.id)) {
+        act.participantIds.push(assignee.id);
+      }
+    }
+    act.updatedAt = nowIso;
+
+    this.saveGroups(allGroups);
+    this.notify();
+    return newTask;
+  }
+
+  updateActivityTask(activityId, taskId, patch = {}) {
+    const allGroups = this.getGroups();
+    const group = allGroups.find(g => g.id === this.getActiveGroup()?.id);
+    if (!group) return null;
+
+    const act = (group.activities || []).find(a => a.id === activityId);
+    if (!act || !Array.isArray(act.tasks)) return null;
+    const task = act.tasks.find(t => t.id === taskId);
+    if (!task) return null;
+
+    if (patch.title !== undefined) {
+      const t = String(patch.title).trim();
+      if (t) task.title = t;
+    }
+    if (patch.description !== undefined) task.description = String(patch.description || '').trim();
+    if (patch.dueDate !== undefined) task.dueDate = String(patch.dueDate || '').trim();
+    if (patch.assigneeId !== undefined) {
+      const assignee = patch.assigneeId ? (group.members || []).find(m => m.id === patch.assigneeId) : null;
+      task.assigneeId = assignee ? assignee.id : '';
+      task.assigneeName = assignee ? assignee.name : '';
+      task.assigneeAvatar = assignee ? (assignee.avatar || '') : '';
+      if (assignee) {
+        act.participantIds = Array.isArray(act.participantIds) ? act.participantIds : [];
+        if (!act.participantIds.includes(assignee.id)) {
+          act.participantIds.push(assignee.id);
+        }
+      }
+    }
+    act.updatedAt = new Date().toISOString();
+    this.saveGroups(allGroups);
+    this.notify();
+    return task;
+  }
+
+  toggleActivityTaskCompleted(activityId, taskId) {
+    const allGroups = this.getGroups();
+    const group = allGroups.find(g => g.id === this.getActiveGroup()?.id);
+    if (!group) return null;
+
+    const act = (group.activities || []).find(a => a.id === activityId);
+    if (!act || !Array.isArray(act.tasks)) return null;
+    const task = act.tasks.find(t => t.id === taskId);
+    if (!task) return null;
+
+    task.completed = !task.completed;
+    task.completedAt = task.completed ? new Date().toISOString() : '';
+    act.updatedAt = new Date().toISOString();
+
+    const progress = this.getActivityProgress(act);
+    const allCompleted = progress.total > 0 && progress.done === progress.total;
+
+    this.saveGroups(allGroups);
+    this.notify();
+    return { task, completed: task.completed, allCompleted, progress };
+  }
+
+  deleteActivityTask(activityId, taskId) {
+    const allGroups = this.getGroups();
+    const group = allGroups.find(g => g.id === this.getActiveGroup()?.id);
+    if (!group) return false;
+    const act = (group.activities || []).find(a => a.id === activityId);
+    if (!act || !Array.isArray(act.tasks)) return false;
+
+    act.tasks = act.tasks.filter(t => t.id !== taskId);
+    act.updatedAt = new Date().toISOString();
+    this.saveGroups(allGroups);
+    this.notify();
+    return true;
+  }
+
+  // --- METAS GRUPALES (LARGO PLAZO / PROYECTOS COMPARTIDOS) ---
+  getGoalProgress(goal) {
+    const tasks = Array.isArray(goal?.tasks) ? goal.tasks : [];
+    const totalTasks = tasks.length;
+    const doneTasks = tasks.filter(t => Boolean(t.completed)).length;
+    let pct = 0;
+    if (totalTasks > 0) {
+      pct = Math.round((doneTasks / totalTasks) * 100);
+    } else if (goal?.completed) {
+      pct = 100;
+    } else {
+      pct = Math.max(0, Math.min(100, Math.round(Number(goal?.progress || 0))));
+    }
+    return { totalTasks, doneTasks, pct };
+  }
+
+  addGoalToActiveGroup({ title, category, icon, description, targetDate, progress, tasks }) {
+    const user = this.getCurrentUser();
+    const allGroups = this.getGroups();
+    const group = allGroups.find(g => g.id === this.getActiveGroup()?.id);
+    const cleanTitle = String(title || '').trim();
+    if (!group || !cleanTitle) return null;
+
+    const nowIso = new Date().toISOString();
+    const initTasks = Array.isArray(tasks) ? tasks : [];
+    const numericProgress = initTasks.length > 0
+      ? Math.round((initTasks.filter(t => t.completed).length / initTasks.length) * 100)
+      : Math.max(0, Math.min(100, Math.round(Number(progress || 0))));
+
+    const newGoal = {
+      id: Utils.generateId('gol'),
+      icon: String(icon || '🎯').trim() || '🎯',
+      title: cleanTitle,
+      category: String(category || 'General').trim() || 'General',
+      description: String(description || '').trim(),
+      targetDate: String(targetDate || '').trim(),
+      progress: numericProgress,
+      completed: numericProgress >= 100,
+      tasks: initTasks,
+      createdBy: user?.id || '',
+      createdByName: user?.name || '',
+      createdAt: nowIso,
+      updatedAt: nowIso
+    };
+
+    group.goals = group.goals || [];
+    group.goals.unshift(newGoal);
+    if (user) this.logActivity(group, user, 'goal', `${newGoal.icon} ${newGoal.title}`);
+    this.saveGroups(allGroups);
+    this.notify();
+    return newGoal;
+  }
+
+  updateGoalInActiveGroup(goalId, patch = {}) {
+    const allGroups = this.getGroups();
+    const group = allGroups.find(g => g.id === this.getActiveGroup()?.id);
+    if (!group) return null;
+    const goal = (group.goals || []).find(g => g.id === goalId);
+    if (!goal) return null;
+
+    if (patch.title !== undefined) {
+      const t = String(patch.title).trim();
+      if (t) goal.title = t;
+    }
+    if (patch.icon !== undefined) goal.icon = String(patch.icon || '🎯').trim() || '🎯';
+    if (patch.category !== undefined) goal.category = String(patch.category || 'General').trim() || 'General';
+    if (patch.description !== undefined) goal.description = String(patch.description || '').trim();
+    if (patch.targetDate !== undefined) goal.targetDate = String(patch.targetDate || '').trim();
+
+    if (patch.progress !== undefined && (!Array.isArray(goal.tasks) || goal.tasks.length === 0)) {
+      const pct = Math.max(0, Math.min(100, Math.round(Number(patch.progress) || 0)));
+      goal.progress = pct;
+      goal.completed = pct >= 100;
+    }
+    if (patch.completed !== undefined) {
+      goal.completed = Boolean(patch.completed);
+      if (goal.completed) goal.progress = 100;
+      else if (goal.progress >= 100) goal.progress = 50;
+    }
+
+    goal.updatedAt = new Date().toISOString();
+    this.saveGroups(allGroups);
+    this.notify();
+    return goal;
   }
 
   toggleGoalCompleted(goalId) {
@@ -1925,11 +2229,94 @@ class RumaStore {
     if (!group) return false;
     const goal = (group.goals || []).find(g => g.id === goalId);
     if (!goal) return false;
+
     goal.completed = !goal.completed;
-    goal.progress = goal.completed ? 100 : 50;
+    if (Array.isArray(goal.tasks) && goal.tasks.length > 0) {
+      goal.tasks.forEach(t => { t.completed = goal.completed; });
+      goal.progress = goal.completed ? 100 : 0;
+    } else {
+      if (goal.completed) {
+        goal.prevProgress = Number(goal.progress || 0) < 100 ? Number(goal.progress || 0) : 50;
+        goal.progress = 100;
+      } else {
+        goal.progress = Number(goal.prevProgress ?? 50);
+      }
+    }
+    goal.updatedAt = new Date().toISOString();
     this.saveGroups(allGroups);
     this.notify();
     return goal.completed;
+  }
+
+  addGoalTask(goalId, { title, assigneeId }) {
+    const user = this.getCurrentUser();
+    const allGroups = this.getGroups();
+    const group = allGroups.find(g => g.id === this.getActiveGroup()?.id);
+    const cleanTitle = String(title || '').trim();
+    if (!group || !cleanTitle) return null;
+    const goal = (group.goals || []).find(g => g.id === goalId);
+    if (!goal) return null;
+
+    const assignee = assigneeId ? (group.members || []).find(m => m.id === assigneeId) : null;
+    goal.tasks = Array.isArray(goal.tasks) ? goal.tasks : [];
+    const newTask = {
+      id: Utils.generateId('gtsk'),
+      title: cleanTitle,
+      assigneeId: assignee ? assignee.id : '',
+      assigneeName: assignee ? assignee.name : '',
+      assigneeAvatar: assignee ? (assignee.avatar || '') : '',
+      completed: false,
+      createdBy: user?.id || '',
+      createdAt: new Date().toISOString()
+    };
+    goal.tasks.push(newTask);
+    const { pct } = this.getGoalProgress(goal);
+    goal.progress = pct;
+    goal.completed = pct >= 100;
+    goal.updatedAt = new Date().toISOString();
+
+    this.saveGroups(allGroups);
+    this.notify();
+    return newTask;
+  }
+
+  toggleGoalTask(goalId, taskId) {
+    const allGroups = this.getGroups();
+    const group = allGroups.find(g => g.id === this.getActiveGroup()?.id);
+    if (!group) return null;
+    const goal = (group.goals || []).find(g => g.id === goalId);
+    if (!goal || !Array.isArray(goal.tasks)) return null;
+    const task = goal.tasks.find(t => t.id === taskId);
+    if (!task) return null;
+
+    task.completed = !task.completed;
+    const { pct } = this.getGoalProgress(goal);
+    goal.progress = pct;
+    goal.completed = pct >= 100;
+    goal.updatedAt = new Date().toISOString();
+
+    this.saveGroups(allGroups);
+    this.notify();
+    return { task, completed: task.completed, goalCompleted: goal.completed, progress: pct };
+  }
+
+  deleteGoalTask(goalId, taskId) {
+    const allGroups = this.getGroups();
+    const group = allGroups.find(g => g.id === this.getActiveGroup()?.id);
+    if (!group) return false;
+    const goal = (group.goals || []).find(g => g.id === goalId);
+    if (!goal || !Array.isArray(goal.tasks)) return false;
+
+    goal.tasks = goal.tasks.filter(t => t.id !== taskId);
+    if (goal.tasks.length > 0) {
+      const { pct } = this.getGoalProgress(goal);
+      goal.progress = pct;
+      goal.completed = pct >= 100;
+    }
+    goal.updatedAt = new Date().toISOString();
+    this.saveGroups(allGroups);
+    this.notify();
+    return true;
   }
 
   deleteGoalFromActiveGroup(goalId) {
@@ -1941,21 +2328,66 @@ class RumaStore {
     this.notify();
   }
 
-  addNoteToActiveGroup({ title, category, content }) {
+  // --- NOTAS COMPARTIDAS ---
+  addNoteToActiveGroup({ title, category, content, pinned = false }) {
     const user = this.getCurrentUser();
     const allGroups = this.getGroups();
     const group = allGroups.find(g => g.id === this.getActiveGroup()?.id);
-    if (!group || !user) return;
-    group.notes = group.notes || [];
-    group.notes.unshift({
+    const cleanTitle = String(title || '').trim();
+    const cleanContent = String(content || '').trim();
+    if (!group || !user || (!cleanTitle && !cleanContent)) return null;
+
+    const nowIso = new Date().toISOString();
+    const newNote = {
       id: Utils.generateId('not'),
-      title: title.trim(),
-      category: category || 'Nota',
-      content: content.trim(),
-      authorName: user.name
-    });
+      title: cleanTitle || 'Nota rápida',
+      category: String(category || 'Idea').trim() || 'Idea',
+      content: cleanContent,
+      pinned: Boolean(pinned),
+      authorId: user.id,
+      authorName: user.name,
+      authorAvatar: user.avatar || '',
+      createdAt: nowIso,
+      updatedAt: nowIso
+    };
+
+    group.notes = group.notes || [];
+    group.notes.unshift(newNote);
+    this.logActivity(group, user, 'note', newNote.title);
     this.saveGroups(allGroups);
     this.notify();
+    return newNote;
+  }
+
+  updateNoteInActiveGroup(noteId, patch = {}) {
+    const allGroups = this.getGroups();
+    const group = allGroups.find(g => g.id === this.getActiveGroup()?.id);
+    if (!group) return null;
+    const note = (group.notes || []).find(n => n.id === noteId);
+    if (!note) return null;
+
+    if (patch.title !== undefined) note.title = String(patch.title || '').trim() || 'Nota rápida';
+    if (patch.category !== undefined) note.category = String(patch.category || 'Idea').trim() || 'Idea';
+    if (patch.content !== undefined) note.content = String(patch.content || '').trim();
+    if (patch.pinned !== undefined) note.pinned = Boolean(patch.pinned);
+    note.updatedAt = new Date().toISOString();
+
+    this.saveGroups(allGroups);
+    this.notify();
+    return note;
+  }
+
+  toggleNotePinned(noteId) {
+    const allGroups = this.getGroups();
+    const group = allGroups.find(g => g.id === this.getActiveGroup()?.id);
+    if (!group) return false;
+    const note = (group.notes || []).find(n => n.id === noteId);
+    if (!note) return false;
+    note.pinned = !note.pinned;
+    note.updatedAt = new Date().toISOString();
+    this.saveGroups(allGroups);
+    this.notify();
+    return note.pinned;
   }
 
   deleteNoteFromActiveGroup(noteId) {

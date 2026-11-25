@@ -60,6 +60,7 @@ import { renderGroupMoviesView } from './group-movies.js';
 import { renderGroupSeriesView } from './group-series.js';
 import { renderGroupMusicView } from './group-music.js';
 import { renderGroupBooksView } from './group-books.js';
+import { renderGroupGoalsView, resetGoalsDetailState } from './group-goals.js';
 import { renderGroupChatView } from './group-chat.js';
 
 export function renderGroupInterface(container) {
@@ -85,10 +86,11 @@ export function renderGroupInterface(container) {
   const SECTION_TITLES = { memories: 'Recuerdos', movies: 'Películas', series: 'Series', music: 'Música', books: 'Libros', goals_notes: 'Objetivos', chat: 'Chat del grupo' };
   const isHome = tab === 'home';
   if (tab === 'chat') store.markChatSeen(group);
+  if (tab !== 'goals_notes') resetGoalsDetailState();
 
   container.innerHTML = `
     <div class="rg-wrap">
-      ${isHome ? groupHeaderHtml(group, user, tab) + groupHomeHtml(group) : ((tab === 'memories' || tab === 'movies' || tab === 'series' || tab === 'music' || tab === 'books' || tab === 'chat') ? `<div id="group-tab-viewport"></div>` : `
+      ${isHome ? groupHeaderHtml(group, user, tab) + groupHomeHtml(group) : ((tab === 'memories' || tab === 'movies' || tab === 'series' || tab === 'music' || tab === 'books' || tab === 'goals_notes' || tab === 'chat') ? `<div id="group-tab-viewport"></div>` : `
         <div class="rg-sectionbar">
           <button type="button" class="rg-back" id="rg-back-home">‹ Grupo</button>
           <h2>${SECTION_TITLES[tab] || ''}</h2>
@@ -101,6 +103,7 @@ export function renderGroupInterface(container) {
     bindGroupHeader(container, group, user, {
       onTab: (nextTab) => {
         if (nextTab !== 'series') activeSeriesDetailId = null;
+        if (nextTab !== 'goals_notes') resetGoalsDetailState();
         store.navigate('group', { groupTab: nextTab });
       }
     });
@@ -109,6 +112,7 @@ export function renderGroupInterface(container) {
   }
   document.getElementById('rg-back-home')?.addEventListener('click', () => {
     activeSeriesDetailId = null;
+    resetGoalsDetailState();
     store.navigate('group', { groupTab: 'home' });
   });
 
@@ -120,7 +124,7 @@ export function renderGroupInterface(container) {
   else if (tab === 'series') renderSeriesTab(viewport, group, user);
   else if (tab === 'music') renderMusicTab(viewport, group, user);
   else if (tab === 'books') renderBooksTab(viewport, group, user);
-  else if (tab === 'goals_notes') renderGoalsAndNotesTab(viewport, group);
+  else if (tab === 'goals_notes') renderGoalsAndNotesTab(viewport, group, user);
   else if (tab === 'chat') renderChatTab(viewport, group, user);
 }
 
@@ -1686,103 +1690,32 @@ function openAddSongModal(group) {
 }
 
 // ============================================================================
-// 5. PESTAÑA METAS Y TABLERO DE NOTAS
+// 5. PESTAÑA OBJETIVOS (Actividades Grupales, Responsabilidades, Metas y Notas)
 // ============================================================================
-function renderGoalsAndNotesTab(viewport, group) {
-  const goals = group.goals || [];
-  const notes = group.notes || [];
-
-  viewport.innerHTML = `
-    <div class="ruma-grid-2">
-      <!-- Metas Compartidas -->
-      <div class="ruma-card">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;">
-          <h2 style="font-family:var(--font-display);font-size:1.25rem;">🎯 Metas del Grupo (${goals.length})</h2>
-        </div>
-        <form id="form-add-goal" style="display:flex;gap:0.5rem;margin-bottom:1rem;">
-          <input type="text" id="goal-title-inp" class="form-input" placeholder="Nueva meta o plan juntos..." required>
-          <button type="submit" class="btn btn-primary btn-sm">+ Añadir</button>
-        </form>
-        <div style="display:flex;flex-direction:column;gap:0.55rem;">
-          ${goals.length === 0 ? `
-            <div style="font-size:0.84rem;color:var(--text-muted);text-align:center;padding:1rem;">Aún no hay metas compartidas. ¡Crea la primera!</div>
-          ` : goals.map(g => `
-            <div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;padding:0.7rem 0.9rem;background:var(--bg-elevated);border-radius:var(--radius-md);border:1px solid var(--border-subtle);">
-              <span style="flex:1;min-width:0;word-break:break-word;${g.completed ? 'text-decoration:line-through;color:var(--text-muted);' : 'font-weight:600;'}">
-                ${Utils.sanitize(g.title)}
-              </span>
-              <div style="display:flex;align-items:center;gap:0.4rem;flex-shrink:0;">
-                <button type="button" class="btn ${g.completed ? 'btn-primary' : 'btn-secondary'} btn-sm" data-toggle-goal="${Utils.sanitize(g.id)}">
-                  ${g.completed ? '✓ Cumplida' : 'Marcar Cumplida'}
-                </button>
-                <button type="button" class="btn btn-danger btn-sm" data-delete-goal="${Utils.sanitize(g.id)}" title="Eliminar meta">✕</button>
-              </div>
-            </div>
-          `).join('')}
-        </div>
-      </div>
-
-      <!-- Tablero de Notas -->
-      <div class="ruma-card">
-        <h2 style="font-family:var(--font-display);font-size:1.25rem;margin-bottom:1rem;">📝 Tablero de Notas (${notes.length})</h2>
-        <form id="form-add-note" style="display:flex;flex-direction:column;gap:0.55rem;margin-bottom:1rem;">
-          <input type="text" id="note-title-inp" class="form-input" placeholder="Título de la nota..." required>
-          <textarea id="note-content-inp" class="form-textarea" rows="2" placeholder="Escribe un recordatorio, idea o mensaje..." required></textarea>
-          <button type="submit" class="btn btn-primary btn-sm" style="align-self:flex-end;">Publicar Nota</button>
-        </form>
-        <div style="display:flex;flex-direction:column;gap:0.55rem;">
-          ${notes.length === 0 ? `
-            <div style="font-size:0.84rem;color:var(--text-muted);text-align:center;padding:1rem;">Aún no hay notas en el tablero.</div>
-          ` : notes.map(n => `
-            <div style="padding:0.85rem;background:var(--bg-elevated);border-radius:var(--radius-md);border-left:3px solid var(--brand-lilac);">
-              <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:0.5rem;">
-                <div style="font-weight:700;font-size:0.92rem;word-break:break-word;">${Utils.sanitize(n.title)}</div>
-                <button type="button" class="btn btn-danger btn-sm" style="padding:0.15rem 0.45rem;font-size:0.72rem;" data-delete-note="${Utils.sanitize(n.id)}" title="Eliminar nota">✕</button>
-              </div>
-              <p style="font-size:0.84rem;color:var(--text-secondary);margin-top:0.25rem;word-break:break-word;">${Utils.sanitize(n.content)}</p>
-              <div style="font-size:0.72rem;color:var(--text-muted);margin-top:0.35rem;">Por ${Utils.sanitize(n.authorName || 'Miembro')}</div>
-            </div>
-          `).join('')}
-        </div>
-      </div>
-    </div>
-  `;
-
-  document.getElementById('form-add-goal')?.addEventListener('submit', (e) => {
-    e.preventDefault();
-    const title = document.getElementById('goal-title-inp')?.value;
-    if (title) store.addGoalToActiveGroup({ title, category: 'General' });
-  });
-
-  viewport.querySelectorAll('[data-toggle-goal]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const done = store.toggleGoalCompleted(btn.getAttribute('data-toggle-goal'));
-      if (done) {
-        try { confetti({ particleCount: 55, spread: 60, origin: { y: 0.7 } }); } catch (_) {}
-        UI.showToast('¡Meta cumplida! 🎉✨', 'success');
+function renderGoalsAndNotesTab(viewport, group, user) {
+  renderGroupGoalsView(viewport, group, user, {
+    onQuoteActivity: (activity, progress) => {
+      const progText = progress && progress.total > 0
+        ? `${progress.done}/${progress.total} responsabilidades · ${progress.pct}%`
+        : (activity.status || 'Planeando');
+      pendingChatQuote = {
+        type: 'activity',
+        itemId: activity.id,
+        label: `${activity.icon || '🎉'} Actividad`,
+        title: activity.title,
+        subtitle: [activity.date, progText].filter(Boolean).join(' · '),
+        thumb: group.avatar || 'assets/ruma_icon_512.png'
+      };
+      store.navigate('group', { groupTab: 'chat' });
+    },
+    rerender: () => {
+      const freshGroup = store.getActiveGroup();
+      const freshUser = store.getCurrentUser();
+      const liveViewport = document.getElementById('group-tab-viewport') || viewport;
+      if (freshGroup && freshUser && liveViewport) {
+        renderGoalsAndNotesTab(liveViewport, freshGroup, freshUser);
       }
-    });
-  });
-
-  viewport.querySelectorAll('[data-delete-goal]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      store.deleteGoalFromActiveGroup(btn.getAttribute('data-delete-goal'));
-      UI.showToast('Meta eliminada.', 'info');
-    });
-  });
-
-  document.getElementById('form-add-note')?.addEventListener('submit', (e) => {
-    e.preventDefault();
-    const title = document.getElementById('note-title-inp')?.value;
-    const content = document.getElementById('note-content-inp')?.value;
-    if (title && content) store.addNoteToActiveGroup({ title, content });
-  });
-
-  viewport.querySelectorAll('[data-delete-note]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      store.deleteNoteFromActiveGroup(btn.getAttribute('data-delete-note'));
-      UI.showToast('Nota eliminada.', 'info');
-    });
+    }
   });
 }
 
@@ -1860,7 +1793,18 @@ function openPickGroupItemToQuoteModal(group, onPicked) {
       title: b.title,
       subtitle: b.author || 'Libro',
       thumb: b.poster || 'assets/ruma_icon_512.png'
-    }))
+    })),
+    ...(group.activities || []).map(a => {
+      const p = store.getActivityProgress(a);
+      return {
+        type: 'activity',
+        itemId: a.id,
+        label: `${a.icon || '🎉'} Actividad`,
+        title: a.title,
+        subtitle: p.total > 0 ? `${p.done}/${p.total} responsabilidades · ${p.pct}%` : (a.status || 'Planeando'),
+        thumb: group.avatar || 'assets/ruma_icon_512.png'
+      };
+    })
   ];
 
   UI.openModal({

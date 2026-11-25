@@ -385,6 +385,7 @@ export function renderGroupChatView(viewport, group, user, ctx) {
     else if (t === 'series') store.navigate('group', { groupTab: 'series' });
     else if (t === 'song') store.navigate('group', { groupTab: 'music' });
     else if (t === 'book') store.navigate('group', { groupTab: 'books' });
+    else if (t === 'activity' || t === 'goal') store.navigate('group', { groupTab: 'goals_notes' });
   }));
   viewport.querySelectorAll('[data-jump-msg]').forEach(box => box.addEventListener('click', () => {
     const target = viewport.querySelector(`[data-msg-id="${CSS.escape(box.getAttribute('data-jump-msg'))}"]`);

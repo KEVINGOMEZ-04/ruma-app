@@ -13,6 +13,7 @@ import './styles/auth.css';
 import './styles/home.css';
 import './styles/group.css';
 import './styles/books.css';
+import './styles/goals.css';
 
 import { store } from './core/store.js';
 import { Utils } from './core/utils.js';
