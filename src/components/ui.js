@@ -36,9 +36,9 @@ export const UI = {
 
     backdrop.innerHTML = `
       <div class="ruma-modal" role="dialog" aria-modal="true" style="max-width:${maxWidth};">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.15rem;gap:1rem;">
-          <h3 style="font-family:var(--font-display);font-size:1.25rem;font-weight:800;">${Utils.sanitize(title)}</h3>
-          <button type="button" class="btn btn-secondary btn-sm" id="btn-close-active-modal">✕</button>
+        <div class="ruma-modal-head">
+          <h3>${Utils.sanitize(title)}</h3>
+          <button type="button" class="btn btn-secondary btn-sm" id="btn-close-active-modal" aria-label="Cerrar">✕</button>
         </div>
         <div class="ruma-modal-body">${contentHtml}</div>
       </div>

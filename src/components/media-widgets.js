@@ -323,8 +323,8 @@ export function renderGroupReviews(item, group, user, { compact = false, categor
   if (entries.length === 0) {
     return `
       <div class="rv-empty">
-        <span>Nadie del grupo la ha reseñado aún.</span>
-        <button type="button" class="btn btn-primary btn-sm" data-review-item="${esc(item.id)}" data-review-cat="${category}">✍️ Sé el primero</button>
+        <span>Nadie del grupo la ha reseñado aún. ¡Publica tu reseña arriba para ser el primero!</span>
+        ${compact ? `<button type="button" class="btn btn-primary btn-sm" data-review-item="${esc(item.id)}" data-review-cat="${category}">✍️ Sé el primero</button>` : ''}
       </div>
     `;
   }

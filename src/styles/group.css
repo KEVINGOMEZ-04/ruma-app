@@ -236,3 +236,28 @@
 
 .rmv-ficha-btn{display:inline-flex;align-items:center;gap:.35rem;padding:.38rem .78rem;border-radius:9999px;border:1px solid rgba(190,150,255,.32);background:rgba(139,69,232,.18);color:#f3e8ff;font-size:.75rem;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap;flex:0 0 auto}
 .rmv-ficha-btn:active{transform:scale(.98)}
+
+/* =========================================================================
+   CORRECCIÓN RESPONSIVE DE MODALES Y FICHA DE PELÍCULA / SERIE
+   ========================================================================= */
+.ruma-modal{display:flex!important;flex-direction:column!important;overflow:hidden!important;padding:0!important;max-height:88dvh!important}
+.ruma-modal-head{display:flex;align-items:center;justify-content:space-between;gap:.75rem;padding:1.1rem 1.35rem;border-bottom:1px solid rgba(168,120,255,.22);background:rgba(28,14,58,.96);flex:0 0 auto}
+.ruma-modal-head h3{margin:0;font-family:var(--font-display);font-size:clamp(1.02rem,4.2vw,1.25rem);font-weight:800;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ruma-modal-body{flex:1 1 auto;overflow-y:auto;overflow-x:hidden;padding:1.15rem 1.35rem 1.4rem;-webkit-overflow-scrolling:touch}
+
+.rv-panel{grid-template-columns:repeat(auto-fit,minmax(min(100%,250px),1fr))!important;box-sizing:border-box;max-width:100%;overflow:hidden}
+.rv-form,.rv-panel-col{max-width:100%;min-width:0;box-sizing:border-box}
+.rv-range{max-width:100%;box-sizing:border-box;margin:.15rem 0}
+.rv-stars{max-width:100%;overflow:hidden}
+
+@media (max-width:520px){
+  .ruma-modal-backdrop{padding:.65rem!important}
+  .ruma-modal{border-radius:1.45rem!important;max-height:90dvh!important}
+  .ruma-modal-head{padding:.9rem 1rem}
+  .ruma-modal-body{padding:.95rem 1rem 1.25rem}
+  .rv-panel{padding:.85rem!important;gap:.85rem!important}
+  .rv-head{gap:.6rem}
+  .rv-score-big{font-size:1.85rem!important;min-width:52px!important}
+  .rv-score-label{font-size:.92rem}
+  .rv-star{font-size:1.15rem!important;padding:.1rem 0 .8rem!important}
+}
