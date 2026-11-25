@@ -175,7 +175,8 @@ function scoreColor(score) {
 
 const TAGS = {
   movies: ['🔥 Trama brutal', '😭 Me hizo llorar', '😂 Muy divertida', '🤯 Final inesperado', '🎵 Gran banda sonora', '🎨 Visualmente hermosa', '🎭 Actuaciones top', '🍿 Para repetir', '💞 Ideal para ver juntos', '😴 Lenta'],
-  series: ['🔥 Enganchadora', '🤯 Giros brutales', '😭 Me destrozó', '😂 Muy divertida', '🎨 Arte increíble', '🎵 Gran soundtrack', '🎭 Personajes top', '📉 Bajó de nivel', '🍿 Para maratonear', '💞 Ideal para ver juntos']
+  series: ['🔥 Enganchadora', '🤯 Giros brutales', '😭 Me destrozó', '😂 Muy divertida', '🎨 Arte increíble', '🎵 Gran soundtrack', '🎭 Personajes top', '📉 Bajó de nivel', '🍿 Para maratonear', '💞 Ideal para ver juntos'],
+  books: ['📖 Inolvidable', '🔥 Enganchador', '😭 Emotivo', '🧠 Reflexivo', '🤯 Gran giro', '✍️ Prosa hermosa', '✨ Personajes top', '💞 Para el club', '😴 Lento']
 };
 
 export function getAverage(item) {
@@ -190,8 +191,15 @@ export function reviewFormHtml(category, item, user, prefix = 'rv') {
   const score = existing ? Number(existing.score) : 8;
   const tags = existing?.tags || [];
   const isSeries = category === 'series';
+  const isBooks = category === 'books';
   const myProg = isSeries ? item.userProgress?.[user.id] : null;
   const completed = isSeries ? store.isSeriesCompletedByUser(item, user.id) : false;
+  const tagList = TAGS[category] || TAGS.movies;
+  const placeholder = isSeries
+    ? '¿Qué te está pareciendo la serie? Sin spoilers 🙊'
+    : isBooks
+      ? '¿Qué te pareció este libro? Comparte tu opinión con el grupo sin spoilers…'
+      : '¿Qué te pareció? Cuéntale al grupo en pocas palabras…';
 
   return `
     <div class="rv-form" data-rv-root="${prefix}" data-rv-score="${score}">
@@ -215,12 +223,12 @@ export function reviewFormHtml(category, item, user, prefix = 'rv') {
       <input type="range" class="rv-range" data-rv-range min="0.5" max="10" step="0.5" value="${score}" aria-label="Nota">
 
       <div class="rv-tags">
-        ${TAGS[isSeries ? 'series' : 'movies'].map(t => `
+        ${tagList.map(t => `
           <button type="button" class="ruma-chip rv-tag ${tags.includes(t) ? 'active' : ''}" data-rv-tag="${esc(t)}">${esc(t)}</button>
         `).join('')}
       </div>
 
-      <textarea class="form-textarea" data-rv-text rows="3" maxlength="600" placeholder="${isSeries ? '¿Qué te está pareciendo la serie? Sin spoilers 🙊' : '¿Qué te pareció? Cuéntale al grupo en pocas palabras…'}">${esc(existing?.review || '')}</textarea>
+      <textarea class="form-textarea" data-rv-text rows="3" maxlength="600" placeholder="${placeholder}">${esc(existing?.review || '')}</textarea>
 
       ${isSeries ? `
         <div class="rv-progress-note">

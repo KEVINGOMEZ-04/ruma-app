@@ -1432,11 +1432,18 @@ class RumaStore {
   getUserBookProgress(book, userId) {
     const uid = userId || this.getCurrentUser()?.id;
     const up = book?.userProgress?.[uid];
-    if (up) return { status: up.status || 'Por leer', currentPage: Number(up.currentPage || 0) };
-    return { status: book?.status || 'Por leer', currentPage: 0 };
+    if (up) {
+      return {
+        status: up.status || 'Por leer',
+        currentPage: Number(up.currentPage || 0),
+        finishedAt: up.finishedAt || '',
+        updatedAt: up.updatedAt || ''
+      };
+    }
+    return { status: book?.status || 'Por leer', currentPage: 0, finishedAt: '', updatedAt: '' };
   }
 
-  setUserBookProgress(bookId, { status, currentPage } = {}) {
+  setUserBookProgress(bookId, { status, currentPage, totalPages, finishedAt } = {}) {
     const user = this.getCurrentUser();
     const allGroups = this.getGroups();
     const group = allGroups.find(g => g.id === this.getActiveGroup()?.id);
@@ -1444,13 +1451,19 @@ class RumaStore {
     const book = (group.books || []).find(b => b.id === bookId);
     if (!book) return null;
 
+    if (totalPages !== undefined && Number(totalPages) > 0) {
+      book.pages = Math.round(Number(totalPages));
+    }
+
     book.userProgress = book.userProgress || {};
     const prev = this.getUserBookProgress(book, user.id);
     const total = Number(book.pages || 0);
-    let nextPage = currentPage !== undefined ? Math.max(0, Number(currentPage) || 0) : prev.currentPage;
+    let nextPage = currentPage !== undefined ? Math.max(0, Math.round(Number(currentPage) || 0)) : prev.currentPage;
     if (total > 0) nextPage = Math.min(total, nextPage);
 
-    let nextStatus = status || prev.status;
+    const validStatuses = ['Por leer', 'Leyendo', 'Leído', 'Abandonado'];
+    let nextStatus = (status && validStatuses.includes(status)) ? status : prev.status;
+
     if (status === 'Leído' && total > 0) nextPage = total;
     else if (status === 'Por leer' && currentPage === undefined) nextPage = 0;
     else if (currentPage !== undefined && status === undefined) {
@@ -1459,7 +1472,22 @@ class RumaStore {
       else nextStatus = 'Por leer';
     }
 
-    book.userProgress[user.id] = { status: nextStatus, currentPage: nextPage, userName: user.name };
+    let nextFinishedAt = prev.finishedAt || '';
+    if (nextStatus === 'Leído') {
+      if (finishedAt !== undefined) nextFinishedAt = String(finishedAt || '').trim();
+      else if (!nextFinishedAt) nextFinishedAt = new Date().toISOString().slice(0, 10);
+    } else if (status && status !== 'Leído') {
+      nextFinishedAt = '';
+    }
+
+    book.userProgress[user.id] = {
+      status: nextStatus,
+      currentPage: nextPage,
+      finishedAt: nextFinishedAt,
+      userName: user.name,
+      userAvatar: user.avatar || '',
+      updatedAt: new Date().toISOString()
+    };
     this.saveGroups(allGroups);
     this.notify();
     return book.userProgress[user.id];
@@ -1470,9 +1498,10 @@ class RumaStore {
     const group = this.getActiveGroup();
     const book = (group?.books || []).find(b => b.id === bookId);
     if (!book || !user) return null;
-    const order = ['Por leer', 'Leyendo', 'Leído'];
+    const order = ['Por leer', 'Leyendo', 'Leído', 'Abandonado'];
     const cur = this.getUserBookProgress(book, user.id).status;
-    const next = order[(order.indexOf(cur) + 1) % order.length];
+    const idx = order.indexOf(cur);
+    const next = order[(idx === -1 ? 0 : idx + 1) % order.length];
     return this.setUserBookProgress(bookId, { status: next });
   }
 
@@ -1487,8 +1516,8 @@ class RumaStore {
     const item = list.find(x => x.id === itemId);
     if (!item) return { ok: false, error: 'Elemento no encontrado.' };
 
-    // Películas y series se pueden reseñar en cualquier momento.
-    // En series guardamos en qué punto iba el usuario al reseñar (T# · Cap #).
+    // Películas, series y libros se pueden reseñar en cualquier momento.
+    // En series y libros guardamos el progreso del usuario al reseñar.
     let progressLabel = '';
     let completedWhenRated = false;
     if (category === 'series') {
@@ -1497,6 +1526,15 @@ class RumaStore {
       if (completedWhenRated) progressLabel = '🏆 Serie completada';
       else if (up?.lastWatched) progressLabel = `Iba en T${up.lastWatched.season} · Cap ${up.lastWatched.episode}`;
       else progressLabel = 'Sin empezar';
+    } else if (category === 'books') {
+      const bp = this.getUserBookProgress(item, user.id);
+      const total = Number(item.pages || 0);
+      completedWhenRated = bp.status === 'Leído';
+      if (bp.status === 'Leído') progressLabel = 'Leído';
+      else if (bp.status === 'Leyendo') {
+        const pct = total > 0 ? Math.min(100, Math.round((bp.currentPage / total) * 100)) : 0;
+        progressLabel = total > 0 ? `Leyendo · ${pct}%` : 'Leyendo';
+      } else if (bp.status === 'Abandonado') progressLabel = 'Abandonado';
     }
 
     const numeric = Math.round(Math.min(10, Math.max(0.5, Number(score) || 8)) * 10) / 10;
@@ -1558,7 +1596,7 @@ class RumaStore {
     }
   }
 
-  addMediaComment(category, itemId, text) {
+  addMediaComment(category, itemId, text, meta = null) {
     const user = this.getCurrentUser();
     const allGroups = this.getGroups();
     const group = allGroups.find(g => g.id === this.getActiveGroup()?.id);
@@ -1577,6 +1615,14 @@ class RumaStore {
       } else {
         userProgressLabel = 'T1 · Cap 1';
       }
+    } else if (category === 'books') {
+      const bp = this.getUserBookProgress(item, user.id);
+      if (bp.status === 'Leído') userProgressLabel = 'Leído';
+      else if (bp.status === 'Leyendo' && item.pages) {
+        userProgressLabel = `Pág. ${bp.currentPage}/${item.pages}`;
+      } else if (bp.status === 'Leyendo') {
+        userProgressLabel = 'Leyendo';
+      }
     }
 
     item.comments = item.comments || [];
@@ -1593,7 +1639,8 @@ class RumaStore {
       time: 'Hace un momento',
       date: 'Hace un momento',
       createdAt: new Date().toISOString(),
-      reactions: { '❤️': 0, '🔥': 0, '😂': 0 }
+      reactions: { '❤️': 0, '🔥': 0, '😂': 0 },
+      ...(meta && typeof meta === 'object' ? meta : {})
     };
 
     item.comments.push(newComment);
