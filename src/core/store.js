@@ -464,6 +464,15 @@ class RumaStore {
 
   async syncNowWithCloud() {
     try {
+      if (this.cloudPushTimer) {
+        clearTimeout(this.cloudPushTimer);
+        this.cloudPushTimer = null;
+        await CloudSync.pushCloudState({
+          accounts: this.getAccounts(),
+          groups: this.getGroups(),
+          clientId: this.clientId
+        });
+      }
       const cloud = await CloudSync.pullCloudState();
       if (cloud) {
         this.applyRemoteCloudState(cloud, false);
