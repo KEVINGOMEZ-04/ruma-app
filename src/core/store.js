@@ -2499,6 +2499,26 @@ class RumaStore {
     this.notify();
     return { ok: true };
   }
+
+  toggleChatMessageReaction(messageId, emoji) {
+    const user = this.getCurrentUser();
+    const allGroups = this.getGroups();
+    const active = this.getActiveGroup();
+    const group = allGroups.find(g => g.id === active?.id);
+    if (!group || !user || !emoji) return false;
+    const msg = (group.messages || []).find(m => m.id === messageId);
+    if (!msg) return false;
+    msg.reactions = msg.reactions && typeof msg.reactions === 'object' ? { ...msg.reactions } : {};
+    const list = Array.isArray(msg.reactions[emoji]) ? [...msg.reactions[emoji]] : [];
+    const idx = list.indexOf(user.id);
+    if (idx >= 0) list.splice(idx, 1);
+    else list.push(user.id);
+    if (list.length === 0) delete msg.reactions[emoji];
+    else msg.reactions[emoji] = list;
+    this.saveGroups(allGroups);
+    this.notify();
+    return true;
+  }
 }
 
 export const store = new RumaStore();

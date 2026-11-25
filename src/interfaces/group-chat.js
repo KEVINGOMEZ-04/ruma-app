@@ -1,4 +1,4 @@
-// Vista modular del Chat del Grupo (diseño oscuro neón, citas estilo WhatsApp/contenido, popover +, Foto/Vídeo/Audio)
+// Vista modular del Chat del Grupo (burbujas alineadas, buscador en chat, reacciones, menú + en cuadrícula 2x2)
 import { store } from '../core/store.js';
 import { Utils } from '../core/utils.js';
 import { UI } from '../components/ui.js';
@@ -13,8 +13,13 @@ const ICO = {
   link: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
   photo: '<rect x="3" y="4" width="18" height="16" rx="2.5"/><circle cx="8.5" cy="9.5" r="1.5"/><path d="m21 16-5-5-6 6-2-2-5 5"/>',
   video: '<rect x="2.5" y="6" width="14" height="12" rx="2.2"/><path d="m16.5 10 5-3v10l-5-3z"/>',
-  mic: '<rect x="9" y="2.5" width="6" height="11" rx="3"/><path d="M5 10.5a7 7 0 0 0 14 0M12 17.5V21M8.5 21h7"/>'
+  mic: '<rect x="9" y="2.5" width="6" height="11" rx="3"/><path d="M5 10.5a7 7 0 0 0 14 0M12 17.5V21M8.5 21h7"/>',
+  search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+  reply: '<polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/>'
 };
+
+const QUICK_REACTIONS = ['❤️', '😂', '🔥', '👍', '😮', '😢'];
+const chatUiState = { searchOpen: false, searchQuery: '' };
 
 function dayLabel(iso) {
   const d = iso ? new Date(iso) : new Date();
@@ -72,7 +77,7 @@ function readAsDataUrl(blob) {
 
 function senderAvatarFor(msg, group) {
   const m = (group.members || []).find(x => x.id === msg.senderId);
-  return m?.avatar || msg.senderAvatar || 'assets/ruma_icon_512.png';
+  return m?.avatar || msg.senderAvatar || 'assets/ruma_default_avatar.png';
 }
 
 function renderQuoteHtml(msg) {
@@ -113,16 +118,37 @@ function renderMediaHtml(msg) {
   if (m.type === 'audio') {
     return `
       <div class="rch-media-aud">
-        <span>🎙️ Audio${m.duration ? ` · ${Utils.sanitize(m.duration)}` : ''}</span>
+        <span>🎙️ Nota de voz${m.duration ? ` · ${Utils.sanitize(m.duration)}` : ''}</span>
         <audio src="${Utils.sanitize(m.url)}" controls preload="metadata"></audio>
       </div>`;
   }
   return '';
 }
 
+function renderReactionsHtml(msg, userId) {
+  const entries = Object.entries(msg.reactions || {}).filter(([, arr]) => Array.isArray(arr) && arr.length > 0);
+  if (!entries.length) return '';
+  const id = Utils.sanitize(msg.id);
+  return `
+    <div class="rch-reacts">
+      ${entries.map(([emoji, arr]) => {
+        const mine = arr.includes(userId);
+        return `<button type="button" class="rch-react-pill ${mine ? 'mine' : ''}" data-react-msg="${id}" data-react-emoji="${Utils.sanitize(emoji)}">${Utils.sanitize(emoji)} <span>${arr.length}</span></button>`;
+      }).join('')}
+    </div>`;
+}
+
 export function renderGroupChatView(viewport, group, user, ctx) {
   const { getPendingQuote, setPendingQuote, openPickItemModal, rerender } = ctx;
-  const messages = group.messages || [];
+  const allMessages = group.messages || [];
+  const q = chatUiState.searchQuery.trim().toLowerCase();
+  const messages = q
+    ? allMessages.filter(m =>
+        (m.text || '').toLowerCase().includes(q) ||
+        (m.senderName || '').toLowerCase().includes(q) ||
+        (m.quote?.title || '').toLowerCase().includes(q)
+      )
+    : allMessages;
   const pendingQuote = getPendingQuote();
 
   let lastDay = '';
@@ -135,31 +161,56 @@ export function renderGroupChatView(viewport, group, user, ctx) {
     const av = Utils.sanitize(senderAvatarFor(msg, group));
 
     return `${sep}
-      <div class="rch-row ${isMine ? 'mine' : ''}" data-msg-id="${id}">
-        <img class="rch-av" src="${av}" alt="${Utils.sanitize(msg.senderName || '')}">
+      <div class="rch-row ${isMine ? 'mine' : 'other'}" data-msg-id="${id}">
+        ${!isMine ? `<button type="button" class="rch-av-btn" data-chat-profile="${Utils.sanitize(msg.senderId || '')}" title="${Utils.sanitize(msg.senderName || '')}"><img class="rch-av" src="${av}" alt="${Utils.sanitize(msg.senderName || '')}"></button>` : ''}
         <div class="rch-bubble ${isMine ? 'mine' : 'other'}">
           <div class="rch-head">
-            <strong class="rch-sender">${Utils.sanitize(msg.senderName || 'Miembro')}</strong>
+            <strong class="rch-sender">${isMine ? 'Tú' : Utils.sanitize(msg.senderName || 'Miembro')}</strong>
             <div class="rch-head-acts">
-              <button type="button" class="rch-reply-btn" data-reply-msg="${id}">↩ Responder</button>
-              <button type="button" class="rch-more-btn" data-more-msg="${id}" aria-label="Opciones del mensaje">⋯</button>
+              <button type="button" class="rch-ico-act" data-reply-msg="${id}" title="Responder" aria-label="Responder">${svg(ICO.reply, 14)}</button>
+              <button type="button" class="rch-ico-act" data-more-msg="${id}" title="Reaccionar o más opciones" aria-label="Opciones del mensaje">⋯</button>
             </div>
           </div>
           ${renderQuoteHtml(msg)}
           ${renderMediaHtml(msg)}
           ${msg.text ? `<div class="rch-text">${Utils.sanitize(msg.text)}</div>` : ''}
-          <div class="rch-time">${Utils.formatTime(msg.timestamp)}</div>
+          <div class="rch-foot">
+            ${renderReactionsHtml(msg, user.id)}
+            <span class="rch-time">${Utils.formatTime(msg.timestamp)}</span>
+          </div>
         </div>
       </div>`;
   }).join('');
 
   viewport.innerHTML = `
-    <div class="rch-wrap">
+    <div class="rch-wrap" id="rch-root">
+      <!-- Cabecera compacta del chat -->
+      <div class="rch-topbar">
+        <div class="rch-topbar-info">
+          <img class="rch-topbar-av" src="${Utils.sanitize(group.avatar || 'assets/ruma_home_axolotl.png')}" alt="">
+          <div class="rch-topbar-txt">
+            <b>${Utils.sanitize(group.name)}</b>
+            <small>${(group.members || []).length} miembros · ${allMessages.length} ${allMessages.length === 1 ? 'mensaje' : 'mensajes'}</small>
+          </div>
+        </div>
+        <div class="rch-topbar-acts">
+          <button type="button" class="rch-top-btn ${chatUiState.searchOpen ? 'active' : ''}" id="rch-toggle-search" title="Buscar en el chat" aria-label="Buscar mensajes">${svg(ICO.search, 16)}</button>
+          <button type="button" class="rch-top-btn" id="rch-quick-link" title="Enlazar contenido del grupo" aria-label="Enlazar contenido">${svg(ICO.link, 16)}</button>
+        </div>
+      </div>
+
+      ${chatUiState.searchOpen ? `
+        <div class="rch-searchbar">
+          ${svg(ICO.search, 15)}
+          <input type="search" id="rch-search-inp" value="${Utils.sanitize(chatUiState.searchQuery)}" placeholder="Buscar mensajes, personas o contenido..." autocomplete="off">
+          ${chatUiState.searchQuery ? `<button type="button" id="rch-search-clear" aria-label="Limpiar">✕</button>` : ''}
+        </div>` : ''}
+
       <div class="rch-scroll" id="rch-scroll">
         ${messages.length === 0 ? `
           <div class="rg-card rm-empty" style="margin:auto 0;">
-            <b>Aún no hay mensajes en ${Utils.sanitize(group.name)}</b>
-            <span>Escribe el primer mensaje o pulsa + para enlazar una canción, película o recuerdo.</span>
+            <b>${q ? 'Sin coincidencias' : `Aún no hay mensajes en ${Utils.sanitize(group.name)}`}</b>
+            <span>${q ? 'Prueba con otra palabra o borra el filtro.' : 'Escribe el primer mensaje o pulsa + para compartir fotos, audios o enlazar contenido del grupo.'}</span>
           </div>` : rowsHtml}
       </div>
 
@@ -175,13 +226,28 @@ export function renderGroupChatView(viewport, group, user, ctx) {
 
         <div class="rch-composer">
           <div class="rch-pop" id="rch-pop" hidden>
-            <button type="button" class="rch-pop-item" id="rch-act-link">
-              ${svg(ICO.link, 19)}
-              <div><b>Enlazar contenido</b><small>Recuerdo, película, serie o canción</small></div>
-            </button>
-            <button type="button" class="rch-pop-item" id="rch-act-photo">${svg(ICO.photo, 19)}<span>Foto</span></button>
-            <button type="button" class="rch-pop-item" id="rch-act-video">${svg(ICO.video, 19)}<span>Vídeo</span></button>
-            <button type="button" class="rch-pop-item" id="rch-act-audio">${svg(ICO.mic, 19)}<span>Audio</span></button>
+            <div class="rch-pop-grid">
+              <button type="button" class="rch-pop-tile" id="rch-act-link">
+                <span class="rch-pop-ico t-link">${svg(ICO.link, 20)}</span>
+                <b>Enlazar contenido</b>
+                <small>Cine, música, libros...</small>
+              </button>
+              <button type="button" class="rch-pop-tile" id="rch-act-photo">
+                <span class="rch-pop-ico t-photo">${svg(ICO.photo, 20)}</span>
+                <b>Foto</b>
+                <small>Galería o cámara</small>
+              </button>
+              <button type="button" class="rch-pop-tile" id="rch-act-video">
+                <span class="rch-pop-ico t-video">${svg(ICO.video, 20)}</span>
+                <b>Vídeo</b>
+                <small>Clip hasta 2.5 MB</small>
+              </button>
+              <button type="button" class="rch-pop-tile" id="rch-act-audio">
+                <span class="rch-pop-ico t-audio">${svg(ICO.mic, 20)}</span>
+                <b>Nota de voz</b>
+                <small>Grabar o subir audio</small>
+              </button>
+            </div>
           </div>
 
           <input type="file" id="rch-inp-photo" accept="image/*" hidden>
@@ -199,9 +265,46 @@ export function renderGroupChatView(viewport, group, user, ctx) {
       </div>
     </div>`;
 
+  const rootEl = viewport.querySelector('#rch-root');
   const scrollBox = viewport.querySelector('#rch-scroll');
-  if (scrollBox) scrollBox.scrollTop = scrollBox.scrollHeight;
+  if (scrollBox && !q) scrollBox.scrollTop = scrollBox.scrollHeight;
 
+  // Buscador en chat
+  viewport.querySelector('#rch-toggle-search')?.addEventListener('click', () => {
+    chatUiState.searchOpen = !chatUiState.searchOpen;
+    if (!chatUiState.searchOpen) chatUiState.searchQuery = '';
+    rerender();
+    if (chatUiState.searchOpen) viewport.querySelector('#rch-search-inp')?.focus();
+  });
+
+  const searchInp = viewport.querySelector('#rch-search-inp');
+  if (searchInp) {
+    searchInp.addEventListener('input', (e) => {
+      chatUiState.searchQuery = e.target.value;
+      const pos = e.target.selectionStart;
+      rerender();
+      const next = viewport.querySelector('#rch-search-inp');
+      if (next) {
+        next.focus();
+        next.setSelectionRange(pos, pos);
+      }
+    });
+  }
+  viewport.querySelector('#rch-search-clear')?.addEventListener('click', () => {
+    chatUiState.searchQuery = '';
+    rerender();
+    viewport.querySelector('#rch-search-inp')?.focus();
+  });
+
+  // Abrir perfil al tocar avatar
+  viewport.querySelectorAll('[data-chat-profile]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const uid = btn.getAttribute('data-chat-profile');
+      if (uid) store.navigate('profile', { inspectUserId: uid });
+    });
+  });
+
+  // Popover + (atado a rootEl para no acumular listeners en viewport)
   const pop = viewport.querySelector('#rch-pop');
   const plusBtn = viewport.querySelector('#rch-plus-btn');
   const togglePop = (force) => {
@@ -215,8 +318,8 @@ export function renderGroupChatView(viewport, group, user, ctx) {
     e.stopPropagation();
     togglePop();
   });
-  viewport.addEventListener('click', (e) => {
-    if (pop && !pop.hidden && !pop.contains(e.target) && e.target !== plusBtn) togglePop(false);
+  rootEl?.addEventListener('click', (e) => {
+    if (pop && !pop.hidden && !pop.contains(e.target) && !plusBtn?.contains(e.target)) togglePop(false);
   });
 
   viewport.querySelector('#rch-clear-quote')?.addEventListener('click', () => {
@@ -224,15 +327,17 @@ export function renderGroupChatView(viewport, group, user, ctx) {
     rerender();
   });
 
-  viewport.querySelector('#rch-act-link')?.addEventListener('click', () => {
+  const openLinker = () => {
     togglePop(false);
     openPickItemModal(group, () => {
       rerender();
       viewport.querySelector('#rch-text-inp')?.focus();
     });
-  });
+  };
+  viewport.querySelector('#rch-act-link')?.addEventListener('click', openLinker);
+  viewport.querySelector('#rch-quick-link')?.addEventListener('click', openLinker);
 
-  // Foto comprimida -> mensaje con imagen
+  // Foto comprimida
   const photoInp = viewport.querySelector('#rch-inp-photo');
   viewport.querySelector('#rch-act-photo')?.addEventListener('click', () => { togglePop(false); photoInp?.click(); });
   photoInp?.addEventListener('change', async (e) => {
@@ -249,7 +354,7 @@ export function renderGroupChatView(viewport, group, user, ctx) {
     e.target.value = '';
   });
 
-  // Vídeo (límite 2.5 MB para sincronizar en nube/localStorage)
+  // Vídeo
   const videoInp = viewport.querySelector('#rch-inp-video');
   viewport.querySelector('#rch-act-video')?.addEventListener('click', () => { togglePop(false); videoInp?.click(); });
   videoInp?.addEventListener('change', async (e) => {
@@ -271,7 +376,7 @@ export function renderGroupChatView(viewport, group, user, ctx) {
     e.target.value = '';
   });
 
-  // Audio: grabadora con micrófono (o archivo de audio si no hay micrófono)
+  // Nota de voz / audio
   const audioInp = viewport.querySelector('#rch-inp-audio');
   viewport.querySelector('#rch-act-audio')?.addEventListener('click', () => {
     togglePop(false);
@@ -302,9 +407,16 @@ export function renderGroupChatView(viewport, group, user, ctx) {
     e.target.value = '';
   });
 
+  // Reacciones directas en burbujas
+  viewport.querySelectorAll('[data-react-msg]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      store.toggleChatMessageReaction(btn.getAttribute('data-react-msg'), btn.getAttribute('data-react-emoji'));
+    });
+  });
+
   // Responder mensaje
   const replyToMsg = (msg) => {
-    const preview = msg.text || (msg.media ? `[${msg.media.type === 'image' ? 'Foto' : msg.media.type === 'video' ? 'Vídeo' : 'Audio'}]` : (msg.quote?.title || 'Mensaje'));
+    const preview = msg.text || (msg.media ? `[${msg.media.type === 'image' ? 'Foto' : msg.media.type === 'video' ? 'Vídeo' : 'Nota de voz'}]` : (msg.quote?.title || 'Mensaje'));
     setPendingQuote({
       type: 'message',
       itemId: msg.id,
@@ -318,26 +430,40 @@ export function renderGroupChatView(viewport, group, user, ctx) {
   };
 
   viewport.querySelectorAll('[data-reply-msg]').forEach(btn => btn.addEventListener('click', () => {
-    const m = messages.find(x => x.id === btn.getAttribute('data-reply-msg'));
+    const m = allMessages.find(x => x.id === btn.getAttribute('data-reply-msg'));
     if (m) replyToMsg(m);
   }));
 
-  // Menú ⋯ de cada mensaje: Copiar, Responder, Eliminar (solo autor o líder)
+  // Menú ⋯ de cada mensaje: Reacciones rápidas + Copiar + Responder + Eliminar
   viewport.querySelectorAll('[data-more-msg]').forEach(btn => btn.addEventListener('click', (e) => {
     e.stopPropagation();
-    const m = messages.find(x => x.id === btn.getAttribute('data-more-msg'));
+    const m = allMessages.find(x => x.id === btn.getAttribute('data-more-msg'));
     if (!m) return;
     const canDelete = store.canDeleteChatMessage(group, m, user);
     UI.openModal({
-      title: `Mensaje de ${Utils.sanitize(m.senderName || 'Miembro')}`,
+      title: `Mensaje de ${m.senderName || 'Miembro'}`,
       contentHtml: `
-        <div style="display:flex;flex-direction:column;gap:.6rem;">
-          ${m.text ? `<button type="button" class="btn btn-secondary" id="ch-m-copy">📋 Copiar texto</button>` : ''}
-          <button type="button" class="btn btn-secondary" id="ch-m-reply">↩ Responder</button>
-          ${canDelete ? `<button type="button" class="btn" id="ch-m-del" style="background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.5);color:#fca5a5;">🗑️ Eliminar mensaje</button>` : `
-            <div style="font-size:.74rem;color:var(--text-muted);text-align:center;padding:.35rem;border-radius:.6rem;background:rgba(255,255,255,.03);">🔒 Solo ${Utils.sanitize(m.senderName || 'el autor')} o el líder del grupo pueden eliminar este mensaje.</div>`}
+        <div style="display:flex;flex-direction:column;gap:.75rem;">
+          <div class="rch-quick-reacts">
+            ${QUICK_REACTIONS.map(em => {
+              const active = Array.isArray(m.reactions?.[em]) && m.reactions[em].includes(user.id);
+              return `<button type="button" class="rch-qreact-btn ${active ? 'active' : ''}" data-pick-react="${em}">${em}</button>`;
+            }).join('')}
+          </div>
+          <div style="display:flex;flex-direction:column;gap:.5rem;">
+            <button type="button" class="btn btn-secondary" id="ch-m-reply">↩ Responder</button>
+            ${m.text ? `<button type="button" class="btn btn-secondary" id="ch-m-copy">📋 Copiar texto</button>` : ''}
+            ${canDelete ? `<button type="button" class="btn btn-danger" id="ch-m-del">🗑️ Eliminar mensaje</button>` : `
+              <div style="font-size:.76rem;color:var(--text-muted);text-align:center;padding:.45rem;border-radius:.75rem;background:var(--surface-secondary);">🔒 Solo ${Utils.sanitize(m.senderName || 'el autor')} o el líder del grupo pueden eliminar este mensaje.</div>`}
+          </div>
         </div>`,
       onMount: () => {
+        document.querySelectorAll('[data-pick-react]').forEach(rBtn => {
+          rBtn.addEventListener('click', () => {
+            store.toggleChatMessageReaction(m.id, rBtn.getAttribute('data-pick-react'));
+            UI.closeModal();
+          });
+        });
         document.getElementById('ch-m-copy')?.addEventListener('click', async () => {
           try { await navigator.clipboard.writeText(m.text); UI.showToast('Texto copiado 📋', 'success'); }
           catch (_) { UI.showToast('No se pudo copiar automáticamente.', 'info'); }
@@ -421,14 +547,14 @@ function openVoiceRecorderModal({ onSend, onPickFile }) {
   };
 
   UI.openModal({
-    title: '🎙️ Grabar nota de audio',
+    title: '🎙️ Grabar nota de voz',
     contentHtml: `
       <div style="display:flex;flex-direction:column;align-items:center;gap:.9rem;padding:.5rem 0;">
-        <div id="rch-rec-timer" style="font-family:var(--font-display);font-size:1.8rem;font-weight:800;color:#e9d5ff;">00:00</div>
-        <div id="rch-rec-status" style="font-size:.82rem;color:var(--text-muted);">Pulsa «Grabar» para usar tu micrófono</div>
+        <div id="rch-rec-timer" style="font-family:var(--font-display);font-size:2rem;font-weight:800;color:var(--primary);">00:00</div>
+        <div id="rch-rec-status" style="font-size:.82rem;color:var(--text-secondary);">Pulsa «Grabar» para usar tu micrófono</div>
         <div style="display:flex;gap:.6rem;flex-wrap:wrap;justify-content:center;">
           <button type="button" class="btn btn-primary" id="rch-rec-start">🎙️ Grabar</button>
-          <button type="button" class="btn btn-secondary" id="rch-rec-stop" hidden>⏹ Detener y enviar</button>
+          <button type="button" class="btn btn-danger" id="rch-rec-stop" hidden>⏹ Detener y enviar</button>
           <button type="button" class="btn btn-secondary" id="rch-rec-file">📁 Subir archivo</button>
         </div>
       </div>`,
@@ -483,8 +609,7 @@ function openVoiceRecorderModal({ onSend, onPickFile }) {
         if (recorder?.state === 'recording') recorder.stop();
       });
 
-      const modal = document.getElementById('ruma-active-modal');
-      modal?.querySelector('.ruma-modal-close')?.addEventListener('click', stopTracks, { once: true });
+      document.getElementById('ruma-modal-close-btn')?.addEventListener('click', stopTracks, { once: true });
     }
   });
 }

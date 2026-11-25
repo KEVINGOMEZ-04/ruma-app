@@ -1753,88 +1753,162 @@ function renderChatTab(viewport, group, user) {
 }
 
 function openPickGroupItemToQuoteModal(group, onPicked) {
+  const lockedMovies = Entitlements.getLockedItemIds(group, 'movies');
+  const lockedSeries = Entitlements.getLockedItemIds(group, 'series');
+  const lockedSongs = Entitlements.getLockedItemIds(group, 'songs');
+  const lockedBooks = Entitlements.getLockedItemIds(group, 'books');
+
   const items = [
-    ...(group.memories || []).map(m => ({
-      type: 'memory',
-      itemId: m.id,
-      label: '📸 Recuerdo',
-      title: m.title,
-      subtitle: m.subfolderName || m.date,
-      thumb: m.coverPreview || 'assets/ruma_icon_512.png'
-    })),
-    ...(group.movies || []).map(m => ({
+    ...(group.movies || []).filter(m => !lockedMovies.has(m.id)).map(m => ({
       type: 'movie',
+      cat: 'movies',
       itemId: m.id,
       label: '🎬 Película',
-      title: `${m.title} (${m.year || ''})`,
-      subtitle: m.status || 'Cine',
+      title: m.title,
+      subtitle: [m.year, m.director].filter(Boolean).join(' · ') || 'Película',
       thumb: m.poster || 'assets/ruma_icon_512.png'
     })),
-    ...(group.series || []).map(s => ({
+    ...(group.series || []).filter(s => !lockedSeries.has(s.id)).map(s => ({
       type: 'series',
+      cat: 'series',
       itemId: s.id,
       label: '📺 Serie',
-      title: `${s.title} (${s.year || ''})`,
-      subtitle: s.status || 'Serie',
+      title: s.title,
+      subtitle: [s.year, s.seasons?.length ? `${s.seasons.length} temp.` : ''].filter(Boolean).join(' · ') || 'Serie',
       thumb: s.poster || 'assets/ruma_icon_512.png'
     })),
-    ...(group.songs || []).map(s => ({
+    ...(group.songs || []).filter(s => !lockedSongs.has(s.id)).map(s => ({
       type: 'song',
+      cat: 'songs',
       itemId: s.id,
       label: '🎵 Canción',
       title: s.title,
-      subtitle: s.artist,
+      subtitle: s.artist || 'Música',
       thumb: s.artwork || 'assets/ruma_icon_512.png'
     })),
-    ...(group.books || []).map(b => ({
+    ...(group.books || []).filter(b => !lockedBooks.has(b.id)).map(b => ({
       type: 'book',
+      cat: 'books',
       itemId: b.id,
       label: '📚 Libro',
       title: b.title,
       subtitle: b.author || 'Libro',
       thumb: b.poster || 'assets/ruma_icon_512.png'
     })),
+    ...(group.memories || []).map(m => ({
+      type: 'memory',
+      cat: 'memories',
+      itemId: m.id,
+      label: '📸 Recuerdo',
+      title: m.title,
+      subtitle: m.subfolderName || m.date || 'Recuerdo',
+      thumb: m.coverPreview || 'assets/ruma_icon_512.png'
+    })),
     ...(group.activities || []).map(a => {
       const p = store.getActivityProgress(a);
       return {
         type: 'activity',
+        cat: 'activities',
         itemId: a.id,
-        label: `${a.icon || '🎉'} Actividad`,
+        label: `${a.icon || '🎯'} Actividad`,
         title: a.title,
         subtitle: p.total > 0 ? `${p.done}/${p.total} responsabilidades · ${p.pct}%` : (a.status || 'Planeando'),
-        thumb: group.avatar || 'assets/ruma_icon_512.png'
+        thumb: group.avatar || 'assets/ruma_home_axolotl.png'
       };
     })
   ];
 
+  const categories = [
+    { id: 'all', label: 'Todo', count: items.length },
+    { id: 'movies', label: '🎬 Películas', count: items.filter(i => i.cat === 'movies').length },
+    { id: 'series', label: '📺 Series', count: items.filter(i => i.cat === 'series').length },
+    { id: 'songs', label: '🎵 Música', count: items.filter(i => i.cat === 'songs').length },
+    { id: 'books', label: '📚 Libros', count: items.filter(i => i.cat === 'books').length },
+    { id: 'memories', label: '📸 Recuerdos', count: items.filter(i => i.cat === 'memories').length },
+    { id: 'activities', label: '🎯 Actividades', count: items.filter(i => i.cat === 'activities').length }
+  ].filter(c => c.id === 'all' || c.count > 0);
+
   UI.openModal({
-    title: '📎 Enlazar Elemento Guardado en el Chat',
+    title: '🔗 Enlazar contenido en el chat',
     contentHtml: items.length === 0 ? `
-      <p style="color:var(--text-secondary);">Aún no hay recuerdos, películas o canciones guardadas en este grupo.</p>
+      <div class="rm-empty">
+        <b>Aún no hay contenido para enlazar</b>
+        <span>Agrega películas, series, música, libros, recuerdos o actividades al grupo para compartirlos aquí.</span>
+      </div>
     ` : `
-      <div style="display:flex;flex-direction:column;gap:0.55rem;max-height:340px;overflow-y:auto;">
-        ${items.map((it, idx) => `
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:0.75rem;padding:0.55rem;background:var(--bg-elevated);border-radius:var(--radius-sm);">
-            <div style="display:flex;align-items:center;gap:0.65rem;min-width:0;">
-              <img src="${Utils.sanitize(it.thumb)}" alt="thumb" style="width:40px;height:40px;border-radius:6px;object-fit:cover;">
-              <div style="min-width:0;">
-                <div style="font-size:0.72rem;color:var(--brand-pink);font-weight:800;">${Utils.sanitize(it.label)}</div>
-                <div style="font-weight:700;font-size:0.88rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${Utils.sanitize(it.title)}</div>
-              </div>
-            </div>
-            <button type="button" class="btn btn-primary btn-sm" data-select-quote="${idx}">Citar</button>
-          </div>
-        `).join('')}
+      <div class="rch-link-wrap">
+        <div class="rch-link-search">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input type="search" id="rch-link-q" placeholder="Buscar película, canción, libro..." autocomplete="off">
+        </div>
+
+        <div class="rch-link-chips" id="rch-link-chips">
+          ${categories.map((c, idx) => `
+            <button type="button" class="rmv-chip ${idx === 0 ? 'active' : ''}" data-link-cat="${c.id}">
+              ${c.label} <span style="opacity:.75;margin-left:.15rem;">${c.count}</span>
+            </button>`).join('')}
+        </div>
+
+        <div class="rch-link-list" id="rch-link-list"></div>
       </div>
     `,
     onMount: (modalEl) => {
-      modalEl.querySelectorAll('[data-select-quote]').forEach(btn => {
-        btn.addEventListener('click', () => {
-          pendingChatQuote = items[Number(btn.getAttribute('data-select-quote'))];
-          UI.closeModal();
-          if (typeof onPicked === 'function') onPicked();
+      if (items.length === 0) return;
+      let activeCat = 'all';
+      let query = '';
+
+      const listEl = modalEl.querySelector('#rch-link-list');
+      const searchInp = modalEl.querySelector('#rch-link-q');
+      const chipsWrap = modalEl.querySelector('#rch-link-chips');
+
+      const renderList = () => {
+        if (!listEl) return;
+        const q = query.trim().toLowerCase();
+        const filtered = items
+          .map((it, idx) => ({ it, idx }))
+          .filter(({ it }) => (activeCat === 'all' || it.cat === activeCat))
+          .filter(({ it }) => !q || (it.title || '').toLowerCase().includes(q) || (it.subtitle || '').toLowerCase().includes(q) || (it.label || '').toLowerCase().includes(q));
+
+        if (filtered.length === 0) {
+          listEl.innerHTML = `<div class="rm-empty" style="padding:1.1rem .5rem;"><b>Sin resultados</b><span>No encontramos elementos que coincidan con "${Utils.sanitize(query)}".</span></div>`;
+          return;
+        }
+
+        listEl.innerHTML = filtered.map(({ it, idx }) => `
+          <button type="button" class="rch-link-row" data-select-quote="${idx}">
+            <img src="${Utils.sanitize(it.thumb)}" alt="" class="rch-link-thumb" loading="lazy">
+            <span class="rch-link-meta">
+              <span class="rch-link-badge">${Utils.sanitize(it.label)}</span>
+              <b class="rch-link-title">${Utils.sanitize(it.title)}</b>
+              <small class="rch-link-sub">${Utils.sanitize(it.subtitle)}</small>
+            </span>
+            <span class="rch-link-go">Enlazar</span>
+          </button>
+        `).join('');
+
+        listEl.querySelectorAll('[data-select-quote]').forEach(btn => {
+          btn.addEventListener('click', () => {
+            pendingChatQuote = items[Number(btn.getAttribute('data-select-quote'))];
+            UI.closeModal();
+            if (typeof onPicked === 'function') onPicked();
+          });
+        });
+      };
+
+      chipsWrap?.querySelectorAll('[data-link-cat]').forEach(chip => {
+        chip.addEventListener('click', () => {
+          activeCat = chip.getAttribute('data-link-cat');
+          chipsWrap.querySelectorAll('[data-link-cat]').forEach(c => c.classList.toggle('active', c === chip));
+          renderList();
         });
       });
+
+      searchInp?.addEventListener('input', (e) => {
+        query = e.target.value;
+        renderList();
+      });
+
+      renderList();
     }
   });
 }
