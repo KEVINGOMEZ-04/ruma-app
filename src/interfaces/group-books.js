@@ -20,7 +20,10 @@ const ICO = {
   comment: '<path d="M21 12a8 8 0 0 1-11.7 7L4 20l1.1-4.4A8 8 0 1 1 21 12z"/>',
   star: '<path d="m12 2.8 2.9 5.9 6.5.9-4.7 4.6 1.1 6.5L12 17.6 6.2 20.7l1.1-6.5L2.6 9.6l6.5-.9L12 2.8z"/>',
   bookmark: '<path d="M6 4h12a1 1 0 0 1 1 1v16l-7-4-7 4V5a1 1 0 0 1 1-1z"/>',
-  chevronRight: '<path d="m9 6 6 6-6 6"/>'
+  chevronRight: '<path d="m9 6 6 6-6 6"/>',
+  edit: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>',
+  quote: '<path d="M9 17H5a2 2 0 0 1-2-2V9a4 4 0 0 1 4-4h2v6H7v2h2v4Zm12 0h-4a2 2 0 0 1-2-2V9a4 4 0 0 1 4-4h2v6h-2v2h2v4Z"/>',
+  trash: '<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/>'
 };
 
 const STATUSES = [
@@ -38,6 +41,18 @@ const booksUiState = {
   rating: 'all',
   onlyMine: false
 };
+
+const bookHydrateInFlight = new Set();
+const bookHydrateDone = new Set();
+
+function normalizeBookKey(str) {
+  return String(str || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
 
 function statusMeta(st) {
   return STATUSES.find(s => s.id === st) || STATUSES[0];
@@ -87,45 +102,122 @@ function formatFinishDate(iso) {
   }
 }
 
-async function searchBooksApi(query) {
-  const q = encodeURIComponent(query.trim());
+async function fetchGoogleBooks(q, max = 10) {
   try {
-    const res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=${q}&maxResults=10`);
-    if (res.ok) {
-      const data = await res.json();
-      const items = (data.items || []).map(v => {
-        const info = v.volumeInfo || {};
-        const rawImg = info.imageLinks?.thumbnail || info.imageLinks?.smallThumbnail || '';
-        return {
-          title: info.title || 'Sin título',
-          author: (info.authors || []).join(', ') || 'Autor desconocido',
-          year: (info.publishedDate || '').slice(0, 4),
-          pages: Number(info.pageCount || 0),
-          genres: (info.categories || []).join(', '),
-          synopsis: info.description || '',
-          poster: rawImg ? rawImg.replace(/^http:/, 'https:') : 'assets/ruma_icon_512.png'
-        };
-      });
-      if (items.length > 0) return items;
-    }
-  } catch (_) {}
+    const res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(q)}&maxResults=${max}`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.items || []).map(v => {
+      const info = v.volumeInfo || {};
+      const rawImg = info.imageLinks?.thumbnail || info.imageLinks?.smallThumbnail || '';
+      return {
+        title: info.title || 'Sin título',
+        author: (info.authors || []).join(', ') || 'Autor desconocido',
+        year: (info.publishedDate || '').slice(0, 4),
+        pages: Number(info.pageCount || info.printedPageCount || 0),
+        genres: (info.categories || []).join(', '),
+        synopsis: info.description || '',
+        poster: rawImg ? rawImg.replace(/^http:/, 'https:') : 'assets/ruma_icon_512.png'
+      };
+    });
+  } catch (_) {
+    return [];
+  }
+}
 
+async function fetchOpenLibrary(q, limit = 10) {
   try {
-    const res2 = await fetch(`https://openlibrary.org/search.json?q=${q}&limit=10`);
-    if (res2.ok) {
-      const data2 = await res2.json();
-      return (data2.docs || []).map(d => ({
-        title: d.title || 'Sin título',
-        author: (d.author_name || []).join(', ') || 'Autor desconocido',
-        year: d.first_publish_year ? String(d.first_publish_year) : '',
-        pages: Number(d.number_of_pages_median || 0),
-        genres: (d.subject || []).slice(0, 2).join(', '),
-        synopsis: '',
-        poster: d.cover_i ? `https://covers.openlibrary.org/b/id/${d.cover_i}-M.jpg` : 'assets/ruma_icon_512.png'
-      }));
+    const res = await fetch(`https://openlibrary.org/search.json?q=${encodeURIComponent(q)}&limit=${limit}&fields=title,author_name,first_publish_year,number_of_pages_median,subject,cover_i`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.docs || []).map(d => ({
+      title: d.title || 'Sin título',
+      author: (d.author_name || []).join(', ') || 'Autor desconocido',
+      year: d.first_publish_year ? String(d.first_publish_year) : '',
+      pages: Number(d.number_of_pages_median || 0),
+      genres: (d.subject || []).slice(0, 2).join(', '),
+      synopsis: '',
+      poster: d.cover_i ? `https://covers.openlibrary.org/b/id/${d.cover_i}-M.jpg` : 'assets/ruma_icon_512.png'
+    }));
+  } catch (_) {
+    return [];
+  }
+}
+
+async function searchBooksApi(query) {
+  const clean = query.trim();
+  if (!clean) return [];
+  const [gbItems, olItems] = await Promise.all([
+    fetchGoogleBooks(clean, 10),
+    fetchOpenLibrary(clean, 10)
+  ]);
+
+  if (gbItems.length > 0) {
+    // Si algún resultado de Google Books viene sin páginas, intentar completar con Open Library
+    return gbItems.map(item => {
+      if (item.pages > 0) return item;
+      const key = normalizeBookKey(item.title);
+      const match = olItems.find(o => o.pages > 0 && (normalizeBookKey(o.title) === key || normalizeBookKey(o.title).includes(key) || key.includes(normalizeBookKey(o.title))));
+      return match ? { ...item, pages: match.pages, year: item.year || match.year, genres: item.genres || match.genres } : item;
+    });
+  }
+  return olItems;
+}
+
+/** Hidrata en segundo plano el total de páginas (y metadatos faltantes) de libros existentes. */
+async function hydrateBooksMetadata(group) {
+  if (!group || !Array.isArray(group.books)) return;
+  const candidates = group.books.filter(b => {
+    if (!b?.id || !b?.title) return false;
+    if (bookHydrateInFlight.has(b.id) || bookHydrateDone.has(b.id)) return false;
+    return !Number(b.pages || 0) || !b.genres || !b.year;
+  });
+  if (candidates.length === 0) return;
+
+  candidates.forEach(b => bookHydrateInFlight.add(b.id));
+  const patches = [];
+
+  await Promise.all(candidates.map(async book => {
+    try {
+      const authorPart = book.author && book.author !== 'Autor desconocido' ? ` ${book.author.split(',')[0]}` : '';
+      const q = `${book.title}${authorPart}`.trim();
+      const [gb, ol] = await Promise.all([
+        fetchGoogleBooks(q, 5),
+        fetchOpenLibrary(q, 5)
+      ]);
+      const targetKey = normalizeBookKey(book.title);
+      const allMatches = [...gb, ...ol];
+      const byTitle = allMatches.filter(m => {
+        const k = normalizeBookKey(m.title);
+        return k === targetKey || k.includes(targetKey) || targetKey.includes(k);
+      });
+      const pool = byTitle.length > 0 ? byTitle : allMatches;
+
+      const withPages = pool.find(m => Number(m.pages) > 0);
+      const withGenres = pool.find(m => m.genres);
+      const withYear = pool.find(m => m.year);
+      const withSyn = pool.find(m => m.synopsis);
+
+      const patch = {};
+      if (!Number(book.pages || 0) && withPages) patch.pages = Number(withPages.pages);
+      if (!book.genres && withGenres) patch.genres = withGenres.genres;
+      if (!book.year && withYear) patch.year = withYear.year;
+      if (!book.synopsis && withSyn) patch.synopsis = withSyn.synopsis;
+
+      if (Object.keys(patch).length > 0) {
+        patches.push({ category: 'books', itemId: book.id, patch });
+      }
+    } catch (_) {
+      // Silencioso si está sin conexión
+    } finally {
+      bookHydrateInFlight.delete(book.id);
+      bookHydrateDone.add(book.id);
     }
-  } catch (_) {}
-  return [];
+  }));
+
+  if (patches.length > 0) {
+    store.applyMediaPatches(group.id, patches);
+  }
 }
 
 export function renderGroupBooksView(viewport, group, user, ctx) {
@@ -137,6 +229,9 @@ export function renderGroupBooksView(viewport, group, user, ctx) {
   const allBooks = group.books || [];
   const check = Entitlements.canAddMediaItem(group, 'books');
   const lockedIds = Entitlements.getLockedMediaIds(group, 'books');
+
+  // Completar en segundo plano el total de páginas de libros que aún no lo tengan
+  hydrateBooksMetadata(group);
 
   const progMap = new Map(allBooks.map(b => [b.id, store.getUserBookProgress(b, user.id)]));
 
@@ -445,7 +540,7 @@ function renderBookCard(book, prog, user, isLocked) {
   const groupAvg = getAverage(book);
   const commentsCount = (book.comments || []).length;
   const reviewsCount = Object.keys(book.ratings || {}).length;
-  const authorYear = [book.author || 'Autor desconocido', book.year].filter(Boolean).join(' · ');
+  const authorYear = [book.author || 'Autor desconocido', book.year, total > 0 ? `${total} pág.` : ''].filter(Boolean).join(' · ');
 
   let primaryActHtml = '';
   if (!isLocked) {
@@ -497,7 +592,7 @@ function renderBookCard(book, prog, user, isLocked) {
         ` : st.id === 'Leyendo' ? `
           <div class="rbk-prog-box">
             <div class="rbk-prog-head">
-              <span>${total > 0 ? `Pág. ${prog.currentPage} de ${total}` : (prog.currentPage > 0 ? `Página ${prog.currentPage}` : 'Sin páginas registradas')}</span>
+              <span>${total > 0 ? `Pág. ${prog.currentPage} de ${total}` : (prog.currentPage > 0 ? `Página ${prog.currentPage}` : 'Añade el total de páginas')}</span>
               ${total > 0 ? `<b>${pct}%</b>` : ''}
             </div>
             <div class="rbk-prog-track"><i class="rbk-prog-fill" style="width:${total > 0 ? pct : (prog.currentPage > 0 ? 15 : 4)}%"></i></div>
@@ -522,38 +617,157 @@ function renderBookCard(book, prog, user, isLocked) {
 }
 
 // ============================================================================
-// MENÚ DE OPCIONES SECUNDARIAS (⋯)
+// MENÚ DE OPCIONES SECUNDARIAS (⋯) — ACTION SHEET MÓVIL LIMPIO
 // ============================================================================
 function openBookOptionsMenu(group, book, user, ctx) {
   const { openReviewModal, openMediaCommentsModal, onQuoteBook } = ctx;
   const canDelete = store.canDeleteMediaItem(group, book, user);
   const proposer = book.proposedBy?.name || book.addedBy || 'Miembro';
+  const prog = store.getUserBookProgress(book, user.id);
+  const total = Number(book.pages || 0);
+  const subtitle = [book.author || 'Autor desconocido', total > 0 ? `${total} pág.` : 'Sin páginas'].join(' · ');
 
   UI.openModal({
-    title: book.title,
+    title: 'Opciones del libro',
     contentHtml: `
-      <div style="display:flex;flex-direction:column;gap:0.55rem;">
-        <button type="button" class="btn btn-secondary" style="justify-content:flex-start;" id="rbk-opt-detail">📖 Ver ficha completa</button>
-        <button type="button" class="btn btn-secondary" style="justify-content:flex-start;" id="rbk-opt-prog">🔖 Estado y progreso de lectura</button>
-        <button type="button" class="btn btn-secondary" style="justify-content:flex-start;" id="rbk-opt-rate">⭐ Calificar / Escribir reseña</button>
-        <button type="button" class="btn btn-secondary" style="justify-content:flex-start;" id="rbk-opt-comm">💬 Comentarios del grupo (${(book.comments || []).length})</button>
-        <button type="button" class="btn btn-secondary" style="justify-content:flex-start;" id="rbk-opt-quote">↩ Citar en el chat</button>
-        <div style="font-size:0.75rem;color:var(--text-muted);padding:0.2rem 0.1rem;">Añadido por <b>${esc(proposer)}</b></div>
-        ${canDelete
-          ? `<button type="button" class="btn" id="rbk-opt-del" style="background:rgba(239,68,68,0.14);border:1px solid rgba(239,68,68,0.45);color:#fca5a5;">🗑️ Eliminar libro</button>`
-          : `<div style="font-size:0.74rem;color:var(--text-muted);text-align:center;padding:0.4rem;border-radius:0.7rem;background:rgba(255,255,255,0.03);">🔒 Solo ${esc(proposer)} o el líder del grupo pueden eliminarlo.</div>`}
+      <div class="rbk-sheet">
+        <div class="rbk-sheet-head">
+          <img src="${esc(book.poster || 'assets/ruma_icon_512.png')}" alt="">
+          <div class="rbk-sheet-head-txt">
+            <b>${esc(book.title)}</b>
+            <small>${esc(subtitle)}</small>
+          </div>
+        </div>
+
+        <div>
+          <div class="rbk-seg-label">Estado de lectura</div>
+          <div class="rbk-status-grid">
+            ${STATUSES.map(s => `
+              <button type="button" class="rbk-st-opt ${prog.status === s.id ? 'active' : ''}" data-opt-st="${s.id}">
+                ${s.label}
+              </button>
+            `).join('')}
+          </div>
+        </div>
+
+        <div class="rbk-sheet-list">
+          <button type="button" class="rbk-sheet-row" id="rbk-opt-detail">
+            <span class="rbk-sheet-ico">${svg(ICO.book, 17)}</span>
+            <span class="rbk-sheet-row-txt"><span>Ver ficha completa</span><small>Sinopsis, reseñas y lectores del grupo</small></span>
+            <span class="rbk-sheet-chev">${svg(ICO.chevronRight, 16)}</span>
+          </button>
+
+          <button type="button" class="rbk-sheet-row" id="rbk-opt-prog">
+            <span class="rbk-sheet-ico">${svg(ICO.bookmark, 17)}</span>
+            <span class="rbk-sheet-row-txt"><span>Actualizar progreso</span><small>${total > 0 ? `Página ${prog.currentPage} de ${total}` : 'Registrar página actual y total'}</small></span>
+            <span class="rbk-sheet-chev">${svg(ICO.chevronRight, 16)}</span>
+          </button>
+
+          <button type="button" class="rbk-sheet-row" id="rbk-opt-edit">
+            <span class="rbk-sheet-ico">${svg(ICO.edit, 17)}</span>
+            <span class="rbk-sheet-row-txt"><span>Editar páginas y datos</span><small>${total > 0 ? `${total} páginas · ${book.year || 'Sin año'}` : 'Falta el total de páginas'}</small></span>
+            <span class="rbk-sheet-chev">${svg(ICO.chevronRight, 16)}</span>
+          </button>
+
+          <button type="button" class="rbk-sheet-row" id="rbk-opt-rate">
+            <span class="rbk-sheet-ico">${svg(ICO.star, 17)}</span>
+            <span class="rbk-sheet-row-txt"><span>Calificar / Escribir reseña</span><small>Comparte tu puntuación con el club</small></span>
+            <span class="rbk-sheet-chev">${svg(ICO.chevronRight, 16)}</span>
+          </button>
+
+          <button type="button" class="rbk-sheet-row" id="rbk-opt-comm">
+            <span class="rbk-sheet-ico">${svg(ICO.comment, 17)}</span>
+            <span class="rbk-sheet-row-txt"><span>Comentarios del grupo</span><small>${(book.comments || []).length} comentario${(book.comments || []).length === 1 ? '' : 's'}</small></span>
+            <span class="rbk-sheet-chev">${svg(ICO.chevronRight, 16)}</span>
+          </button>
+
+          <button type="button" class="rbk-sheet-row" id="rbk-opt-quote">
+            <span class="rbk-sheet-ico">${svg(ICO.quote, 17)}</span>
+            <span class="rbk-sheet-row-txt"><span>Citar en el chat</span><small>Envía este libro a la conversación</small></span>
+            <span class="rbk-sheet-chev">${svg(ICO.chevronRight, 16)}</span>
+          </button>
+
+          ${canDelete ? `
+            <button type="button" class="rbk-sheet-row danger" id="rbk-opt-del">
+              <span class="rbk-sheet-ico">${svg(ICO.trash, 17)}</span>
+              <span class="rbk-sheet-row-txt"><span>Eliminar libro</span><small>Añadido por ${esc(proposer)}</small></span>
+            </button>
+          ` : `
+            <div style="font-size:0.74rem;color:var(--text-muted);text-align:center;padding:0.45rem;border-radius:0.8rem;background:rgba(255,255,255,0.03);">
+              Añadido por <b>${esc(proposer)}</b> · Solo quien lo añadió o el líder pueden eliminarlo.
+            </div>
+          `}
+        </div>
       </div>
     `,
-    onMount: () => {
+    onMount: (modalEl) => {
+      modalEl.querySelectorAll('[data-opt-st]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const st = btn.getAttribute('data-opt-st');
+          store.setUserBookProgress(book.id, { status: st });
+          UI.closeModal();
+          UI.showToast(`Estado actualizado a "${st}"`, 'success');
+        });
+      });
+
       const bind = (id, fn) => document.getElementById(id)?.addEventListener('click', () => { UI.closeModal(); fn(); });
       bind('rbk-opt-detail', () => openBookDetailModal(book.id, user, ctx));
       bind('rbk-opt-prog', () => openBookProgressModal(book, user, openReviewModal));
+      bind('rbk-opt-edit', () => openEditBookMetaModal(book));
       bind('rbk-opt-rate', () => openReviewModal('books', book, user));
       bind('rbk-opt-comm', () => openMediaCommentsModal('books', book));
       bind('rbk-opt-quote', () => onQuoteBook(book));
       bind('rbk-opt-del', () => {
         const res = store.deleteMediaItem('books', book.id);
         UI.showToast(res.ok ? 'Libro eliminado' : res.error, res.ok ? 'info' : 'error');
+      });
+    }
+  });
+}
+
+// ============================================================================
+// EDITAR TOTAL DE PÁGINAS Y METADATOS DEL LIBRO
+// ============================================================================
+function openEditBookMetaModal(book, onSaved) {
+  UI.openModal({
+    title: 'Editar datos del libro',
+    contentHtml: `
+      <form id="rbk-edit-meta-form" style="display:flex;flex-direction:column;gap:0.85rem;">
+        <div style="font-size:0.82rem;color:#c4b5fd;"><b>${esc(book.title)}</b> · ${esc(book.author || 'Autor desconocido')}</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.55rem;">
+          <div class="rbk-mini-field">
+            <label for="rbk-em-pages">Total de páginas</label>
+            <input type="number" id="rbk-em-pages" min="1" value="${Number(book.pages || 0) || ''}" placeholder="Ej. 352" required>
+          </div>
+          <div class="rbk-mini-field">
+            <label for="rbk-em-year">Año</label>
+            <input type="text" id="rbk-em-year" maxlength="4" value="${esc(book.year || '')}" placeholder="Ej. 2021">
+          </div>
+        </div>
+        <div class="rbk-mini-field">
+          <label for="rbk-em-genre">Género</label>
+          <input type="text" id="rbk-em-genre" value="${esc(book.genres || '')}" placeholder="Ficción, Fantasía, Ensayo…">
+        </div>
+        <div class="rbk-modal-foot">
+          <button type="button" class="btn btn-secondary btn-sm" id="rbk-em-cancel">Cancelar</button>
+          <button type="submit" class="btn btn-primary btn-sm">Guardar datos</button>
+        </div>
+      </form>
+    `,
+    onMount: () => {
+      document.getElementById('rbk-em-cancel')?.addEventListener('click', () => {
+        UI.closeModal();
+        if (typeof onSaved === 'function') onSaved();
+      });
+      document.getElementById('rbk-edit-meta-form')?.addEventListener('submit', e => {
+        e.preventDefault();
+        const pages = Math.max(0, Math.round(Number(document.getElementById('rbk-em-pages').value || 0)));
+        const year = document.getElementById('rbk-em-year').value.trim();
+        const genres = document.getElementById('rbk-em-genre').value.trim();
+        store.updateMediaItem('books', book.id, { pages, year, genres });
+        UI.closeModal();
+        UI.showToast('Datos del libro actualizados', 'success');
+        if (typeof onSaved === 'function') onSaved();
       });
     }
   });
@@ -609,7 +823,9 @@ function openBookDetailModal(bookId, user, ctx) {
               <div class="rbk-det-author">${esc(book.author || 'Autor desconocido')}</div>
               <div class="rbk-det-facts">
                 ${book.year ? `<span class="rbk-fact-chip">${esc(book.year)}</span>` : ''}
-                ${total > 0 ? `<span class="rbk-fact-chip">${total} páginas</span>` : ''}
+                ${total > 0
+                  ? `<button type="button" class="rbk-fact-chip" id="rbk-det-edit-pages" style="cursor:pointer;font-family:inherit;" title="Editar total de páginas">${total} páginas ✎</button>`
+                  : `<button type="button" class="rbk-fact-btn" id="rbk-det-edit-pages">+ Añadir páginas</button>`}
                 ${genres.slice(0, 3).map(g => `<span class="rbk-fact-chip">${esc(g)}</span>`).join('')}
               </div>
               <div class="rbk-det-ratings">
@@ -638,15 +854,17 @@ function openBookDetailModal(bookId, user, ctx) {
                 <div>
                   <div class="rbk-seg-label" style="margin:0;">Progreso de lectura</div>
                   <div style="font-size:0.78rem;color:#cbbbe6;margin-top:0.15rem;">
-                    ${total > 0 ? `Página ${prog.currentPage} de ${total}` : `Página actual: ${prog.currentPage}`}
+                    ${total > 0 ? `Página ${prog.currentPage} de ${total}` : `Página actual: ${prog.currentPage} · falta total`}
                   </div>
                 </div>
                 <div class="rbk-prog-pct">${total > 0 ? `${pct}%` : `${prog.currentPage} pág.`}</div>
               </div>
               <div class="rbk-prog-track"><i class="rbk-prog-fill" style="width:${total > 0 ? pct : (prog.currentPage > 0 ? 15 : 0)}%"></i></div>
-              <div class="rbk-quick-steps">
-                <span style="font-size:0.72rem;color:#b8a3d9;font-weight:700;">Avance rápido:</span>
-                ${[5, 10, 25, 50].map(step => `<button type="button" class="rbk-step-btn" data-det-step="${step}">+${step} pág.</button>`).join('')}
+              <div>
+                <div class="rbk-seg-label" style="margin-bottom:0.35rem;">Avance rápido</div>
+                <div class="rbk-quick-steps">
+                  ${[5, 10, 25, 50].map(step => `<button type="button" class="rbk-step-btn" data-det-step="${step}">+${step}</button>`).join('')}
+                </div>
               </div>
               <form id="rbk-det-prog-form" class="rbk-prog-inputs">
                 <div class="rbk-mini-field">
@@ -657,7 +875,7 @@ function openBookDetailModal(bookId, user, ctx) {
                   <label for="rbk-det-tot">Total páginas</label>
                   <input type="number" id="rbk-det-tot" min="0" value="${total || ''}" placeholder="Ej. 320">
                 </div>
-                <button type="submit" class="btn btn-primary btn-sm" style="min-height:38px;">Guardar</button>
+                <button type="submit" class="btn btn-primary btn-sm rbk-prog-save">Guardar progreso</button>
               </form>
             </div>
           ` : prog.status === 'Leído' ? `
@@ -787,13 +1005,18 @@ function openBookDetailModal(bookId, user, ctx) {
           </div>
 
           <!-- Acciones secundarias de pie -->
-          <div class="rbk-det-footer">
-            <button type="button" class="btn btn-secondary btn-sm" id="rbk-det-quote">↩ Citar en chat</button>
+          <div class="${canDelete ? 'rbk-modal-foot' : 'rbk-det-footer'}" style="border-top:1px solid rgba(192,132,252,0.16);padding-top:0.75rem;">
+            <button type="button" class="btn btn-secondary btn-sm" id="rbk-det-quote" style="${canDelete ? '' : 'width:100%;'}">↩ Citar en chat</button>
             ${canDelete ? `<button type="button" class="btn btn-sm" id="rbk-det-del" style="background:rgba(239,68,68,0.14);border:1px solid rgba(239,68,68,0.4);color:#fca5a5;">Eliminar</button>` : ''}
           </div>
         </div>
       `,
       onMount: (modalEl) => {
+        // Editar páginas desde la ficha
+        modalEl.querySelector('#rbk-det-edit-pages')?.addEventListener('click', () => {
+          openEditBookMetaModal(book, () => renderModal());
+        });
+
         // Cambio de estado
         modalEl.querySelectorAll('[data-det-st]').forEach(btn => {
           btn.addEventListener('click', () => {
@@ -953,8 +1176,11 @@ function openBookProgressModal(book, user, openReviewModal) {
                 <span class="rbk-prog-pct" id="rbk-pg-pct">${totalPages > 0 ? `${pct}%` : `${currentPage} pág.`}</span>
               </div>
               <div class="rbk-prog-track"><i class="rbk-prog-fill" id="rbk-pg-bar" style="width:${pct}%"></i></div>
-              <div class="rbk-quick-steps">
-                ${[5, 10, 25, 50].map(step => `<button type="button" class="rbk-step-btn" data-pg-add="${step}">+${step}</button>`).join('')}
+              <div>
+                <div class="rbk-seg-label" style="margin-bottom:0.35rem;">Avance rápido</div>
+                <div class="rbk-quick-steps">
+                  ${[5, 10, 25, 50].map(step => `<button type="button" class="rbk-step-btn" data-pg-add="${step}">+${step}</button>`).join('')}
+                </div>
               </div>
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.55rem;">
                 <div class="rbk-mini-field">
@@ -963,7 +1189,7 @@ function openBookProgressModal(book, user, openReviewModal) {
                 </div>
                 <div class="rbk-mini-field">
                   <label for="rbk-pg-tot">Total de páginas</label>
-                  <input type="number" id="rbk-pg-tot" min="0" value="${totalPages || ''}" placeholder="Opcional">
+                  <input type="number" id="rbk-pg-tot" min="0" value="${totalPages || ''}" placeholder="Ej. 320">
                 </div>
               </div>
             </div>
@@ -982,7 +1208,7 @@ function openBookProgressModal(book, user, openReviewModal) {
             </div>
           ` : ''}
 
-          <div style="display:flex;justify-content:flex-end;gap:0.55rem;">
+          <div class="rbk-modal-foot">
             <button type="button" class="btn btn-secondary btn-sm" id="rbk-pg-cancel">Cancelar</button>
             <button type="submit" class="btn btn-primary btn-sm">Guardar cambios</button>
           </div>
@@ -1125,7 +1351,7 @@ function openAdvancedFiltersModal(allBooks, currentStatus, setFilterState, reren
           <span>Mostrar solo libros que yo propuse</span>
         </label>
 
-        <div style="display:flex;justify-content:space-between;gap:0.6rem;padding-top:0.25rem;">
+        <div class="rbk-modal-foot">
           <button type="button" class="btn btn-secondary btn-sm" id="rbk-f-reset">Restablecer</button>
           <button type="submit" class="btn btn-primary btn-sm">Aplicar filtros</button>
         </div>
@@ -1343,7 +1569,7 @@ function openAddBookModal() {
                 </div>
               </div>
               <div class="form-group"><label class="form-label">Sinopsis breve</label><textarea id="rbk-m-syn" class="form-input" rows="2" placeholder="Opcional…"></textarea></div>
-              <div style="display:flex;justify-content:flex-end;gap:0.55rem;padding-top:0.2rem;">
+              <div class="rbk-modal-foot">
                 <button type="button" class="btn btn-secondary btn-sm" id="rbk-m-cancel">Cancelar</button>
                 <button type="submit" class="btn btn-primary btn-sm">Guardar libro</button>
               </div>
