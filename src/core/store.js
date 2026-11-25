@@ -464,14 +464,31 @@ class RumaStore {
         clearTimeout(this.cloudPushTimer);
         this.cloudPushTimer = null;
       }
-      // Antes de subir, fusionar con lo que haya en la nube para nunca borrar cuentas o grupos creados por otro celular
+      const localAccounts = this.getAccounts();
+      const localGroups = this.getGroups();
+
+      // Fusionar con lo que exista en la nube dando prioridad a los cambios locales recién guardados
       const remote = await CloudSync.pullCloudState(true);
+      let finalAccounts = localAccounts;
+      let finalGroups = localGroups;
+
       if (remote) {
-        this.applyRemoteCloudState(remote, false);
+        if (Array.isArray(remote.accounts) && remote.accounts.length > 0) {
+          const accMap = new Map();
+          remote.accounts.forEach(a => accMap.set(a.id, a));
+          localAccounts.forEach(a => accMap.set(a.id, { ...(accMap.get(a.id) || {}), ...a }));
+          finalAccounts = Array.from(accMap.values());
+          localStorage.setItem(CONFIG.storageKeys.accounts, JSON.stringify(finalAccounts));
+        }
+        if (Array.isArray(remote.groups) && remote.groups.length > 0) {
+          finalGroups = this.mergeCloudAndLocalGroups(remote.groups, localGroups);
+          localStorage.setItem(CONFIG.storageKeys.groups, JSON.stringify(finalGroups));
+        }
       }
+
       await CloudSync.pushCloudState({
-        accounts: this.getAccounts(),
-        groups: this.getGroups(),
+        accounts: finalAccounts,
+        groups: finalGroups,
         clientId: this.clientId
       });
     } catch (_) {}
