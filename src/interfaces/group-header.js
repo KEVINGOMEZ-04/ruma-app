@@ -172,7 +172,7 @@ export function bindGroupHeader(container, group, user, { onTab } = {}) {
   container.querySelectorAll('[data-member-profile]').forEach(el =>
     el.addEventListener('click', () => store.navigate('profile', { inspectUserId: el.getAttribute('data-member-profile') })));
 
-  container.querySelector('#rg-more')?.addEventListener('click', () => store.navigate('group', { groupTab: 'goals_notes' }));
+  container.querySelector('#rg-more')?.addEventListener('click', () => openGroupMenu(group, user));
   container.querySelector('.rg-badge-free')?.addEventListener('click', () => {
     if (!isAdmin) return;
     UI.showUpgradeModal(`Mejora "${group.name}" a Grupo Premium ruma Plus para tener películas, series y canciones ilimitadas.`, () => {
@@ -183,4 +183,57 @@ export function bindGroupHeader(container, group, user, { onTab } = {}) {
 
   container.querySelectorAll('[data-group-tab]').forEach(btn =>
     btn.addEventListener('click', () => onTab && onTab(btn.getAttribute('data-group-tab'))));
+}
+
+// Menú "⋯" del grupo: Metas & Notas y (solo creador) eliminar grupo.
+function openGroupMenu(group, user) {
+  const isCreator = group.creatorId === user.id;
+  UI.openModal({
+    title: 'Opciones del grupo',
+    contentHtml: `
+      <div style="display:flex;flex-direction:column;gap:.6rem;">
+        <button type="button" class="btn btn-secondary" id="rg-menu-goals">🎯 Metas &amp; Notas</button>
+        ${isCreator ? `<button type="button" class="btn" id="rg-menu-delete" style="background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.5);color:#fca5a5;">🗑️ Eliminar grupo</button>` : ''}
+      </div>`,
+    onMount: () => {
+      document.getElementById('rg-menu-goals')?.addEventListener('click', () => {
+        UI.closeModal();
+        store.navigate('group', { groupTab: 'goals_notes' });
+      });
+      document.getElementById('rg-menu-delete')?.addEventListener('click', () => confirmDeleteGroup(group));
+    }
+  });
+}
+
+function confirmDeleteGroup(group) {
+  UI.closeModal();
+  UI.openModal({
+    title: '¿Eliminar este grupo?',
+    contentHtml: `
+      <p style="color:var(--text-secondary);font-size:.9rem;margin-bottom:.8rem;">
+        Se eliminará <b>${Utils.sanitize(group.name)}</b> para <b>todos los miembros</b>, con sus recuerdos, películas, series, música y chat. Esta acción no se puede deshacer.
+      </p>
+      <label style="font-size:.8rem;color:var(--text-muted);">Escribe el nombre del grupo para confirmar</label>
+      <input id="rg-del-input" class="input" style="width:100%;margin:.4rem 0 1rem;" autocomplete="off" placeholder="${Utils.sanitize(group.name)}">
+      <div style="display:flex;gap:.6rem;justify-content:flex-end;">
+        <button type="button" class="btn btn-secondary" id="rg-del-cancel">Cancelar</button>
+        <button type="button" class="btn" id="rg-del-ok" disabled style="background:#dc2626;color:#fff;opacity:.5;">Eliminar</button>
+      </div>`,
+    onMount: () => {
+      const input = document.getElementById('rg-del-input');
+      const ok = document.getElementById('rg-del-ok');
+      input.addEventListener('input', () => {
+        const match = input.value.trim() === group.name.trim();
+        ok.disabled = !match;
+        ok.style.opacity = match ? '1' : '.5';
+      });
+      document.getElementById('rg-del-cancel').addEventListener('click', () => UI.closeModal());
+      ok.addEventListener('click', async () => {
+        ok.disabled = true;
+        const r = await store.deleteGroup(group.id);
+        UI.closeModal();
+        UI.showToast(r.ok ? 'Grupo eliminado 🗑️' : r.error, r.ok ? 'success' : 'error');
+      });
+    }
+  });
 }

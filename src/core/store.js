@@ -383,7 +383,7 @@ class RumaStore {
         // Sembrar la nube con el estado inicial si aún está vacía
         await CloudSync.pushCloudState({
           accounts: this.getAccounts(),
-          groups: this.getGroups(),
+          groups: this.getGroupsRaw(),
           clientId: this.clientId
         });
       }
@@ -410,6 +410,10 @@ class RumaStore {
       const bg = map.get(ig.id);
       if (!bg) {
         map.set(ig.id, ig);
+        return;
+      }
+      if (bg.deleted || ig.deleted) {
+        map.set(ig.id, bg.deleted ? bg : ig);
         return;
       }
       const bTime = bg.updatedAt ? new Date(bg.updatedAt).getTime() : 0;
@@ -450,7 +454,7 @@ class RumaStore {
     }
 
     if (Array.isArray(cloudData.groups) && cloudData.groups.length > 0) {
-      const localGroups = this.getGroups();
+      const localGroups = this.getGroupsRaw();
       const mergedGroups = this.mergeCloudAndLocalGroups(localGroups, cloudData.groups);
       localStorage.setItem(CONFIG.storageKeys.groups, JSON.stringify(mergedGroups));
       changed = true;
@@ -482,7 +486,7 @@ class RumaStore {
         this.cloudPushTimer = null;
       }
       const localAccounts = this.getAccounts();
-      const localGroups = this.getGroups();
+      const localGroups = this.getGroupsRaw();
 
       // Fusionar con lo que exista en la nube dando prioridad a los cambios locales recién guardados
       const remote = await CloudSync.pullCloudState(true);
@@ -762,7 +766,13 @@ class RumaStore {
   }
 
   // --- GRUPOS Y NAVEGACIÓN ENTRE LAS 4 INTERFACES ---
+  // Grupos visibles (excluye eliminados y legacy)
   getGroups() {
+    return this.getGroupsRaw().filter(g => !g.deleted);
+  }
+
+  // Incluye "lápidas" (grupos eliminados) para que la eliminación se propague por la nube
+  getGroupsRaw() {
     try {
       const raw = JSON.parse(localStorage.getItem(CONFIG.storageKeys.groups)) || [];
       const list = raw.filter(g => !this.isLegacyDemoGroup(g));
@@ -807,7 +817,9 @@ class RumaStore {
         }
       });
     }
-    localStorage.setItem(CONFIG.storageKeys.groups, JSON.stringify(groups));
+    const keep = Array.isArray(groups) ? groups.slice() : [];
+    this.getGroupsRaw().filter(g => g.deleted && !keep.some(k => k.id === g.id)).forEach(t => keep.push(t));
+    localStorage.setItem(CONFIG.storageKeys.groups, JSON.stringify(keep));
     if (syncCloud) this.scheduleCloudPush();
   }
 
@@ -1005,6 +1017,28 @@ class RumaStore {
     this.saveGroups(allGroups);
     this.notify();
     return { ok: true, group };
+  }
+
+  // Elimina el grupo para todos. Solo el creador puede hacerlo.
+  async deleteGroup(groupId) {
+    const user = this.getCurrentUser();
+    const allGroups = this.getGroups();
+    const group = allGroups.find(g => g.id === groupId);
+    if (!group) return { ok: false, error: 'Grupo no encontrado.' };
+    if (!user || group.creatorId !== user.id) {
+      return { ok: false, error: 'Solo el creador del grupo puede eliminarlo.' };
+    }
+    const tomb = { id: group.id, deleted: true, creatorId: group.creatorId, members: [], updatedAt: new Date().toISOString() };
+    const rest = this.getGroupsRaw().filter(g => g.id !== groupId);
+    rest.push(tomb);
+    localStorage.setItem(CONFIG.storageKeys.groups, JSON.stringify(rest));
+    if (localStorage.getItem(CONFIG.storageKeys.activeGroupId) === groupId) {
+      localStorage.removeItem(CONFIG.storageKeys.activeGroupId);
+    }
+    this.currentInterface = 'hub';
+    this.notify();
+    await this.pushMergedStateToCloud();
+    return { ok: true };
   }
 
   toggleMemberRole(groupId, targetMemberId) {
