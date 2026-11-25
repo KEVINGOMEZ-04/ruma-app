@@ -1,19 +1,25 @@
 /**
- * ruma 🌟 — INTERFAZ 4: Ajustes (Cuenta, Administración de Grupo / Google Drive y Plan Freemium)
- *
- * Reglas:
- * 1. Credenciales del usuario (Nombre, @usuario, Correo, Teléfono y Contraseña).
- * 2. Administración del grupo activo:
- *    - Solo el rango 'admin' (Administrador) puede modificar la carpeta de Google Drive donde se guardan fotos/videos.
- *    - Los Administradores pueden ascender a otros miembros a 'admin' o cambiarlos a 'member'.
- * 3. Estado del Plan Freemium (Gratis vs ruma Plus) con contadores claros.
+ * ruma 🌟 — Ajustes (Mi Cuenta con edición por campo, Plan y Límites con toggle Freemium/ruma Plus para pruebas)
  */
-
 import { store } from '../core/store.js';
 import { Entitlements, PLAN_LIMITS } from '../core/entitlements.js';
 import { Utils } from '../core/utils.js';
 import { UI } from '../components/ui.js';
-import { renderDriveConnectionPanelHtml, bindDriveConnectionPanelEvents } from '../components/drive-connect-modal.js';
+
+const svg = (inner, size = 18) =>
+  `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${inner}</svg>`;
+
+const ICO = {
+  user: '<circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>',
+  at: '<circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8"/>',
+  mail: '<rect x="3" y="5" width="18" height="14" rx="2.2"/><path d="m3 7 9 6 9-6"/>',
+  phone: '<path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 2 .7 2.8a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.2a2 2 0 0 1 2.1-.5c.9.3 1.9.6 2.8.7a2 2 0 0 1 1.7 2z"/>',
+  lock: '<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
+  users: '<circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><circle cx="17" cy="9" r="2.4"/><path d="M17 14c2.5 0 4.5 2 4.5 4.5"/>',
+  clapper: '<rect x="3" y="7" width="18" height="13" rx="2.2"/><path d="m3 7 3-4h4L7 7m3 0 3-4h4l-3 4"/>',
+  tv: '<rect x="3" y="6" width="18" height="13" rx="2.2"/><path d="m8 2 4 4 4-4"/>',
+  note: '<path d="M9 18V5l11-2v13"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="17.5" cy="16" r="2.5"/>'
+};
 
 export function renderSettingsInterface(container) {
   const user = store.getCurrentUser();
@@ -23,213 +29,170 @@ export function renderSettingsInterface(container) {
   }
 
   const allGroups = store.getGroups();
-  const activeGroup = store.getActiveGroup();
+  const myGroups = store.getMyGroups();
+  const refGroup = store.getActiveGroup() || myGroups[0] || null;
+
   const isUserPrem = Entitlements.isUserPremium(user, allGroups);
-  const isGroupAdmin = activeGroup ? Entitlements.isGroupAdmin(activeGroup, user.id) : false;
-  const isGroupPrem = activeGroup ? Entitlements.isGroupPremium(activeGroup) : false;
+  const isGroupPrem = refGroup ? Entitlements.isGroupPremium(refGroup) : isUserPrem;
+
+  const groupsCount = myGroups.length;
+  const groupsMax = isUserPrem ? Infinity : PLAN_LIMITS.free.maxTotalGroups;
+  const moviesCount = refGroup ? (refGroup.movies || []).length : 0;
+  const moviesMax = isGroupPrem ? Infinity : PLAN_LIMITS.free.maxMoviesPerGroup;
+  const seriesCount = refGroup ? (refGroup.series || []).length : 0;
+  const seriesMax = isGroupPrem ? Infinity : PLAN_LIMITS.free.maxSeriesPerGroup;
+  const songsCount = refGroup ? (refGroup.songs || []).length : 0;
+  const songsMax = isGroupPrem ? Infinity : PLAN_LIMITS.free.maxSongsPerGroup;
+
+  const pct = (val, max) => max === Infinity ? (val > 0 ? 100 : 0) : Math.min(100, Math.round((val / max) * 100));
+  const maxLabel = (max) => max === Infinity ? '∞' : max;
+
+  const accountFields = [
+    { key: 'name', label: 'Nombre visible', value: user.name || 'Sin definir', icon: ICO.user, type: 'text', placeholder: 'Tu nombre', required: true },
+    { key: 'username', label: 'Usuario', value: `@${user.username || 'usuario'}`, icon: ICO.at, type: 'text', placeholder: 'usuario', required: true },
+    { key: 'email', label: 'Correo electrónico', value: user.email || 'Sin correo', icon: ICO.mail, type: 'email', placeholder: 'tu@correo.com', required: false },
+    { key: 'phone', label: 'Número de teléfono', value: user.phone || 'Sin teléfono', icon: ICO.phone, type: 'tel', placeholder: '3001234567', required: false },
+    { key: 'password', label: 'Contraseña', value: '••••••••', icon: ICO.lock, type: 'password', placeholder: 'Nueva contraseña', required: true }
+  ];
+
+  const limits = [
+    { label: 'Grupos', val: groupsCount, max: groupsMax, ico: ICO.users },
+    { label: 'Películas', val: moviesCount, max: moviesMax, ico: ICO.clapper },
+    { label: 'Series', val: seriesCount, max: seriesMax, ico: ICO.tv },
+    { label: 'Canciones', val: songsCount, max: songsMax, ico: ICO.note }
+  ];
 
   container.innerHTML = `
-    <div style="max-width:920px;margin:0 auto;display:flex;flex-direction:column;gap:1.5rem;">
-      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1rem;">
+    <div class="rst-wrap">
+      <!-- Cabecera -->
+      <header class="rst-head">
         <div>
-          <h1 style="font-family:var(--font-display);font-size:1.75rem;font-weight:800;">⚙️ Centro de Ajustes</h1>
-          <p style="color:var(--text-secondary);font-size:0.9rem;">Gestiona tu cuenta, los permisos de tu grupo, la carpeta de Google Drive y tu plan.</p>
+          <h1>⚙️ Ajustes</h1>
+          <p>Gestiona tu cuenta y tu plan en Ruma.</p>
         </div>
-        <button type="button" class="btn btn-danger btn-sm" id="btn-settings-logout">🚪 Cerrar Sesión</button>
-      </div>
+        <button type="button" class="rst-logout" id="rst-logout-btn">🚪 Cerrar Sesión</button>
+      </header>
 
-      <div class="ruma-grid-2">
-        <!-- 1. Credenciales de Cuenta (Correo, Teléfono, @Usuario y Contraseña) -->
-        <div class="ruma-card">
-          <h2 style="font-family:var(--font-display);font-size:1.2rem;margin-bottom:1rem;">👤 Mi Cuenta y Accesos</h2>
-          <form id="form-settings-account">
-            <div class="form-group">
-              <label class="form-label">Nombre Visible</label>
-              <input type="text" id="set-user-name" class="form-input" value="${Utils.sanitize(user.name)}" required>
-            </div>
-            <div class="form-group">
-              <label class="form-label">Usuario (@usuario)</label>
-              <input type="text" id="set-user-username" class="form-input" value="${Utils.sanitize(user.username || '')}" required>
-            </div>
-            <div class="form-group">
-              <label class="form-label">Correo Electrónico</label>
-              <input type="email" id="set-user-email" class="form-input" value="${Utils.sanitize(user.email || '')}">
-            </div>
-            <div class="form-group">
-              <label class="form-label">Número de Teléfono</label>
-              <input type="tel" id="set-user-phone" class="form-input" value="${Utils.sanitize(user.phone || '')}">
-            </div>
-            <div class="form-group">
-              <label class="form-label">Contraseña</label>
-              <input type="password" id="set-user-password" class="form-input" value="${Utils.sanitize(user.password || '')}" required>
-            </div>
-            <button type="submit" class="btn btn-primary" style="width:100%;">Guardar Credenciales</button>
-          </form>
-        </div>
-
-        <!-- 2. Estado del Plan Freemium (Gratis vs ruma Plus) -->
-        <div class="ruma-card" style="display:flex;flex-direction:column;justify-content:space-between;gap:1rem;">
+      <!-- Mi Cuenta -->
+      <section class="rg-card rst-card">
+        <div class="rst-sec-head">
+          <div class="rst-sec-ico">${svg(ICO.user, 22)}</div>
           <div>
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem;">
-              <h2 style="font-family:var(--font-display);font-size:1.2rem;">💎 Plan y Límites Freemium</h2>
-              <span class="badge ${isUserPrem ? 'badge-premium' : 'badge-free'}">${isUserPrem ? '✨ ruma Plus' : '🌱 Plan Gratis'}</span>
-            </div>
-            <p style="color:var(--text-secondary);font-size:0.88rem;line-height:1.5;margin-bottom:1rem;">
-              La única forma de activar <strong>ruma Plus</strong> es creando o mejorando tu grupo a <strong>Grupo Premium</strong>.
-            </p>
-
-            <div style="display:flex;flex-direction:column;gap:0.65rem;background:var(--bg-elevated);padding:1rem;border-radius:var(--radius-md);font-size:0.86rem;">
-              <div style="display:flex;justify-content:space-between;">
-                <span style="color:var(--text-secondary);">Grupos a los que perteneces:</span>
-                <strong>${store.getMyGroups().length} / ${isUserPrem ? '∞' : PLAN_LIMITS.free.maxTotalGroups}</strong>
-              </div>
-              ${activeGroup ? `
-                <div style="display:flex;justify-content:space-between;">
-                  <span style="color:var(--text-secondary);">Películas en "${Utils.sanitize(activeGroup.name)}":</span>
-                  <strong>${(activeGroup.movies || []).length} / ${isGroupPrem ? '∞' : PLAN_LIMITS.free.maxMoviesPerGroup}</strong>
-                </div>
-                <div style="display:flex;justify-content:space-between;">
-                  <span style="color:var(--text-secondary);">Series en "${Utils.sanitize(activeGroup.name)}":</span>
-                  <strong>${(activeGroup.series || []).length} / ${isGroupPrem ? '∞' : PLAN_LIMITS.free.maxSeriesPerGroup}</strong>
-                </div>
-                <div style="display:flex;justify-content:space-between;">
-                  <span style="color:var(--text-secondary);">Canciones en "${Utils.sanitize(activeGroup.name)}":</span>
-                  <strong>${(activeGroup.songs || []).length} / ${isGroupPrem ? '∞' : PLAN_LIMITS.free.maxSongsPerGroup}</strong>
-                </div>
-              ` : ''}
-            </div>
-
-            <!-- Apariencia -->
-            <div style="margin-top:1.25rem;">
-              <label class="form-label" style="display:block;margin-bottom:0.5rem;">Tema de la Interfaz</label>
-              <div style="display:flex;gap:0.6rem;">
-                <button type="button" class="btn ${store.getTheme() === 'dark' ? 'btn-primary' : 'btn-secondary'} btn-sm" id="btn-theme-dark" style="flex:1;">🌙 Midnight Violet</button>
-                <button type="button" class="btn ${store.getTheme() === 'light' ? 'btn-primary' : 'btn-secondary'} btn-sm" id="btn-theme-light" style="flex:1;">☀️ Soft Lilac</button>
-              </div>
-            </div>
+            <h2>Mi Cuenta</h2>
+            <p>Actualiza la información de tu cuenta y accesos.</p>
           </div>
+        </div>
 
-          ${activeGroup && !isGroupPrem ? `
-            <button type="button" class="btn btn-premium" id="btn-upgrade-active-group" style="width:100%;">
-              ✨ Convertir "${Utils.sanitize(activeGroup.name)}" en Grupo Premium
+        <div class="rst-rows">
+          ${accountFields.map(f => `
+            <button type="button" class="rst-row" data-edit-field="${f.key}">
+              <span class="rst-row-ico">${svg(f.icon, 18)}</span>
+              <span class="rst-row-txt">
+                <b>${f.label}</b>
+                <small>${Utils.sanitize(f.value)}</small>
+              </span>
+              <span class="rst-chev">›</span>
             </button>
-          ` : ''}
+          `).join('')}
         </div>
-      </div>
+      </section>
 
-      <!-- 3. Administración del Grupo Activo y Carpeta de Google Drive (Control por Rangos) -->
-      ${activeGroup ? `
-        <div class="ruma-card">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.85rem;flex-wrap:wrap;gap:0.5rem;">
-            <div>
-              <h2 style="font-family:var(--font-display);font-size:1.3rem;">
-                📂 Puente Google Drive (OAuth 2.0) & Rangos de "${Utils.sanitize(activeGroup.name)}"
-              </h2>
-              <p style="color:var(--text-secondary);font-size:0.86rem;">
-                Código de invitación: <strong style="color:var(--brand-lilac);font-family:var(--font-mono);">${Utils.sanitize(activeGroup.code)}</strong>
-              </p>
-            </div>
-            <span class="badge ${isGroupAdmin ? 'badge-admin' : 'badge-free'}">
-              Tu rango: ${isGroupAdmin ? '🛡️ Administrador (Puedes editar Drive)' : '👤 Miembro (Puedes conectar tu Google)'}
-            </span>
-          </div>
-
-          <div id="settings-drive-connection-panel" style="margin-bottom:1.5rem;">
-            ${renderDriveConnectionPanelHtml(activeGroup, isGroupAdmin)}
-          </div>
-
-          <!-- Lista de Miembros y Rangos (Administrador vs Miembro) -->
+      <!-- Plan y Límites -->
+      <section class="rg-card rst-card">
+        <div class="rst-sec-head">
+          <div class="rst-crown">👑</div>
           <div>
-            <h3 style="font-size:1rem;margin-bottom:0.75rem;color:var(--text-secondary);">👥 Integrantes y Rangos del Grupo</h3>
-            <div style="display:flex;flex-direction:column;gap:0.55rem;">
-              ${(activeGroup.members || []).map(m => {
-                const isCreator = m.id === activeGroup.creatorId;
-                const mIsAdmin = isCreator || m.role === 'admin';
-                return `
-                  <div style="display:flex;align-items:center;justify-content:space-between;padding:0.65rem 0.9rem;background:var(--bg-elevated);border-radius:var(--radius-md);border:1px solid var(--border-subtle);flex-wrap:wrap;gap:0.5rem;">
-                    <div style="display:flex;align-items:center;gap:0.7rem;cursor:pointer;" data-inspect-member="${Utils.sanitize(m.id)}">
-                      <div class="avatar-wrap ${Utils.sanitize(m.frameId || 'frame-none')}" style="width:38px;height:38px;">
-                        <img src="${Utils.sanitize(m.avatar || 'assets/ruma_icon_512.png')}" alt="avatar" class="avatar-img">
-                      </div>
-                      <div>
-                        <div style="font-weight:700;font-size:0.9rem;">${Utils.sanitize(m.name)}</div>
-                        <div style="font-size:0.75rem;color:var(--text-muted);">Ver tarjeta estilo Discord</div>
-                      </div>
-                    </div>
-                    <div style="display:flex;align-items:center;gap:0.5rem;">
-                      <span class="badge ${mIsAdmin ? 'badge-admin' : 'badge-free'}">
-                        ${isCreator ? '👑 Creador & Admin' : (mIsAdmin ? '🛡️ Administrador' : '👤 Miembro')}
-                      </span>
-                      ${isGroupAdmin && !isCreator ? `
-                        <button type="button" class="btn btn-secondary btn-sm" data-toggle-role="${Utils.sanitize(m.id)}">
-                          ${mIsAdmin ? 'Pasar a Miembro' : 'Ascender a Admin'}
-                        </button>
-                      ` : ''}
-                    </div>
-                  </div>
-                `;
-              }).join('')}
-            </div>
+            <h2>Plan y Límites</h2>
+            <p>Gestiona tu suscripción de ruma Plus y consulta tus límites.</p>
           </div>
         </div>
-      ` : ''}
+
+        <div class="rst-plus-box ${isUserPrem ? 'active' : ''}">
+          <div class="rst-plus-top">
+            <span class="rst-plus-title">✨ ruma Plus</span>
+            ${isUserPrem ? `<span class="rst-plus-on">Activo</span>` : ''}
+          </div>
+          <p>${isUserPrem
+            ? 'Tienes ruma Plus activo: puedes unirte a todos los grupos que quieras, crear 1 grupo Premium y guardar películas, series y canciones ilimitadas.'
+            : 'Desbloquea todo el potencial de Ruma: más grupos, contenido ilimitado y funciones exclusivas.'}</p>
+
+          <button type="button" class="rst-plus-btn ${isUserPrem ? 'is-off' : ''}" id="rst-toggle-plus">
+            ${isUserPrem ? '🔄 Desactivar ruma Plus (Probar Plan Free)' : '👑 Obtener ruma Plus'}
+          </button>
+        </div>
+
+        <div class="rst-limits-box">
+          <div class="rst-limits-head">
+            <span class="rst-plan-pill ${isUserPrem ? 'prem' : ''}">${isUserPrem ? '✨ ruma Plus' : 'Plan Free'}</span>
+            <span class="rst-limits-sub">Tus límites actuales${refGroup ? ` · ${Utils.sanitize(refGroup.name)}` : ''}</span>
+          </div>
+
+          <div class="rst-limits-list">
+            ${limits.map(l => `
+              <div class="rst-lim-item">
+                <div class="rst-lim-row">
+                  <span class="rst-lim-lbl">${svg(l.ico, 17)}<span>${l.label}</span></span>
+                  <b>${l.val} / ${maxLabel(l.max)}</b>
+                </div>
+                <div class="rst-bar"><i style="width:${pct(l.val, l.max)}%"></i></div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      </section>
     </div>
   `;
 
-  document.getElementById('btn-settings-logout')?.addEventListener('click', () => {
+  container.querySelector('#rst-logout-btn')?.addEventListener('click', () => {
     store.logout();
     UI.showToast('Has cerrado sesión correctamente.', 'info');
   });
 
-  document.getElementById('form-settings-account')?.addEventListener('submit', (e) => {
-    e.preventDefault();
-    store.updateCurrentUser({
-      name: document.getElementById('set-user-name')?.value.trim(),
-      username: document.getElementById('set-user-username')?.value.trim().replace(/^@/, ''),
-      email: document.getElementById('set-user-email')?.value.trim(),
-      phone: document.getElementById('set-user-phone')?.value.trim(),
-      password: document.getElementById('set-user-password')?.value
-    });
-    UI.showToast('Datos de cuenta actualizados ✅', 'success');
-  });
-
-  document.getElementById('btn-theme-dark')?.addEventListener('click', () => store.setTheme('dark'));
-  document.getElementById('btn-theme-light')?.addEventListener('click', () => store.setTheme('light'));
-
-  document.getElementById('btn-upgrade-active-group')?.addEventListener('click', () => {
-    if (!activeGroup) return;
-    UI.showUpgradeModal(`Convierte "${activeGroup.name}" en un Grupo Premium ruma Plus para desbloquear películas, series y canciones ilimitadas.`, () => {
-      store.upgradeGroupToPremium(activeGroup.id);
-      UI.showToast(`¡"${activeGroup.name}" ahora es un Grupo Premium ruma Plus! ✨🎉`, 'success');
-    });
-  });
-
-  if (activeGroup) {
-    bindDriveConnectionPanelEvents(
-      document.getElementById('settings-drive-connection-panel'),
-      activeGroup,
-      isGroupAdmin,
-      () => renderSettingsInterface(container)
+  container.querySelector('#rst-toggle-plus')?.addEventListener('click', () => {
+    const next = !isUserPrem;
+    store.setUserPremiumPlan(next);
+    UI.showToast(
+      next
+        ? '¡ruma Plus activado! ✨ Ya puedes probar los límites ilimitados.'
+        : 'Plan cambiado a Free (máx. 2 grupos y 5 ítems por categoría).',
+      next ? 'success' : 'info'
     );
-  }
-
-  container.querySelectorAll('[data-toggle-role]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      if (!activeGroup) return;
-      const memberId = btn.getAttribute('data-toggle-role');
-      const res = store.toggleMemberRole(activeGroup.id, memberId);
-      if (!res.ok) {
-        UI.showToast(res.error, 'error');
-        return;
-      }
-      UI.showToast(`Rango actualizado a ${res.newRole === 'admin' ? 'Administrador 🛡️' : 'Miembro 👤'}`, 'success');
-    });
   });
 
-  container.querySelectorAll('[data-inspect-member]').forEach(el => {
-    el.addEventListener('click', () => {
-      const memberId = el.getAttribute('data-inspect-member');
-      store.navigate('profile', { inspectUserId: memberId });
+  container.querySelectorAll('[data-edit-field]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const key = btn.getAttribute('data-edit-field');
+      const field = accountFields.find(f => f.key === key);
+      if (!field) return;
+      const rawVal = key === 'password' ? '' : (user[key] || '');
+
+      UI.openModal({
+        title: `Editar ${field.label}`,
+        contentHtml: `
+          <form id="rst-field-form" style="display:flex;flex-direction:column;gap:.85rem;">
+            <div class="form-group">
+              <label class="form-label">${field.label}</label>
+              <input type="${field.type}" id="rst-field-inp" class="form-input" value="${Utils.sanitize(rawVal)}" placeholder="${field.placeholder}" ${field.required ? 'required' : ''}>
+            </div>
+            <div style="display:flex;justify-content:flex-end;gap:.6rem;">
+              <button type="button" class="btn btn-secondary" id="rst-f-cancel">Cancelar</button>
+              <button type="submit" class="btn btn-primary">Guardar</button>
+            </div>
+          </form>`,
+        onMount: () => {
+          document.getElementById('rst-f-cancel')?.addEventListener('click', () => UI.closeModal());
+          document.getElementById('rst-field-inp')?.focus();
+          document.getElementById('rst-field-form')?.addEventListener('submit', (e) => {
+            e.preventDefault();
+            let val = document.getElementById('rst-field-inp')?.value.trim() || '';
+            if (key === 'username') val = val.replace(/^@+/, '').toLowerCase();
+            if (field.required && !val) return;
+            store.updateCurrentUser({ [key]: val });
+            UI.closeModal();
+            UI.showToast(`${field.label} actualizado ✅`, 'success');
+          });
+        }
+      });
     });
   });
 }

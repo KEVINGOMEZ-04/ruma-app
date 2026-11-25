@@ -1061,6 +1061,19 @@ class RumaStore {
     return true;
   }
 
+  setUserPremiumPlan(enable) {
+    const user = this.getCurrentUser();
+    if (!user) return false;
+    const isPrem = Boolean(enable);
+    const allGroups = this.getGroups().map(g =>
+      g.creatorId === user.id ? { ...g, plan: isPrem ? 'premium' : 'free', updatedAt: new Date().toISOString() } : g
+    );
+    this.saveGroups(allGroups);
+    this.updateCurrentUser({ isPremium: isPrem });
+    this.notify();
+    return true;
+  }
+
   updateGroupSettings(groupId, patch) {
     const user = this.getCurrentUser();
     const allGroups = this.getGroups();
