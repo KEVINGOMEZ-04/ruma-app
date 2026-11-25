@@ -49,9 +49,9 @@ function renderApp() {
   const activeGroup = store.getActiveGroup();
   const iface = store.currentInterface;
 
-  // Si no ha iniciado sesión, mostrar únicamente la Interfaz 1 (Login/Registro)
+  // Si no ha iniciado sesión, mostrar únicamente la Interfaz 1 (Login/Registro) a pantalla completa
   if (!user) {
-    root.innerHTML = `<main class="ruma-container" id="ruma-view-root"></main>`;
+    root.innerHTML = `<main class="ruma-auth-root" id="ruma-view-root"></main>`;
     renderHubInterface(document.getElementById('ruma-view-root'));
     return;
   }
