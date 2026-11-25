@@ -666,7 +666,7 @@
 }
 
 .rbk-primary-act.accent {
-  background: linear-gradient(135deg, rgba(139, 92, 246, 0.85), rgba(192, 38, 211, 0.85));
+  background: var(--primary-solid);
   border-color: rgba(245, 208, 254, 0.5);
   color: var(--on-primary);
 }
@@ -716,7 +716,7 @@
   padding: 2rem 1.25rem;
   border-radius: 1.3rem;
   border: 1px dashed var(--border);
-  background: rgba(20, 10, 42, 0.6);
+  background: var(--surface);
 }
 
 .rbk-empty-ico {
@@ -1042,7 +1042,7 @@
   padding: 0.55rem 0.78rem;
   border-radius: 0.92rem;
   border: 1px solid var(--border);
-  background: rgba(20, 10, 42, 0.72);
+  background: var(--surface);
   color: var(--text-primary);
   font-family: inherit;
   font-size: 0.85rem;
@@ -1053,7 +1053,7 @@
 }
 
 .rbk-sheet-row:hover {
-  background: rgba(44, 22, 82, 0.78);
+  background: var(--surface-hover);
   border-color: var(--border-strong);
 }
 
@@ -1205,14 +1205,14 @@
 }
 
 .rbk-social-tab.active {
-  background: linear-gradient(135deg, rgba(139, 92, 246, 0.85), rgba(192, 38, 211, 0.8));
+  background: var(--primary-solid);
   color: var(--on-primary);
 }
 
 .rbk-review-card {
   padding: 0.78rem;
   border-radius: 0.95rem;
-  background: rgba(20, 10, 42, 0.75);
+  background: var(--surface);
   border: 1px solid var(--border);
   display: flex;
   flex-direction: column;
@@ -1221,7 +1221,7 @@
 
 .rbk-review-card.mine {
   border-color: var(--border-strong);
-  background: rgba(40, 18, 78, 0.52);
+  background: var(--surface-hover);
 }
 
 .rbk-review-head {
@@ -1352,7 +1352,7 @@
 .rbk-st-tile {
   padding: 0.75rem 0.6rem;
   border-radius: 1rem;
-  background: rgba(20, 10, 42, 0.8);
+  background: var(--surface);
   border: 1px solid rgba(192, 132, 252, 0.2);
   display: flex;
   flex-direction: column;

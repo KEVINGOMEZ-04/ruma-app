@@ -617,7 +617,7 @@
   padding: 0.38rem 0.85rem 0.38rem 0.65rem;
   border-radius: 9999px;
   border: 1px solid var(--border);
-  background: rgba(22, 11, 46, 0.78);
+  background: var(--surface);
   color: var(--text-primary);
   font-family: inherit;
   font-size: 0.8rem;
@@ -627,7 +627,7 @@
 }
 
 .rgl-back-btn:hover {
-  background: rgba(42, 20, 82, 0.86);
+  background: var(--surface-hover);
   border-color: var(--border-strong);
 }
 
@@ -643,7 +643,7 @@
   padding: 0 0.65rem;
   border-radius: 9999px;
   border: 1px solid var(--border);
-  background: rgba(22, 11, 46, 0.78);
+  background: var(--surface);
   color: var(--text-primary);
   font-family: inherit;
   font-size: 0.78rem;
@@ -657,7 +657,7 @@
 }
 
 .rgl-icon-act:hover {
-  background: rgba(44, 22, 86, 0.85);
+  background: var(--surface-hover);
   border-color: var(--border-strong);
   color: var(--text-primary);
 }
@@ -1415,7 +1415,7 @@
   padding: 1.75rem 1.1rem;
   border-radius: 1.3rem;
   border: 1px dashed var(--border);
-  background: rgba(20, 10, 42, 0.6);
+  background: var(--surface);
 }
 
 .rgl-empty-ico {
@@ -1591,7 +1591,7 @@
 }
 
 .rgl-member-chip.active {
-  background: linear-gradient(135deg, rgba(139, 92, 246, 0.82), rgba(192, 38, 211, 0.78));
+  background: var(--primary-solid);
   border-color: rgba(245, 208, 254, 0.75);
   color: var(--on-primary);
   box-shadow: 0 4px 12px rgba(168, 85, 247, 0.34);
@@ -1654,7 +1654,7 @@
   padding: 0.52rem 0.75rem;
   border-radius: 0.9rem;
   border: 1px solid var(--border);
-  background: rgba(20, 10, 42, 0.72);
+  background: var(--surface);
   color: var(--text-primary);
   font-family: inherit;
   font-size: 0.84rem;
@@ -1665,7 +1665,7 @@
 }
 
 .rgl-sheet-row:hover {
-  background: rgba(44, 22, 82, 0.78);
+  background: var(--surface-hover);
   border-color: var(--border-strong);
 }
 
