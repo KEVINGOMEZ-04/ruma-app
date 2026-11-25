@@ -283,8 +283,14 @@ function openGroupMenu(group, user, { save, invite, triggerCoverCrop, triggerAva
           </button>
         ` : ''}
 
+        ${memberCount > 1 || !isCreator ? `
+          <button type="button" class="btn btn-secondary" id="rg-menu-leave" style="margin-top:.2rem;width:100%;color:var(--error);border-color:rgba(220,38,38,.3);">
+            🚪 Salir del grupo
+          </button>
+        ` : ''}
+
         ${isCreator ? `
-          <button type="button" class="btn btn-danger" id="rg-menu-delete" style="margin-top:.25rem;width:100%;">
+          <button type="button" class="btn btn-danger" id="rg-menu-delete" style="margin-top:.2rem;width:100%;">
             🗑️ Eliminar grupo
           </button>
         ` : ''}
@@ -317,7 +323,47 @@ function openGroupMenu(group, user, { save, invite, triggerCoverCrop, triggerAva
           UI.showToast('¡Grupo mejorado a ruma Plus! ✨🎉', 'success');
         });
       });
+      document.getElementById('rg-menu-leave')?.addEventListener('click', () => confirmLeaveGroup(group, user));
       document.getElementById('rg-menu-delete')?.addEventListener('click', () => confirmDeleteGroup(group));
+    }
+  });
+}
+
+function confirmLeaveGroup(group, user) {
+  const isCreator = group.creatorId === user.id;
+  const remaining = (group.members || []).filter(m => m.id !== user.id);
+  const nextLeader = remaining.find(m => m.role === 'admin') || remaining[0];
+
+  UI.closeModal();
+  UI.openModal({
+    title: '¿Salir de este grupo?',
+    contentHtml: `
+      <p style="color:var(--text-secondary);font-size:.9rem;margin-bottom:1rem;line-height:1.45;">
+        Dejarás de pertenecer a <b>${Utils.sanitize(group.name)}</b>. Podrás volver a unirte más adelante si tienes el código de invitación.
+        ${isCreator && nextLeader ? `<br><br>Como eres el creador, la administración pasará automáticamente a <b>${Utils.sanitize(nextLeader.name)}</b>.` : ''}
+      </p>
+      <div style="display:flex;gap:.6rem;justify-content:flex-end;">
+        <button type="button" class="btn btn-secondary" id="rg-leave-cancel">Cancelar</button>
+        <button type="button" class="btn btn-danger" id="rg-leave-ok">🚪 Salir del grupo</button>
+      </div>`,
+    onMount: () => {
+      document.getElementById('rg-leave-cancel')?.addEventListener('click', () => UI.closeModal());
+      const ok = document.getElementById('rg-leave-ok');
+      ok?.addEventListener('click', async () => {
+        ok.disabled = true;
+        const r = await store.leaveGroup(group.id);
+        UI.closeModal();
+        if (!r.ok) {
+          UI.showToast(r.error, 'error');
+          return;
+        }
+        UI.showToast(
+          r.newLeaderName
+            ? `Saliste del grupo. ${r.newLeaderName} es ahora el administrador.`
+            : `Saliste de "${group.name}" 👋`,
+          'info'
+        );
+      });
     }
   });
 }

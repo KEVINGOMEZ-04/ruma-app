@@ -421,9 +421,22 @@ class RumaStore {
       const winner = iTime >= bTime ? ig : bg;
       const older = iTime >= bTime ? bg : ig;
 
+      const mergedLeftMembers = { ...(older.leftMembers || {}) };
+      Object.entries(winner.leftMembers || {}).forEach(([uid, ts]) => {
+        if (!mergedLeftMembers[uid] || ts > mergedLeftMembers[uid]) mergedLeftMembers[uid] = ts;
+      });
+
       const mergedMembersMap = new Map();
       (older.members || []).forEach(m => mergedMembersMap.set(m.id, m));
       (winner.members || []).forEach(m => mergedMembersMap.set(m.id, { ...(mergedMembersMap.get(m.id) || {}), ...m }));
+      Object.entries(mergedLeftMembers).forEach(([uid, leftAt]) => {
+        const m = mergedMembersMap.get(uid);
+        if (!m) return;
+        const joinedAt = m.joinedAt || '';
+        if (!joinedAt || leftAt >= joinedAt) {
+          mergedMembersMap.delete(uid);
+        }
+      });
 
       const mergedMessagesMap = new Map();
       (older.messages || []).forEach(m => mergedMessagesMap.set(m.id, m));
@@ -456,6 +469,7 @@ class RumaStore {
         notes: Array.isArray(winner.notes) ? winner.notes : (older.notes || []),
         books: Array.isArray(winner.books) ? winner.books : (older.books || []),
         activity: mergedActivity,
+        leftMembers: mergedLeftMembers,
         members: Array.from(mergedMembersMap.values()),
         messages: Array.from(mergedMessagesMap.values())
       });
@@ -1129,6 +1143,46 @@ class RumaStore {
     this.notify();
     await this.pushMergedStateToCloud();
     return { ok: true };
+  }
+
+  // Permite a cualquier miembro salir del grupo; si el creador sale y hay más miembros, transfiere liderazgo.
+  async leaveGroup(groupId) {
+    const user = this.getCurrentUser();
+    if (!user) return { ok: false, error: 'Inicia sesión para realizar esta acción.' };
+    const allGroups = this.getGroups();
+    const group = allGroups.find(g => g.id === groupId);
+    if (!group) return { ok: false, error: 'Grupo no encontrado.' };
+
+    const members = group.members || [];
+    if (!members.some(m => m.id === user.id)) {
+      return { ok: false, error: 'No perteneces a este grupo.' };
+    }
+
+    const remaining = members.filter(m => m.id !== user.id);
+    if (remaining.length === 0) {
+      return { ok: false, error: 'Eres el único miembro. Si deseas cerrar este espacio, usa "Eliminar grupo".' };
+    }
+
+    const now = new Date().toISOString();
+    let newLeader = null;
+    if (group.creatorId === user.id) {
+      newLeader = remaining.find(m => m.role === 'admin') || remaining[0];
+      group.creatorId = newLeader.id;
+      newLeader.role = 'admin';
+    }
+
+    group.members = remaining;
+    group.leftMembers = { ...(group.leftMembers || {}), [user.id]: now };
+    group.updatedAt = now;
+
+    this.saveGroups(allGroups);
+    if (localStorage.getItem(CONFIG.storageKeys.activeGroupId) === groupId) {
+      localStorage.removeItem(CONFIG.storageKeys.activeGroupId);
+    }
+    this.currentInterface = 'hub';
+    this.notify();
+    await this.pushMergedStateToCloud();
+    return { ok: true, newLeaderName: newLeader?.name || null };
   }
 
   toggleMemberRole(groupId, targetMemberId) {
