@@ -450,11 +450,12 @@ class RumaStore {
     }
 
     if (changed && shouldNotify) {
-      // Si hay un modal abierto o el usuario está escribiendo en un input, evitar destruirle el foco
+      // Si hay un modal abierto, está en la pantalla de login o escribiendo en un input, evitar destruirle el formulario
       const activeEl = typeof document !== 'undefined' ? document.activeElement : null;
       const isTyping = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA');
       const hasOpenModal = typeof document !== 'undefined' && Boolean(document.getElementById('ruma-active-modal'));
-      if (!isTyping && !hasOpenModal) {
+      const isAuthScreen = !this.getCurrentUser() && typeof document !== 'undefined' && Boolean(document.querySelector('.ruma-auth-stage'));
+      if (!isTyping && !hasOpenModal && !isAuthScreen) {
         this.notify();
       }
     }
@@ -558,6 +559,27 @@ class RumaStore {
   async loginAsync(identifier, password) {
     await this.syncNowWithCloud();
     return this.login(identifier, password);
+  }
+
+  async resetPasswordAsync(identifier, newPassword) {
+    await this.syncNowWithCloud();
+    const clean = String(identifier || '').trim().toLowerCase().replace(/^@/, '');
+    if (!clean || !newPassword) {
+      return { ok: false, error: 'Ingresa tu correo, teléfono o @usuario y la nueva contraseña.' };
+    }
+    const accounts = this.getAccounts();
+    const user = accounts.find(u =>
+      (u.email && u.email.toLowerCase() === clean) ||
+      (u.phone && u.phone.replace(/\s+/g, '') === clean) ||
+      (u.username && u.username.toLowerCase() === clean)
+    );
+    if (!user) {
+      return { ok: false, error: 'No encontramos ninguna cuenta con ese correo, teléfono o @usuario.' };
+    }
+    user.password = newPassword;
+    this.saveAccounts(accounts);
+    await this.pushMergedStateToCloud();
+    return { ok: true, user };
   }
 
   login(identifier, password) {
