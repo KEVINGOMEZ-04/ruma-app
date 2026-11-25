@@ -1,8 +1,9 @@
-// Cabecera de grupo (portada, nombre, insignias, miembros) y barra de pestañas.
+// Cabecera de grupo (portada, foto con recorte interactivo, nombre, insignias, miembros y menú completo).
 import { store } from '../core/store.js';
 import { Entitlements, PLAN_LIMITS } from '../core/entitlements.js';
 import { Utils } from '../core/utils.js';
 import { UI } from '../components/ui.js';
+import { pickAndCropImage } from '../components/image-cropper.js';
 
 export const GROUP_TABS = [
   { id: 'memories', label: 'Recuerdos', icon: '<rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="10" r="1.6"/><path d="m4 18 5-5 4 4 3-3 4 4"/>' },
@@ -13,40 +14,6 @@ export const GROUP_TABS = [
 ];
 
 const svg = (inner) => `<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${inner}</svg>`;
-
-function fileToResizedDataUrl(file, maxW, maxH, quality = 0.75) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = reject;
-    reader.onload = () => {
-      const img = new Image();
-      img.onerror = reject;
-      img.onload = () => {
-        const ratio = Math.min(1, maxW / img.width, maxH / img.height);
-        const c = document.createElement('canvas');
-        c.width = Math.round(img.width * ratio);
-        c.height = Math.round(img.height * ratio);
-        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-        resolve(c.toDataURL('image/jpeg', quality));
-      };
-      img.src = reader.result;
-    };
-    reader.readAsDataURL(file);
-  });
-}
-
-function pickImage(maxW, maxH, onDone) {
-  const input = document.createElement('input');
-  input.type = 'file';
-  input.accept = 'image/*';
-  input.onchange = async () => {
-    const f = input.files && input.files[0];
-    if (!f) return;
-    try { onDone(await fileToResizedDataUrl(f, maxW, maxH)); }
-    catch (_) { UI.showToast('No se pudo leer la imagen.', 'error'); }
-  };
-  input.click();
-}
 
 export function groupTabLabelCounts(group, isPrem) {
   const lim = PLAN_LIMITS.free;
@@ -59,7 +26,7 @@ export function groupTabLabelCounts(group, isPrem) {
   };
 }
 
-export function groupHeaderHtml(group, user, tab) {
+export function groupHeaderHtml(group, user) {
   const isPrem = Entitlements.isGroupPremium(group);
   const isAdmin = Entitlements.isGroupAdmin(group, user.id);
   const members = group.members || [];
@@ -68,7 +35,6 @@ export function groupHeaderHtml(group, user, tab) {
   const avatar = group.avatar
     ? `<img src="${Utils.sanitize(group.avatar)}" alt="">`
     : svg('<circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><path d="M16 5.2a3.2 3.2 0 0 1 0 5.6M18 14.3c1.8.8 3 2.6 3 4.7"/>');
-  const counts = groupTabLabelCounts(group, isPrem);
 
   return `
     <section class="rg-card rg-header">
@@ -123,18 +89,35 @@ export function bindGroupHeader(container, group, user, { onTab } = {}) {
     UI.showToast(msg, 'success');
   };
 
-  container.querySelector('#rg-edit-cover')?.addEventListener('click', () =>
-    pickImage(900, 320, (url) => save({ coverImage: url }, 'Portada actualizada 🖼️')));
-  container.querySelector('#rg-edit-avatar')?.addEventListener('click', () => {
-    if (isAdmin) pickImage(256, 256, (url) => save({ avatar: url }, 'Foto del grupo actualizada 📷'));
-  });
-  container.querySelector('#rg-edit-name')?.addEventListener('click', () => {
-    const name = window.prompt('Nombre del grupo:', group.name);
-    if (name && name.trim()) {
-      const desc = window.prompt('Descripción del grupo:', group.description || '');
-      save({ name: name.trim().slice(0, 40), description: ((desc ?? group.description) || '').trim().slice(0, 90) }, 'Grupo actualizado ✏️');
-    }
-  });
+  const triggerCoverCrop = () => {
+    if (!isAdmin) return;
+    pickAndCropImage({
+      title: '🖼️ Ajustar portada del grupo',
+      aspectW: 16,
+      aspectH: 5,
+      radius: '14px',
+      outW: 960,
+      outH: 300,
+      onCropped: (dataUrl) => save({ coverImage: dataUrl }, 'Portada del grupo actualizada 🖼️')
+    });
+  };
+
+  const triggerAvatarCrop = () => {
+    if (!isAdmin) return;
+    pickAndCropImage({
+      title: '📷 Ajustar foto del grupo',
+      aspectW: 1,
+      aspectH: 1,
+      radius: '24px',
+      outW: 320,
+      outH: 320,
+      onCropped: (dataUrl) => save({ avatar: dataUrl }, 'Foto del grupo actualizada 📷')
+    });
+  };
+
+  container.querySelector('#rg-edit-cover')?.addEventListener('click', triggerCoverCrop);
+  container.querySelector('#rg-edit-avatar')?.addEventListener('click', triggerAvatarCrop);
+  container.querySelector('#rg-edit-name')?.addEventListener('click', () => openEditGroupModal(group, save));
 
   container.querySelector('#btn-group-copy-code')?.addEventListener('click', async () => {
     try {
@@ -157,17 +140,20 @@ export function bindGroupHeader(container, group, user, { onTab } = {}) {
   container.querySelector('#btn-group-share-invite')?.addEventListener('click', invite);
   container.querySelector('#btn-group-share-invite-plus')?.addEventListener('click', invite);
 
-  container.querySelector('#rg-members-btn')?.addEventListener('click', () => {
-    const first = (group.members || [])[0];
-    if (first) store.navigate('profile', { inspectUserId: first.id });
-  });
+  container.querySelector('#rg-members-btn')?.addEventListener('click', () => openGroupMembersModal(group, user, invite));
   container.querySelectorAll('[data-member-profile]').forEach(el =>
     el.addEventListener('click', () => store.navigate('profile', { inspectUserId: el.getAttribute('data-member-profile') })));
 
-  container.querySelector('#rg-more')?.addEventListener('click', () => openGroupMenu(group, user));
+  container.querySelector('#rg-more')?.addEventListener('click', () => openGroupMenu(group, user, {
+    save,
+    invite,
+    triggerCoverCrop,
+    triggerAvatarCrop
+  }));
+
   container.querySelector('.rg-badge-free')?.addEventListener('click', () => {
     if (!isAdmin) return;
-    UI.showUpgradeModal(`Mejora "${group.name}" a Grupo Premium ruma Plus para tener películas, series y canciones ilimitadas.`, () => {
+    UI.showUpgradeModal(`Mejora "${group.name}" a Grupo Premium ruma Plus para tener películas, series, libros y canciones ilimitadas.`, () => {
       store.upgradeGroupToPremium(group.id);
       UI.showToast('¡Grupo mejorado a ruma Plus! ✨🎉', 'success');
     });
@@ -177,20 +163,159 @@ export function bindGroupHeader(container, group, user, { onTab } = {}) {
     btn.addEventListener('click', () => onTab && onTab(btn.getAttribute('data-group-tab'))));
 }
 
-// Menú "⋯" del grupo: Metas & Notas y (solo creador) eliminar grupo.
-function openGroupMenu(group, user) {
+function openEditGroupModal(group, save) {
+  UI.openModal({
+    title: '✏️ Editar grupo',
+    contentHtml: `
+      <form id="rg-edit-form" style="display:flex;flex-direction:column;gap:.85rem;">
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label">Nombre del grupo</label>
+          <input type="text" id="rg-edit-name-inp" class="form-input" maxlength="40" required value="${Utils.sanitize(group.name || '')}" placeholder="Ej: Los de siempre">
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label">Descripción</label>
+          <textarea id="rg-edit-desc-inp" class="form-textarea" rows="3" maxlength="100" placeholder="Cuéntale al grupo de qué va este espacio...">${Utils.sanitize(group.description || '')}</textarea>
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:.6rem;">
+          <button type="button" class="btn btn-secondary" id="rg-edit-cancel">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Guardar cambios</button>
+        </div>
+      </form>`,
+    onMount: () => {
+      document.getElementById('rg-edit-cancel')?.addEventListener('click', () => UI.closeModal());
+      document.getElementById('rg-edit-form')?.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const name = document.getElementById('rg-edit-name-inp').value.trim();
+        const description = document.getElementById('rg-edit-desc-inp').value.trim();
+        if (!name) return;
+        UI.closeModal();
+        save({ name: name.slice(0, 40), description: description.slice(0, 100) }, 'Grupo actualizado ✏️');
+      });
+    }
+  });
+}
+
+function openGroupMembersModal(group, currentUser, invite) {
+  const members = group.members || [];
+  UI.openModal({
+    title: `👥 Miembros (${members.length})`,
+    contentHtml: `
+      <div style="display:flex;flex-direction:column;gap:.6rem;">
+        ${members.map(m => {
+          const isCreator = m.id === group.creatorId;
+          const isAdmin = Entitlements.isGroupAdmin(group, m.id);
+          const roleLabel = isCreator ? '👑 Creador' : (isAdmin ? '🛡️ Admin' : '👤 Miembro');
+          const isMe = m.id === currentUser.id;
+          return `
+            <button type="button" class="rst-row" data-open-member="${Utils.sanitize(m.id)}">
+              <img src="${Utils.sanitize(m.avatar || 'assets/ruma_default_avatar.png')}" alt="${Utils.sanitize(m.name)}" style="width:40px;height:40px;border-radius:50%;object-fit:cover;border:1.5px solid var(--primary);flex-shrink:0;">
+              <span class="rst-row-txt">
+                <b>${Utils.sanitize(m.name)}${isMe ? ' (Tú)' : ''}</b>
+                <small>@${Utils.sanitize(m.username || 'usuario')} · ${roleLabel}</small>
+              </span>
+              <span class="rst-chev">›</span>
+            </button>`;
+        }).join('')}
+        <button type="button" class="btn btn-primary" id="rg-members-invite" style="margin-top:.35rem;width:100%;">
+          🔗 Invitar amigos (${Utils.sanitize(group.code)})
+        </button>
+      </div>`,
+    onMount: () => {
+      document.querySelectorAll('[data-open-member]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const uid = btn.getAttribute('data-open-member');
+          UI.closeModal();
+          store.navigate('profile', { inspectUserId: uid });
+        });
+      });
+      document.getElementById('rg-members-invite')?.addEventListener('click', () => {
+        UI.closeModal();
+        invite();
+      });
+    }
+  });
+}
+
+// Menú "⋯" del grupo: acciones reales y útiles según rol.
+function openGroupMenu(group, user, { save, invite, triggerCoverCrop, triggerAvatarCrop }) {
   const isCreator = group.creatorId === user.id;
+  const isAdmin = Entitlements.isGroupAdmin(group, user.id);
+  const isPrem = Entitlements.isGroupPremium(group);
+  const memberCount = (group.members || []).length;
+
   UI.openModal({
     title: 'Opciones del grupo',
     contentHtml: `
-      <div style="display:flex;flex-direction:column;gap:.6rem;">
-        <button type="button" class="btn btn-secondary" id="rg-menu-goals">🎯 Objetivos y Actividades</button>
-        ${isCreator ? `<button type="button" class="btn" id="rg-menu-delete" style="background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.5);color:#fca5a5;">🗑️ Eliminar grupo</button>` : ''}
+      <div style="display:flex;flex-direction:column;gap:.55rem;">
+        ${isAdmin ? `
+          <button type="button" class="rst-row" id="rg-menu-edit">
+            <span class="rst-row-ico">✏️</span>
+            <span class="rst-row-txt"><b>Editar nombre y descripción</b><small>Personaliza la identidad del grupo</small></span>
+            <span class="rst-chev">›</span>
+          </button>
+          <button type="button" class="rst-row" id="rg-menu-avatar">
+            <span class="rst-row-ico">📷</span>
+            <span class="rst-row-txt"><b>Cambiar foto del grupo</b><small>Sube y encuadra con zoom</small></span>
+            <span class="rst-chev">›</span>
+          </button>
+          <button type="button" class="rst-row" id="rg-menu-cover">
+            <span class="rst-row-ico">🖼️</span>
+            <span class="rst-row-txt"><b>Cambiar portada</b><small>Sube y recorta el banner superior</small></span>
+            <span class="rst-chev">›</span>
+          </button>
+        ` : ''}
+
+        <button type="button" class="rst-row" id="rg-menu-members">
+          <span class="rst-row-ico">👥</span>
+          <span class="rst-row-txt"><b>Ver miembros (${memberCount})</b><small>Consulta perfiles y roles del grupo</small></span>
+          <span class="rst-chev">›</span>
+        </button>
+
+        <button type="button" class="rst-row" id="rg-menu-invite">
+          <span class="rst-row-ico">🔗</span>
+          <span class="rst-row-txt"><b>Compartir invitación</b><small>Código: ${Utils.sanitize(group.code)}</small></span>
+          <span class="rst-chev">›</span>
+        </button>
+
+        ${isAdmin && !isPrem ? `
+          <button type="button" class="btn btn-premium" id="rg-menu-upgrade" style="margin-top:.2rem;width:100%;">
+            ✨ Mejorar grupo a ruma Plus
+          </button>
+        ` : ''}
+
+        ${isCreator ? `
+          <button type="button" class="btn btn-danger" id="rg-menu-delete" style="margin-top:.25rem;width:100%;">
+            🗑️ Eliminar grupo
+          </button>
+        ` : ''}
       </div>`,
     onMount: () => {
-      document.getElementById('rg-menu-goals')?.addEventListener('click', () => {
+      document.getElementById('rg-menu-edit')?.addEventListener('click', () => {
         UI.closeModal();
-        store.navigate('group', { groupTab: 'goals_notes' });
+        openEditGroupModal(group, save);
+      });
+      document.getElementById('rg-menu-avatar')?.addEventListener('click', () => {
+        UI.closeModal();
+        triggerAvatarCrop();
+      });
+      document.getElementById('rg-menu-cover')?.addEventListener('click', () => {
+        UI.closeModal();
+        triggerCoverCrop();
+      });
+      document.getElementById('rg-menu-members')?.addEventListener('click', () => {
+        UI.closeModal();
+        openGroupMembersModal(group, user, invite);
+      });
+      document.getElementById('rg-menu-invite')?.addEventListener('click', () => {
+        UI.closeModal();
+        invite();
+      });
+      document.getElementById('rg-menu-upgrade')?.addEventListener('click', () => {
+        UI.closeModal();
+        UI.showUpgradeModal(`Mejora "${group.name}" a Grupo Premium ruma Plus para tener películas, series, libros y canciones ilimitadas.`, () => {
+          store.upgradeGroupToPremium(group.id);
+          UI.showToast('¡Grupo mejorado a ruma Plus! ✨🎉', 'success');
+        });
       });
       document.getElementById('rg-menu-delete')?.addEventListener('click', () => confirmDeleteGroup(group));
     }
@@ -202,14 +327,16 @@ function confirmDeleteGroup(group) {
   UI.openModal({
     title: '¿Eliminar este grupo?',
     contentHtml: `
-      <p style="color:var(--text-secondary);font-size:.9rem;margin-bottom:.8rem;">
-        Se eliminará <b>${Utils.sanitize(group.name)}</b> para <b>todos los miembros</b>, con sus recuerdos, películas, series, música y chat. Esta acción no se puede deshacer.
+      <p style="color:var(--text-secondary);font-size:.9rem;margin-bottom:.85rem;line-height:1.45;">
+        Se eliminará <b>${Utils.sanitize(group.name)}</b> para <b>todos los miembros</b>, con sus recuerdos, películas, series, música, libros, objetivos y chat. Esta acción no se puede deshacer.
       </p>
-      <label style="font-size:.8rem;color:var(--text-muted);">Escribe el nombre del grupo para confirmar</label>
-      <input id="rg-del-input" class="input" style="width:100%;margin:.4rem 0 1rem;" autocomplete="off" placeholder="${Utils.sanitize(group.name)}">
+      <div class="form-group">
+        <label class="form-label">Escribe el nombre del grupo para confirmar</label>
+        <input id="rg-del-input" class="form-input" autocomplete="off" placeholder="${Utils.sanitize(group.name)}">
+      </div>
       <div style="display:flex;gap:.6rem;justify-content:flex-end;">
         <button type="button" class="btn btn-secondary" id="rg-del-cancel">Cancelar</button>
-        <button type="button" class="btn" id="rg-del-ok" disabled style="background:#dc2626;color:#fff;opacity:.5;">Eliminar</button>
+        <button type="button" class="btn btn-danger" id="rg-del-ok" disabled>Eliminar</button>
       </div>`,
     onMount: () => {
       const input = document.getElementById('rg-del-input');
@@ -217,7 +344,6 @@ function confirmDeleteGroup(group) {
       input.addEventListener('input', () => {
         const match = input.value.trim() === group.name.trim();
         ok.disabled = !match;
-        ok.style.opacity = match ? '1' : '.5';
       });
       document.getElementById('rg-del-cancel').addEventListener('click', () => UI.closeModal());
       ok.addEventListener('click', async () => {

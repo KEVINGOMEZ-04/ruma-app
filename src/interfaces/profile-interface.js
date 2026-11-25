@@ -5,6 +5,7 @@ import { store } from '../core/store.js';
 import { Entitlements } from '../core/entitlements.js';
 import { Utils } from '../core/utils.js';
 import { UI } from '../components/ui.js';
+import { openImageCropperModal } from '../components/image-cropper.js';
 
 const svg = (inner, size = 18) =>
   `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${inner}</svg>`;
@@ -300,92 +301,6 @@ function openBannerPickerModal(user, onPickFile) {
         UI.closeModal();
         UI.showToast('Degradado de portada actualizado ✨', 'success');
       }));
-    }
-  });
-}
-
-function openImageCropperModal(file, { title, aspectW, aspectH, round, outW, outH, onCropped }) {
-  const objUrl = URL.createObjectURL(file);
-  UI.openModal({
-    title,
-    contentHtml: `
-      <div style="display:flex;flex-direction:column;gap:.85rem;align-items:center;">
-        <div style="font-size:.78rem;color:var(--text-muted);text-align:center;">Arrastra la imagen para encuadrar y usa el zoom</div>
-        <div id="rpf-crop-box" style="position:relative;width:100%;max-width:300px;aspect-ratio:${aspectW}/${aspectH};overflow:hidden;border-radius:${round ? '50%' : '14px'};border:2px solid #c084fc;background:#0b0518;touch-action:none;cursor:grab;">
-          <img id="rpf-crop-img" src="${objUrl}" alt="" draggable="false" style="position:absolute;left:50%;top:50%;transform-origin:center;user-select:none;pointer-events:none;max-width:none;">
-        </div>
-        <div style="width:100%;max-width:300px;display:flex;align-items:center;gap:.6rem;">
-          <span style="font-size:.78rem;color:var(--text-muted);">Zoom</span>
-          <input type="range" id="rpf-crop-zoom" min="1" max="3" step="0.02" value="1" style="flex:1;accent-color:#a855f7;">
-        </div>
-        <div style="display:flex;gap:.6rem;width:100%;justify-content:flex-end;">
-          <button type="button" class="btn btn-secondary" id="rpf-crop-cancel">Cancelar</button>
-          <button type="button" class="btn btn-primary" id="rpf-crop-save">Guardar recorte</button>
-        </div>
-      </div>`,
-    onMount: () => {
-      const box = document.getElementById('rpf-crop-box');
-      const img = document.getElementById('rpf-crop-img');
-      const zoomInp = document.getElementById('rpf-crop-zoom');
-      let scale = 1, baseScale = 1, dx = 0, dy = 0;
-      let dragging = false, sx = 0, sy = 0;
-
-      const apply = () => {
-        if (!img || !box) return;
-        const s = baseScale * scale;
-        const bw = box.clientWidth, bh = box.clientHeight;
-        const iw = img.naturalWidth * s, ih = img.naturalHeight * s;
-        const maxX = Math.max(0, (iw - bw) / 2);
-        const maxY = Math.max(0, (ih - bh) / 2);
-        dx = Math.max(-maxX, Math.min(maxX, dx));
-        dy = Math.max(-maxY, Math.min(maxY, dy));
-        img.style.width = `${img.naturalWidth}px`;
-        img.style.height = `${img.naturalHeight}px`;
-        img.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px)) scale(${s})`;
-      };
-
-      img.onload = () => {
-        const bw = box.clientWidth || 260, bh = box.clientHeight || 260;
-        baseScale = Math.max(bw / img.naturalWidth, bh / img.naturalHeight);
-        apply();
-      };
-
-      box?.addEventListener('pointerdown', (e) => {
-        dragging = true; sx = e.clientX; sy = e.clientY;
-        box.setPointerCapture?.(e.pointerId);
-      });
-      box?.addEventListener('pointermove', (e) => {
-        if (!dragging) return;
-        dx += e.clientX - sx; dy += e.clientY - sy;
-        sx = e.clientX; sy = e.clientY;
-        apply();
-      });
-      const stopDrag = () => { dragging = false; };
-      box?.addEventListener('pointerup', stopDrag);
-      box?.addEventListener('pointercancel', stopDrag);
-
-      zoomInp?.addEventListener('input', () => { scale = Number(zoomInp.value); apply(); });
-
-      const close = () => { URL.revokeObjectURL(objUrl); UI.closeModal(); };
-      document.getElementById('rpf-crop-cancel')?.addEventListener('click', close);
-      document.querySelector('#ruma-active-modal .ruma-modal-close')?.addEventListener('click', () => URL.revokeObjectURL(objUrl), { once: true });
-
-      document.getElementById('rpf-crop-save')?.addEventListener('click', () => {
-        const bw = box.clientWidth, bh = box.clientHeight;
-        const s = baseScale * scale;
-        const c = document.createElement('canvas');
-        c.width = outW; c.height = outH;
-        const ctx = c.getContext('2d');
-        const ratioX = outW / bw, ratioY = outH / bh;
-        const drawW = img.naturalWidth * s * ratioX;
-        const drawH = img.naturalHeight * s * ratioY;
-        const drawX = (outW - drawW) / 2 + dx * ratioX;
-        const drawY = (outH - drawH) / 2 + dy * ratioY;
-        ctx.drawImage(img, drawX, drawY, drawW, drawH);
-        const dataUrl = c.toDataURL('image/jpeg', 0.8);
-        close();
-        onCropped(dataUrl);
-      });
     }
   });
 }
