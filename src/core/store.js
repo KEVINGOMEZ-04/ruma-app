@@ -850,16 +850,25 @@ class RumaStore {
   }
 
   getActiveGroup() {
+    const user = this.getCurrentUser();
     const activeId = localStorage.getItem(CONFIG.storageKeys.activeGroupId);
     const myGroups = this.getMyGroups();
-    return myGroups.find(g => g.id === activeId) || myGroups[0] || null;
+    const locked = Entitlements.getLockedGroupIds(user, this.getGroups());
+    const found = myGroups.find(g => g.id === activeId && !locked.has(g.id));
+    return found || myGroups.find(g => !locked.has(g.id)) || myGroups[0] || null;
   }
 
   setActiveGroup(groupId) {
+    const user = this.getCurrentUser();
+    const locked = Entitlements.getLockedGroupIds(user, this.getGroups());
+    if (locked.has(groupId)) {
+      return { ok: false, locked: true };
+    }
     localStorage.setItem(CONFIG.storageKeys.activeGroupId, groupId);
     this.currentInterface = 'group';
     this.currentGroupTab = 'home';
     this.notify();
+    return { ok: true };
   }
 
   // --- ACTIVIDAD DEL GRUPO ---
@@ -1039,7 +1048,8 @@ class RumaStore {
       username: user.username,
       avatar: user.avatar,
       frameId: user.frameId || 'frame-none',
-      role: 'member'
+      role: 'member',
+      joinedAt: new Date().toISOString()
     });
     target.updatedAt = new Date().toISOString();
     this.logActivity(target, user, 'join');

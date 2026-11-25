@@ -500,3 +500,7 @@
 .rst-lim-row b{font-weight:800;color:#fff}
 .rst-bar{height:.38rem;border-radius:9999px;background:rgba(255,255,255,.09);overflow:hidden}
 .rst-bar i{display:block;height:100%;border-radius:9999px;background:linear-gradient(90deg,#a855f7,#ec4899)}
+
+/* Grupo bloqueado por límite Freemium */
+.ruma-home-group-card.is-locked{opacity:.72;border-color:rgba(248,113,113,.38)}
+.ruma-home-group-enter.is-locked{background:rgba(127,29,29,.45);border:1px solid rgba(248,113,113,.5);color:#fecaca;box-shadow:none}

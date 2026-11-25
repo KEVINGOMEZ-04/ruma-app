@@ -170,5 +170,35 @@ export const Entitlements = {
     if (group.creatorId === userId) return true;
     const member = (group.members || []).find(m => m.id === userId);
     return Boolean(member && member.role === 'admin');
+  },
+
+  /**
+   * Devuelve un Set con los IDs de grupos bloqueados para el usuario por exceso del límite Freemium (máx 2 grupos).
+   * Se conserva el grupo creado por el usuario y el más antiguo al que se unió; se bloquean los más recientes ingresados.
+   */
+  getLockedGroupIds(user, allGroups = []) {
+    const locked = new Set();
+    if (!user || this.isUserPremium(user, allGroups)) return locked;
+
+    const myGroups = allGroups.filter(g => (g.members || []).some(m => m.id === user.id));
+    const maxAllowed = PLAN_LIMITS.free.maxTotalGroups;
+    if (myGroups.length <= maxAllowed) return locked;
+
+    const withMeta = myGroups.map((g, idx) => {
+      const me = (g.members || []).find(m => m.id === user.id);
+      const isCreator = g.creatorId === user.id;
+      const ts = me?.joinedAt || g.createdAt || '';
+      return { g, idx, isCreator, ts };
+    });
+
+    // Prioridad para conservar: primero creados por el usuario, luego los más antiguos ingresados
+    const ordered = [...withMeta].sort((a, b) => {
+      if (a.isCreator !== b.isCreator) return a.isCreator ? -1 : 1;
+      if (a.ts && b.ts && a.ts !== b.ts) return a.ts.localeCompare(b.ts);
+      return a.idx - b.idx;
+    });
+
+    ordered.slice(maxAllowed).forEach(entry => locked.add(entry.g.id));
+    return locked;
   }
 };

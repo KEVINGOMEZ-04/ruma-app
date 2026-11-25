@@ -207,12 +207,15 @@ export function renderHomeInterface(container) {
           ` : `
             <!-- Tarjetas de Grupos Sincronizados -->
             <div class="ruma-home-groups-list">
-              ${myGroups.map(g => {
+              ${(() => {
+                const lockedIds = Entitlements.getLockedGroupIds(user, allGroups);
+                return myGroups.map(g => {
                 const isCreator = g.creatorId === user.id;
                 const isAdmin = Entitlements.isGroupAdmin(g, user.id);
                 const gPrem = Entitlements.isGroupPremium(g);
+                const isLocked = lockedIds.has(g.id);
                 return `
-                  <article class="ruma-home-group-card" data-enter-group="${Utils.sanitize(g.id)}">
+                  <article class="ruma-home-group-card ${isLocked ? 'is-locked' : ''}" data-enter-group="${Utils.sanitize(g.id)}">
                     <div class="ruma-home-group-top">
                       <div class="ruma-home-group-badges">
                         <span class="badge ${gPrem ? 'badge-premium' : 'badge-free'}">
@@ -221,6 +224,7 @@ export function renderHomeInterface(container) {
                         <span class="badge badge-admin">
                           ${isCreator ? '👑 Creador' : (isAdmin ? '🛡️ Admin' : '👤 Miembro')}
                         </span>
+                        ${isLocked ? `<span class="badge" style="background:rgba(239,68,68,.18);border:1px solid rgba(248,113,113,.45);color:#fca5a5;">🔒 Bloqueado</span>` : ''}
                       </div>
                       <button
                         type="button"
@@ -235,7 +239,9 @@ export function renderHomeInterface(container) {
                     <div class="ruma-home-group-main">
                       <h3 class="ruma-home-group-name">${Utils.sanitize(g.name)}</h3>
                       <p class="ruma-home-group-desc">
-                        ${Utils.sanitize(g.description || 'Espacio privado sincronizado en la nube.')}
+                        ${isLocked
+                          ? 'Acceso bloqueado en Plan Free (máx. 2 grupos). Activa ruma Plus para desbloquearlo.'
+                          : Utils.sanitize(g.description || 'Espacio privado sincronizado en la nube.')}
                       </p>
                     </div>
 
@@ -253,14 +259,15 @@ export function renderHomeInterface(container) {
                             ✨ Mejorar a Plus
                           </button>
                         ` : ''}
-                        <button type="button" class="ruma-home-group-enter" data-enter-group="${Utils.sanitize(g.id)}">
-                          Entrar ➔
+                        <button type="button" class="ruma-home-group-enter ${isLocked ? 'is-locked' : ''}" data-enter-group="${Utils.sanitize(g.id)}">
+                          ${isLocked ? '🔒 Bloqueado' : 'Entrar ➔'}
                         </button>
                       </div>
                     </div>
                   </article>
                 `;
-              }).join('')}
+              }).join('');
+              })()}
             </div>
           `}
         </section>
@@ -338,7 +345,16 @@ export function renderHomeInterface(container) {
   container.querySelectorAll('[data-enter-group]').forEach(el => {
     el.addEventListener('click', () => {
       const groupId = el.getAttribute('data-enter-group');
-      store.setActiveGroup(groupId);
+      const res = store.setActiveGroup(groupId);
+      if (res && res.locked) {
+        UI.showUpgradeModal(
+          'En el Plan Free solo puedes acceder a 2 grupos (1 creado y 1 unido). El grupo más reciente quedó bloqueado. Activa ruma Plus para entrar a todos tus grupos.',
+          () => {
+            store.setUserPremiumPlan(true);
+            store.setActiveGroup(groupId);
+          }
+        );
+      }
     });
   });
 }
