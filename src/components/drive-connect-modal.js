@@ -9,16 +9,52 @@
  */
 
 import { store } from '../core/store.js';
+import { Entitlements } from '../core/entitlements.js';
 import { Utils } from '../core/utils.js';
 import { GoogleAuth } from '../services/google-auth.js';
 import { DriveBridge } from '../services/drive-bridge.js';
 import { UI } from './ui.js';
 
-export function renderDriveConnectionPanelHtml(group, isAdmin = true) {
+function resolveCanManageDrive(group, isAdminParam) {
+  const user = store.getCurrentUser();
+  if (!group || !user) return false;
+  const isRealAdmin = Entitlements.isGroupAdmin(group, user.id);
+  return isAdminParam === undefined ? isRealAdmin : Boolean(isAdminParam && isRealAdmin);
+}
+
+export function renderDriveConnectionPanelHtml(group, isAdmin = undefined) {
+  const canManage = resolveCanManageDrive(group, isAdmin);
+  const hasRealFolder = DriveBridge.isRealFolderConfigured(group?.driveFolderUrl);
+  const safeFolderUrl = hasRealFolder ? Utils.safeUrl(group.driveFolderUrl, '') : '';
+
+  if (!canManage) {
+    return `
+      <div style="display:flex;flex-direction:column;gap:0.9rem;">
+        <div style="padding:1rem;border-radius:var(--radius-md);background:var(--bg-elevated);border:1px solid var(--border-subtle);display:flex;flex-direction:column;gap:0.65rem;">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;flex-wrap:wrap;">
+            <strong style="font-size:0.95rem;">🛡️ Solo administradores</strong>
+            <span class="badge ${hasRealFolder ? 'badge-free' : 'badge-admin'}">
+              ${hasRealFolder ? '📁 Carpeta Ruma 🌷 vinculada' : 'Pendiente de configurar'}
+            </span>
+          </div>
+          <p style="margin:0;font-size:0.84rem;color:var(--text-secondary);line-height:1.45;">
+            Solo los miembros con rango de <strong>Administrador</strong> pueden conectar, crear, cambiar o desconectar la sincronización de la carpeta <strong>Ruma 🌷</strong> de Google Drive en este grupo.
+          </p>
+          ${safeFolderUrl ? `
+            <div style="display:flex;justify-content:flex-end;margin-top:0.25rem;">
+              <a href="${Utils.sanitize(safeFolderUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm">
+                📂 Abrir carpeta en Google Drive ↗
+              </a>
+            </div>
+          ` : ''}
+        </div>
+      </div>
+    `;
+  }
+
   const session = GoogleAuth.getSession();
   const hasDrive = GoogleAuth.hasDriveAccess();
   const clientId = GoogleAuth.getClientId(group);
-  const hasRealFolder = DriveBridge.isRealFolderConfigured(group?.driveFolderUrl);
   const safePicture = Utils.safeUrl(session?.picture, '');
 
   return `
@@ -62,13 +98,10 @@ export function renderDriveConnectionPanelHtml(group, isAdmin = true) {
             style="flex:1;min-width:220px;"
             value="${Utils.sanitize(hasRealFolder ? group.driveFolderUrl : '')}"
             placeholder="https://drive.google.com/drive/folders/..."
-            ${!isAdmin ? 'disabled' : ''}
           >
-          ${isAdmin ? `
-            <button type="button" class="btn btn-secondary btn-sm" id="btn-drive-create-auto-folder" title="Crea o vincula la carpeta Ruma 🌷 en tu Google Drive">
-              ✨ Crear / vincular Ruma 🌷
-            </button>
-          ` : ''}
+          <button type="button" class="btn btn-secondary btn-sm" id="btn-drive-create-auto-folder" title="Crea o vincula la carpeta Ruma 🌷 en tu Google Drive">
+            ✨ Crear / vincular Ruma 🌷
+          </button>
         </div>
         <small style="display:block;color:var(--text-muted);font-size:0.76rem;margin-top:0.4rem;">
           ruma solo accede a la carpeta <strong>Ruma 🌷</strong> que crea para ti. Dentro de ella, cada recuerdo creará su propia subcarpeta <code>[Nombre del Recuerdo - Día y Fecha]</code> con sus fotos, videos y nota de voz.
@@ -82,18 +115,18 @@ export function renderDriveConnectionPanelHtml(group, isAdmin = true) {
         <button type="button" class="btn btn-secondary btn-sm" id="btn-drive-test-connection">
           🚀 Probar Conexión con Drive
         </button>
-        ${isAdmin ? `
-          <button type="button" class="btn btn-primary btn-sm" id="btn-drive-save-all">
-            💾 Guardar Configuración de Drive
-          </button>
-        ` : ''}
+        <button type="button" class="btn btn-primary btn-sm" id="btn-drive-save-all">
+          💾 Guardar Configuración de Drive
+        </button>
       </div>
     </div>
   `;
 }
 
-export function bindDriveConnectionPanelEvents(rootEl, group, isAdmin = true, onUpdated = null) {
+export function bindDriveConnectionPanelEvents(rootEl, group, isAdmin = undefined, onUpdated = null) {
   if (!rootEl) return;
+  const canManage = resolveCanManageDrive(group, isAdmin);
+  if (!canManage) return;
 
   const clientIdInput = rootEl.querySelector('#inp-drive-client-id');
   const folderUrlInput = rootEl.querySelector('#inp-drive-folder-url');
@@ -112,7 +145,7 @@ export function bindDriveConnectionPanelEvents(rootEl, group, isAdmin = true, on
     const cid = clientIdInput?.value.trim() || '';
     const folderUrl = folderUrlInput?.value.trim() || '';
     GoogleAuth.setClientId(cid);
-    if (group && isAdmin) {
+    if (group) {
       const patch = { driveClientId: cid };
       if (folderUrl) patch.driveFolderUrl = folderUrl;
       store.updateGroupSettings(group.id, patch);
@@ -163,8 +196,9 @@ export function bindDriveConnectionPanelEvents(rootEl, group, isAdmin = true, on
     try {
       const created = await DriveBridge.createGroupFolderInDrive(group);
       if (folderUrlInput) folderUrlInput.value = created.webViewLink;
-      if (group && isAdmin) {
-        store.updateGroupSettings(group.id, { driveFolderUrl: created.webViewLink, driveClientId: cid });
+      if (group) {
+        const res = store.updateGroupSettings(group.id, { driveFolderUrl: created.webViewLink, driveClientId: cid });
+        if (!res?.ok) throw new Error(res?.error || 'Solo los administradores pueden actualizar la carpeta.');
       }
       showFeedback(`✅ Carpeta "${created.name}" creada en tu Google Drive y vinculada automáticamente.`, false);
       UI.showToast('¡Carpeta creada y vinculada en tu Google Drive! 📁✨', 'success');
@@ -184,7 +218,7 @@ export function bindDriveConnectionPanelEvents(rootEl, group, isAdmin = true, on
       return;
     }
     if (!folderUrl) {
-      showFeedback('⚠️ Pega el enlace de tu carpeta de Google Drive o pulsa «✨ Crear carpeta en mi Drive».', true);
+      showFeedback('⚠️ Pega el enlace de tu carpeta de Google Drive o pulsa «✨ Crear / vincular Ruma 🌷».', true);
       return;
     }
 
@@ -205,11 +239,15 @@ export function bindDriveConnectionPanelEvents(rootEl, group, isAdmin = true, on
 
   rootEl.querySelector('#btn-drive-save-all')?.addEventListener('click', () => {
     const { cid, folderUrl } = persistInputs();
-    if (group && isAdmin) {
-      store.updateGroupSettings(group.id, {
+    if (group) {
+      const res = store.updateGroupSettings(group.id, {
         driveClientId: cid,
         driveFolderUrl: folderUrl
       });
+      if (!res?.ok) {
+        showFeedback(`❌ ${res?.error || 'Solo los administradores pueden guardar la configuración de Drive.'}`, true);
+        return;
+      }
     }
     showFeedback('✅ Configuración de Google Drive guardada correctamente.', false);
     UI.showToast('Configuración de Google Drive guardada 📂✨', 'success');
@@ -217,14 +255,15 @@ export function bindDriveConnectionPanelEvents(rootEl, group, isAdmin = true, on
   });
 }
 
-export function openDriveConnectModal(group, isAdmin = true) {
+export function openDriveConnectModal(group, isAdmin = undefined) {
+  const canManage = resolveCanManageDrive(group, isAdmin);
   UI.openModal({
-    title: `📂 Conectar Google Drive — "${group?.name || 'Grupo'}"`,
+    title: `📂 Google Drive — "${group?.name || 'Grupo'}"`,
     size: 'lg',
-    contentHtml: renderDriveConnectionPanelHtml(group, isAdmin),
+    contentHtml: renderDriveConnectionPanelHtml(group, canManage),
     onMount: (modalEl) => {
-      bindDriveConnectionPanelEvents(modalEl, group, isAdmin, () => {
-        openDriveConnectModal(store.getActiveGroup() || group, isAdmin);
+      bindDriveConnectionPanelEvents(modalEl, group, canManage, () => {
+        openDriveConnectModal(store.getActiveGroup() || group, canManage);
       });
     }
   });

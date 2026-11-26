@@ -267,10 +267,11 @@ export function renderGroupMemoriesView(viewport, group, user, isAdmin, ctx) {
             <button type="button" class="btn ${idx === month ? 'btn-primary' : 'btn-secondary'} btn-sm" data-pk-m="${idx}">${mName}</button>
           `).join('')}
         </div>
+        ${isAdmin ? `
         <div style="margin-top:.9rem;padding-top:.8rem;border-top:1px solid var(--border-subtle);display:flex;justify-content:space-between;align-items:center;">
           <span style="font-size:.8rem;color:var(--text-secondary);">Google Drive del grupo</span>
           <button type="button" class="btn btn-secondary btn-sm" id="pk-drive">☁️ Configurar Drive</button>
-        </div>`,
+        </div>` : ''}`,
       onMount: () => {
         document.getElementById('pk-yr-prev')?.addEventListener('click', () => { memFilterState.calYear -= 1; UI.closeModal(); rerender(); });
         document.getElementById('pk-yr-next')?.addEventListener('click', () => { memFilterState.calYear += 1; UI.closeModal(); rerender(); });
@@ -280,10 +281,12 @@ export function renderGroupMemoriesView(viewport, group, user, isAdmin, ctx) {
           UI.closeModal();
           rerender();
         }));
-        document.getElementById('pk-drive')?.addEventListener('click', () => {
-          UI.closeModal();
-          openDriveConnectModal(group, isAdmin);
-        });
+        if (isAdmin) {
+          document.getElementById('pk-drive')?.addEventListener('click', () => {
+            UI.closeModal();
+            openDriveConnectModal(group, true);
+          });
+        }
       }
     });
   });
@@ -501,9 +504,17 @@ export function renderGroupMemoriesView(viewport, group, user, isAdmin, ctx) {
           });
           document.getElementById('mm-drive')?.addEventListener('click', async () => {
             UI.closeModal();
+            if (!DriveBridge.isRealFolderConfigured(group.driveFolderUrl) && !isAdmin) {
+              UI.showToast('Solo los administradores pueden configurar la carpeta de Google Drive del grupo 🛡️', 'info');
+              return;
+            }
             if (!GoogleAuth.hasValidClientId(group)) {
-              openDriveConnectModal(group, isAdmin);
-              UI.showToast('Conecta Google Drive para sincronizar el recuerdo 🔑', 'info');
+              if (isAdmin) {
+                openDriveConnectModal(group, true);
+                UI.showToast('Conecta Google Drive para sincronizar el recuerdo 🔑', 'info');
+              } else {
+                UI.showToast('Solo los administradores pueden configurar la carpeta de Google Drive del grupo 🛡️', 'info');
+              }
               return;
             }
             UI.showToast('Subiendo recuerdo a Google Drive...', 'info');

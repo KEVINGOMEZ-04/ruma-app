@@ -375,11 +375,15 @@ function openUploadMemoryModal(group, editingMemory = null, prefillDate = null, 
             <strong id="mem-folder-preview" style="color:var(--text-primary);">${Utils.sanitize(sampleFolder)}</strong>
             <div style="font-size:0.74rem;color:${hasDriveAccess ? '#34D399' : '#FBBF24'};margin-top:0.2rem;">
               ${hasDriveAccess
-                ? `🟢 Google Drive conectado (${Utils.sanitize(googleSession?.email || googleSession?.name || 'Drive')})${hasRealFolder ? ' · Subirá a la carpeta vinculada' : ' · Creará tu carpeta Ruma 🌷 automáticamente'}`
-                : '⚠️ Google Drive no conectado: se guardará en tu dispositivo y podrás subirlo a Ruma 🌷 cuando conectes Drive.'}
+                ? `🟢 Google Drive conectado (${Utils.sanitize(googleSession?.email || googleSession?.name || 'Drive')})${hasRealFolder ? ' · Subirá a la carpeta vinculada' : (isAdmin ? ' · Creará tu carpeta Ruma 🌷 automáticamente' : ' · Esperando que un administrador vincule Ruma 🌷')}`
+                : (isAdmin
+                    ? '⚠️ Google Drive no conectado: se guardará en tu dispositivo y podrás subirlo a Ruma 🌷 cuando conectes Drive.'
+                    : (hasRealFolder
+                        ? '📂 Carpeta Ruma 🌷 vinculada por un administrador. Tu recuerdo se guardará en el grupo.'
+                        : '🛡️ Solo un administrador puede configurar la carpeta Ruma 🌷 de Google Drive en este grupo.'))}
             </div>
           </div>
-          ${!hasDriveAccess ? `
+          ${!hasDriveAccess && isAdmin ? `
             <button type="button" class="btn btn-secondary btn-sm" id="btn-mem-modal-connect-drive">
               🔑 Conectar Drive
             </button>
@@ -768,10 +772,19 @@ async function openMemoryDetailModal(group, mem, user) {
 
       document.getElementById('btn-mem-detail-sync-drive')?.addEventListener('click', async (e) => {
         const btn = e.currentTarget;
+        const canAdmin = Entitlements.isGroupAdmin(group, user.id);
+        if (!DriveBridge.isRealFolderConfigured(group.driveFolderUrl) && !canAdmin) {
+          UI.showToast('Solo los administradores pueden configurar la carpeta de Google Drive del grupo 🛡️', 'info');
+          return;
+        }
         if (!GoogleAuth.hasValidClientId(group)) {
-          UI.closeModal();
-          openDriveConnectModal(group, Entitlements.isGroupAdmin(group, user.id));
-          UI.showToast('Configura tu Client ID e inicia sesión con Google para subir a Drive 🔑', 'info');
+          if (canAdmin) {
+            UI.closeModal();
+            openDriveConnectModal(group, true);
+            UI.showToast('Configura tu Client ID e inicia sesión con Google para subir a Drive 🔑', 'info');
+          } else {
+            UI.showToast('Solo los administradores pueden configurar la carpeta de Google Drive del grupo 🛡️', 'info');
+          }
           return;
         }
         btn.disabled = true;

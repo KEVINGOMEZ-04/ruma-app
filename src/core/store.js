@@ -1421,6 +1421,7 @@ class RumaStore {
       };
     }
 
+    const isAdmin = Entitlements.isGroupAdmin(group, user.id);
     const record = await DriveBridge.syncMemoryToDrive(group, {
       id,
       title,
@@ -1429,7 +1430,7 @@ class RumaStore {
       voiceNote,
       authorId: user.id,
       authorName: user.name
-    }, files || [], onProgress);
+    }, files || [], onProgress, { allowCreateRootFolder: isAdmin });
 
     const newThumbnails = (record.files || []).map(f => f.thumbnail).filter(Boolean);
     const allPhotos = [...(existingPhotos || []), ...newThumbnails];
@@ -1497,7 +1498,7 @@ class RumaStore {
       this.logActivity(group, user, 'memory', `${memoryData.filesCount} ${memoryData.filesCount === 1 ? 'archivo' : 'archivos'} · ${memoryData.title}`);
     }
 
-    if (record.rootDriveFolderUrl && !DriveBridge.isRealFolderConfigured(group.driveFolderUrl)) {
+    if (isAdmin && record.rootDriveFolderUrl && !DriveBridge.isRealFolderConfigured(group.driveFolderUrl)) {
       group.driveFolderUrl = record.rootDriveFolderUrl;
     }
 
@@ -1512,6 +1513,7 @@ class RumaStore {
   }
 
   async syncExistingMemoryToDrive(memoryId, onProgress = null) {
+    const user = this.getCurrentUser();
     const allGroups = this.getGroups();
     const active = this.getActiveGroup();
     const group = allGroups.find(g => g.id === active?.id);
@@ -1520,9 +1522,17 @@ class RumaStore {
     const mem = (group.memories || []).find(m => m.id === memoryId);
     if (!mem) return { ok: false, error: 'Recuerdo no encontrado.' };
 
+    const isAdmin = Entitlements.isGroupAdmin(group, user?.id);
+    if (!DriveBridge.isRealFolderConfigured(group.driveFolderUrl) && !isAdmin) {
+      return {
+        ok: false,
+        error: 'Solo los Administradores del grupo pueden configurar o vincular la carpeta de Google Drive.'
+      };
+    }
+
     try {
-      const synced = await DriveBridge.syncExistingMemoryToDrive(group, mem, onProgress);
-      if (synced.rootDriveFolderUrl && !DriveBridge.isRealFolderConfigured(group.driveFolderUrl)) {
+      const synced = await DriveBridge.syncExistingMemoryToDrive(group, mem, onProgress, { allowCreateRootFolder: isAdmin });
+      if (isAdmin && synced.rootDriveFolderUrl && !DriveBridge.isRealFolderConfigured(group.driveFolderUrl)) {
         group.driveFolderUrl = synced.rootDriveFolderUrl;
       }
       const { rootDriveFolderUrl: _rootUrl, ...memPatch } = synced;
