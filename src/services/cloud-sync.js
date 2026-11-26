@@ -186,7 +186,7 @@ export const CloudSync = {
 
       setStatus('online');
       return null;
-    } catch (err) {
+    } catch (_) {
       setStatus('offline');
       return null;
     }

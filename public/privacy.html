@@ -15,15 +15,16 @@
   <div class="card">
     <h1>Política de Privacidad — ruma 🌟</h1>
     <p><strong>Última actualización:</strong> Noviembre 2026</p>
-    <p><strong>ruma</strong> es un espacio digital privado para grupos que permite organizar recuerdos, películas, series, música, metas y notas compartidas.</p>
+    <p><strong>ruma</strong> es un espacio digital privado para grupos que permite organizar recuerdos, películas, series, libros, música, actividades, metas, notas y chat compartido.</p>
     <h2>1. Datos que utilizamos</h2>
-    <p>Cuando inicias sesión con Google (OAuth 2.0), ruma utiliza únicamente tu nombre, dirección de correo electrónico, imagen de perfil y el permiso de Google Drive autorizado por ti para crear subcarpetas de recuerdos y subir las fotos, videos o notas de voz que decidas guardar en la carpeta de tu grupo.</p>
-    <h2>2. Almacenamiento</h2>
-    <p>Los archivos multimedia se almacenan directamente en la carpeta de Google Drive vinculada por tu grupo y en la caché local de tu navegador (IndexedDB) para visualización rápida.</p>
-    <h2>3. Terceros</h2>
-    <p>ruma no vende ni comparte tus datos personales con terceros. Las consultas de catálogo audiovisual utilizan las APIs públicas de TMDb, iTunes y LRCLIB.</p>
-    <h2>4. Contacto</h2>
-    <p>Para cualquier consulta sobre privacidad, puedes escribir a <a href="mailto:kelvix110@gmail.com">kelvix110@gmail.com</a>.</p>
+    <p>Para crear tu cuenta y sincronizar tus grupos entre dispositivos, ruma almacena tu perfil (nombre, @usuario, avatar y opcionalmente correo o teléfono), credenciales protegidas mediante hash criptográfico (PBKDF2) y el contenido que compartes en tus grupos.</p>
+    <p>Cuando conectas tu cuenta de Google (OAuth 2.0), ruma utiliza tu nombre, correo electrónico, imagen de perfil y el permiso autorizado de Google Drive únicamente para crear subcarpetas de recuerdos y respaldar allí las fotos, videos o notas de voz que elijas subir.</p>
+    <h2>2. Almacenamiento y sincronización</h2>
+    <p>El estado de tus grupos (mensajes, listas, progreso y reseñas) se sincroniza mediante <strong>Firebase Realtime Database</strong> y se guarda en caché local en tu navegador (<code>localStorage</code> e <code>IndexedDB</code>). Los archivos multimedia originales de recuerdos se respaldan en la carpeta de <strong>Google Drive</strong> vinculada por tu grupo.</p>
+    <h2>3. Servicios de terceros</h2>
+    <p>ruma no vende ni comparte tus datos personales con terceros con fines publicitarios. Para enriquecer fichas de catálogo se consultan APIs públicas de metadatos: <strong>TMDb</strong> (películas y series), <strong>iTunes / Apple Books</strong> y <strong>LRCLIB</strong> (música y letras), <strong>Google Books</strong>, <strong>Open Library</strong> y <strong>Wikipedia</strong> (libros y autores).</p>
+    <h2>4. Contacto y eliminación de datos</h2>
+    <p>Para consultas sobre privacidad o solicitud de eliminación de cuenta y datos, puedes escribir a <a href="mailto:kelvix110@gmail.com">kelvix110@gmail.com</a>.</p>
     <p><a href="./">← Volver a ruma</a></p>
   </div>
 </body>

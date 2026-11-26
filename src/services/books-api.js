@@ -365,7 +365,7 @@ function mergeTwoBookRecords(primary, secondary) {
 }
 
 function finalizeBookRecord(raw) {
-  const { source, coverQuality, ...clean } = raw;
+  const { source: _source, coverQuality: _coverQuality, ...clean } = raw;
   return {
     ...clean,
     poster: clean.poster || DEFAULT_COVER,

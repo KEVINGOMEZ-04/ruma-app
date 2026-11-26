@@ -22,6 +22,7 @@ const ICO = {
   clapper: '<rect x="3" y="7" width="18" height="13" rx="2.2"/><path d="m3 7 3-4h4L7 7m3 0 3-4h4l-3 4"/>',
   tv: '<rect x="3" y="6" width="18" height="13" rx="2.2"/><path d="m8 2 4 4 4-4"/>',
   note: '<path d="M9 18V5l11-2v13"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="17.5" cy="16" r="2.5"/>',
+  book: '<path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32 1.41 1.41M2 12h2m16 0h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>',
   moon: '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>',
   shield: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>',
@@ -53,6 +54,8 @@ export function renderSettingsInterface(container) {
   const seriesMax = isGroupPrem ? Infinity : PLAN_LIMITS.free.maxSeriesPerGroup;
   const songsCount = refGroup ? (refGroup.songs || []).length : 0;
   const songsMax = isGroupPrem ? Infinity : PLAN_LIMITS.free.maxSongsPerGroup;
+  const booksCount = refGroup ? (refGroup.books || []).length : 0;
+  const booksMax = isGroupPrem ? Infinity : PLAN_LIMITS.free.maxBooksPerGroup;
 
   const pct = (val, max) => max === Infinity ? (val > 0 ? 100 : 0) : Math.min(100, Math.round((val / max) * 100));
   const maxLabel = (max) => max === Infinity ? '∞' : max;
@@ -70,7 +73,8 @@ export function renderSettingsInterface(container) {
     { label: 'Grupos', val: groupsCount, max: groupsMax, ico: ICO.users },
     { label: 'Películas', val: moviesCount, max: moviesMax, ico: ICO.clapper },
     { label: 'Series', val: seriesCount, max: seriesMax, ico: ICO.tv },
-    { label: 'Canciones', val: songsCount, max: songsMax, ico: ICO.note }
+    { label: 'Canciones', val: songsCount, max: songsMax, ico: ICO.note },
+    { label: 'Libros', val: booksCount, max: booksMax, ico: ICO.book }
   ];
 
   container.innerHTML = `

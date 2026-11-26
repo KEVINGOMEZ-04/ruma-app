@@ -17,7 +17,7 @@ export const CONFIG = {
 
   // TMDb API (Películas & Series)
   tmdb: {
-    apiKey: 'e9e9d8da18ae29fc430845952232787c',
+    apiKey: import.meta.env?.VITE_TMDB_API_KEY || 'e9e9d8da18ae29fc430845952232787c',
     backupKeys: [
       '8265bd1679663a7ea12ac168da84d2e8',
       'cfe422613b250f702980a3bbf9e90716'
@@ -27,18 +27,17 @@ export const CONFIG = {
     language: 'es-ES'
   },
 
-  // Google Drive OAuth 2.0 & Master Bridge
+  // Google Drive OAuth 2.0
   googleDrive: {
-    clientId: '419243559314-jriep6ork2h3o44ht83r5fe20ekpi3io.apps.googleusercontent.com',
-    scopes: 'https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile',
-    defaultBridgeUrl: 'https://script.google.com/macros/s/AKfycbx3nWf8YgIzkq1Kna1yfB9rv0d3gjr9xvV1yiE-qb5qwzaV6rFujoacsFjOgMkRrbOFiQ/exec'
+    clientId: import.meta.env?.VITE_GOOGLE_CLIENT_ID || '419243559314-jriep6ork2h3o44ht83r5fe20ekpi3io.apps.googleusercontent.com',
+    scopes: 'https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile'
   },
 
   // Sincronización en la Nube en Tiempo Real (Firebase Realtime Database)
   cloudSync: {
     enabled: true,
-    databaseUrl: 'https://luma-f53ee-default-rtdb.firebaseio.com',
-    rootPath: 'ruma_cloud_v1'
+    databaseUrl: import.meta.env?.VITE_FIREBASE_DATABASE_URL || 'https://luma-f53ee-default-rtdb.firebaseio.com',
+    rootPath: import.meta.env?.VITE_FIREBASE_ROOT_PATH || 'ruma_cloud_v1'
   },
 
   // Marcos de Perfil Estilo Discord

@@ -18,14 +18,14 @@ export function renderDriveConnectionPanelHtml(group, isAdmin = true) {
   const session = GoogleAuth.getSession();
   const clientId = GoogleAuth.getClientId(group);
   const hasRealFolder = DriveBridge.isRealFolderConfigured(group?.driveFolderUrl);
-  const currentOrigin = typeof window !== 'undefined' ? window.location.origin : 'https://kevingomez-04.github.io';
+  const safePicture = Utils.safeUrl(session?.picture, '');
 
   return `
     <div style="display:flex;flex-direction:column;gap:1.1rem;">
       <!-- Estado actual de la sesión de Google -->
       <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.75rem;padding:0.9rem 1rem;border-radius:var(--radius-md);background:${session ? 'rgba(16,185,129,0.12)' : 'rgba(245,158,11,0.1)'};border:1px solid ${session ? 'rgba(16,185,129,0.4)' : 'rgba(245,158,11,0.35)'};">
         <div style="display:flex;align-items:center;gap:0.75rem;">
-          ${session?.picture ? `<img src="${Utils.sanitize(session.picture)}" alt="Google" style="width:40px;height:40px;border-radius:50%;object-fit:cover;">` : `<div style="width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,0.1);display:flex;align-items:center;justify-content:center;font-size:1.2rem;">${session ? '🟢' : '🔐'}</div>`}
+          ${safePicture ? `<img src="${Utils.sanitize(safePicture)}" alt="Google" style="width:40px;height:40px;border-radius:50%;object-fit:cover;">` : `<div style="width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,0.1);display:flex;align-items:center;justify-content:center;font-size:1.2rem;">${session ? '🟢' : '🔐'}</div>`}
           <div>
             <div style="font-weight:800;font-size:0.92rem;color:${session ? '#34D399' : '#FBBF24'};">
               ${session ? `Conectado con Google Drive (${Utils.sanitize(session.name)})` : 'Cuenta de Google no conectada'}
@@ -123,8 +123,7 @@ export function bindDriveConnectionPanelEvents(rootEl, group, isAdmin = true, on
     const btn = e.currentTarget;
     const { cid } = persistInputs();
     if (!cid || !cid.includes('.apps.googleusercontent.com')) {
-      showFeedback('⚠️ Primero pega tu Client ID de Google OAuth 2.0 (termina en .apps.googleusercontent.com) en el Paso 1.', true);
-      clientIdInput?.focus();
+      showFeedback('⚠️ La conexión con Google Drive no tiene un Client ID OAuth configurado en esta instalación.', true);
       return;
     }
 
@@ -153,8 +152,7 @@ export function bindDriveConnectionPanelEvents(rootEl, group, isAdmin = true, on
     const btn = e.currentTarget;
     const { cid } = persistInputs();
     if (!cid || !cid.includes('.apps.googleusercontent.com')) {
-      showFeedback('⚠️ Pega primero tu Client ID de Google OAuth en el Paso 1.', true);
-      clientIdInput?.focus();
+      showFeedback('⚠️ La conexión con Google Drive no tiene un Client ID OAuth configurado en esta instalación.', true);
       return;
     }
 
@@ -181,7 +179,7 @@ export function bindDriveConnectionPanelEvents(rootEl, group, isAdmin = true, on
     const btn = e.currentTarget;
     const { cid, folderUrl } = persistInputs();
     if (!cid || !cid.includes('.apps.googleusercontent.com')) {
-      showFeedback('⚠️ Pega primero tu Client ID de Google OAuth en el Paso 1.', true);
+      showFeedback('⚠️ La conexión con Google Drive no tiene un Client ID OAuth configurado en esta instalación.', true);
       return;
     }
     if (!folderUrl) {

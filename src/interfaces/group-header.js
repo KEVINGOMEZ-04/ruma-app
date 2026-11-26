@@ -31,7 +31,8 @@ export function groupHeaderHtml(group, user) {
   const isAdmin = Entitlements.isGroupAdmin(group, user.id);
   const members = group.members || [];
   const shown = members.slice(0, 3);
-  const cover = group.coverImage ? `style="background-image:url('${Utils.sanitize(group.coverImage)}')"` : '';
+  const safeCover = Utils.safeUrl(group.coverImage, '');
+  const cover = safeCover ? `style="background-image:url('${Utils.sanitize(safeCover)}')"` : '';
   const avatar = group.avatar
     ? `<img src="${Utils.sanitize(group.avatar)}" alt="">`
     : svg('<circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><path d="M16 5.2a3.2 3.2 0 0 1 0 5.6M18 14.3c1.8.8 3 2.6 3 4.7"/>');

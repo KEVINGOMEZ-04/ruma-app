@@ -19,13 +19,11 @@ import { DriveBridge } from '../services/drive-bridge.js';
 import { openDriveConnectModal } from '../components/drive-connect-modal.js';
 import { UI } from '../components/ui.js';
 import {
-  renderProvidersStrip,
   renderProvidersSection,
   renderGroupReviews,
   reviewFormHtml,
   bindReviewForm,
   openReviewModal,
-  hydrateMediaFromTmdb,
   seriesPatchFromDetails,
   getAverage
 } from '../components/media-widgets.js';
@@ -637,7 +635,7 @@ async function openMemoryDetailModal(group, mem, user) {
       <div style="display:flex;flex-direction:column;gap:1.15rem;">
         <!-- Portada principal -->
         <div style="position:relative;height:260px;border-radius:var(--radius-lg);overflow:hidden;background:#070312;">
-          <img src="${Utils.sanitize(mem.coverPreview || photos[0] || 'assets/ruma_icon_512.png')}" alt="${Utils.sanitize(mem.title)}" style="width:100%;height:100%;object-fit:cover;cursor:pointer;" id="mem-detail-hero-img">
+          <img src="${Utils.sanitize(Utils.safeUrl(mem.coverPreview || photos[0] || 'assets/ruma_icon_512.png', 'assets/ruma_icon_512.png'))}" alt="${Utils.sanitize(mem.title)}" style="width:100%;height:100%;object-fit:cover;cursor:pointer;" id="mem-detail-hero-img">
           <div class="mem-hero-overlay">
             <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.3rem;">
               ${mem.isFeatured ? `<span class="badge badge-premium">⭐ Destacado</span>` : ''}
@@ -658,11 +656,11 @@ async function openMemoryDetailModal(group, mem, user) {
               ${mem.isFeatured ? '★ Quitar Destacado' : '☆ Marcar Destacado'}
             </button>
             <button type="button" class="btn btn-secondary btn-sm" id="btn-mem-detail-edit">✏️ Editar</button>
-            ${(mem.driveSyncStatus === 'synced' || (mem.driveUrl && DriveBridge.isRealFolderConfigured(mem.driveUrl)))
-              ? `<a href="${Utils.sanitize(mem.driveUrl)}" target="_blank" rel="noopener" class="btn btn-primary btn-sm">📁 Carpeta Drive ↗</a>`
+            ${(mem.driveSyncStatus === 'synced' || (mem.driveUrl && DriveBridge.isRealFolderConfigured(mem.driveUrl))) && Utils.safeUrl(mem.driveUrl, '')
+              ? `<a href="${Utils.sanitize(Utils.safeUrl(mem.driveUrl, '#'))}" target="_blank" rel="noopener noreferrer" class="btn btn-primary btn-sm">📁 Carpeta Drive ↗</a>`
               : `<button type="button" class="btn btn-primary btn-sm" id="btn-mem-detail-sync-drive">☁️ Subir a Google Drive</button>`
             }
-            <button type="button" class="btn btn-danger btn-sm" id="btn-mem-detail-delete">🗑️</button>
+            ${store.canDeleteMemory(group, mem, user) ? `<button type="button" class="btn btn-danger btn-sm" id="btn-mem-detail-delete" aria-label="Eliminar recuerdo">🗑️</button>` : ''}
           </div>
         </div>
 
@@ -676,8 +674,8 @@ async function openMemoryDetailModal(group, mem, user) {
               ${resolvedMedia.map((item, idx) => `
                 <div style="width:120px;height:95px;border-radius:var(--radius-sm);overflow:hidden;flex-shrink:0;cursor:pointer;border:1px solid var(--border-subtle);position:relative;" data-lightbox-idx="${idx}">
                   ${item.isVideo
-                    ? `<video src="${Utils.sanitize(item.url)}#t=0.001" muted playsinline webkit-playsinline preload="metadata" style="width:100%;height:100%;object-fit:cover;"></video><span class="badge badge-admin" style="position:absolute;bottom:4px;right:4px;">▶</span>`
-                    : `<img src="${Utils.sanitize(item.url)}" alt="media" style="width:100%;height:100%;object-fit:cover;">`
+                    ? `<video src="${Utils.sanitize(Utils.safeUrl(item.url, ''))}#t=0.001" muted playsinline webkit-playsinline preload="metadata" style="width:100%;height:100%;object-fit:cover;"></video><span class="badge badge-admin" style="position:absolute;bottom:4px;right:4px;">▶</span>`
+                    : `<img src="${Utils.sanitize(Utils.safeUrl(item.url, 'assets/ruma_icon_512.png'))}" alt="media" style="width:100%;height:100%;object-fit:cover;">`
                   }
                 </div>
               `).join('')}
@@ -759,11 +757,15 @@ async function openMemoryDetailModal(group, mem, user) {
 
       document.getElementById('btn-mem-detail-edit')?.addEventListener('click', () => {
         UI.closeModal();
-        openUploadMemoryModal(group, mem);
+        openUploadMemoryModal(group, mem, null, Entitlements.isGroupAdmin(group, user.id));
       });
 
       document.getElementById('btn-mem-detail-delete')?.addEventListener('click', () => {
-        store.deleteMemoryFromActiveGroup(mem.id);
+        const res = store.deleteMemoryFromActiveGroup(mem.id);
+        if (!res?.ok) {
+          UI.showToast(res?.error || 'No tienes permiso para eliminar este recuerdo.', 'error');
+          return;
+        }
         UI.closeModal();
         UI.showToast('Recuerdo eliminado.', 'info');
       });
@@ -877,7 +879,7 @@ async function openMovieDetailModal(group, movie, user) {
               </p>
             </div>
             <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
-              <a href="${Utils.sanitize(trailerLink)}" target="_blank" rel="noopener" class="btn btn-primary btn-sm">▶ Ver Tráiler</a>
+              <a href="${Utils.sanitize(Utils.safeUrl(trailerLink, '#'))}" target="_blank" rel="noopener noreferrer" class="btn btn-primary btn-sm">▶ Ver Tráiler</a>
               <button type="button" class="btn btn-secondary btn-sm" id="btn-modal-jump-review">${myRating ? `✏️ Editar mi reseña (${Number(myRating.score).toFixed(1)})` : '✍️ Reseñar'}</button>
               <button type="button" class="btn btn-secondary btn-sm" id="btn-modal-comments-movie">💬 Comentarios (${(movie.comments || []).length})</button>
               <button type="button" class="btn btn-secondary btn-sm" id="btn-modal-quote-movie">↩ Citar en chat</button>
@@ -1009,7 +1011,7 @@ function renderSeriesTab(viewport, group, user) {
   // Si el usuario abrió una serie para ver sus temporadas y episodios
   if (activeSeriesDetailId) {
     const activeSeries = allSeries.find(s => s.id === activeSeriesDetailId);
-    if (activeSeries) {
+    if (activeSeries && !Entitlements.isMediaItemLocked(group, 'series', activeSeries.id)) {
       renderSeriesDetailView(viewport, group, activeSeries, user);
       return;
     }
@@ -1022,6 +1024,10 @@ function renderSeriesTab(viewport, group, user) {
       setFilterState: (v) => { seriesFilterState = v; },
       openSearchTmdbModal,
       openSeriesDetail: (ser) => {
+        if (Entitlements.isMediaItemLocked(group, 'series', ser?.id)) {
+          UI.showUpgradeModal('En el Plan Free el límite es de 5 series por grupo. Activa ruma Plus para desbloquearla.', () => store.upgradeGroupToPremium(group.id));
+          return;
+        }
         activeSeriesDetailId = ser.id;
         activeSeriesDetailTab = 'episodes';
         activeSeriesSeasonNum = ser.userProgress?.[user.id]?.currentSeason || (ser.seasons?.[0]?.seasonNumber ?? 1);
@@ -1301,7 +1307,7 @@ async function renderSeriesDetailView(viewport, group, series, user) {
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.6rem;">
           <button type="button" class="btn btn-secondary btn-sm" id="btn-back-series-list">← Volver a Series</button>
           <div style="display:flex;gap:0.45rem;flex-wrap:wrap;">
-            <a href="${Utils.sanitize(trailerLink)}" target="_blank" rel="noopener" class="btn btn-secondary btn-sm">▶ Tráiler</a>
+            <a href="${Utils.sanitize(Utils.safeUrl(trailerLink, '#'))}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm">▶ Tráiler</a>
             <button type="button" class="btn btn-primary btn-sm" id="btn-detail-rate-series">
               ${myRating ? `✏️ ⭐ ${Number(myRating.score).toFixed(1)}` : '✍️ Reseñar'}
             </button>
@@ -1871,10 +1877,6 @@ function openSearchTmdbModal(group, category) {
       });
     }
   });
-}
-
-function openRateModal(category, item, user) {
-  openReviewModal(category, item, user);
 }
 
 function openMediaCommentsModal(category, item) {

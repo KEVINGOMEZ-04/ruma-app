@@ -93,7 +93,8 @@ export function renderGroupMemoriesView(viewport, group, user, isAdmin, ctx) {
   const firstDay = new Date(year, month, 1);
   const startDayIdx = (firstDay.getDay() + 6) % 7;
   const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const todayStr = new Date().toISOString().split('T')[0];
+  const nowLocal = new Date();
+  const todayStr = `${nowLocal.getFullYear()}-${String(nowLocal.getMonth() + 1).padStart(2, '0')}-${String(nowLocal.getDate()).padStart(2, '0')}`;
 
   let cellsHtml = '';
   for (let i = 0; i < startDayIdx; i++) {
@@ -134,7 +135,7 @@ export function renderGroupMemoriesView(viewport, group, user, isAdmin, ctx) {
         <div class="rm-stack" aria-hidden="true">
           <span class="rm-stack-card c3"></span>
           <span class="rm-stack-card c2"></span>
-          <span class="rm-stack-card c1" style="background-image:url('${Utils.sanitize(stackImg)}')"></span>
+          <span class="rm-stack-card c1" style="background-image:url('${Utils.sanitize(Utils.safeUrl(stackImg, 'assets/ruma_default_avatar.png'))}')"></span>
         </div>
       </section>
 
@@ -217,7 +218,7 @@ export function renderGroupMemoriesView(viewport, group, user, isAdmin, ctx) {
                         <span>${svg(ICO.camera, 14)} ${photosCount}</span>
                         ${hasSong ? `<span data-play-song="${Utils.sanitize(mem.id)}" title="Escuchar canción">${svg(ICO.music, 14)} 1</span>` : ''}
                         ${hasVoice ? `<span>${svg(ICO.mic, 14)} 1</span>` : ''}
-                        <span>${svg(ICO.photo, 14)} ${commentsCount}</span>
+                        <span>${svg(ICO.msg, 14)} ${commentsCount}</span>
                       </div>
                       <div class="rm-tl-date">${svg(ICO.cal, 14)} <span>${Utils.sanitize(fmtLongDate(mem.date || mem.createdAt))}</span></div>
                     </div>
@@ -470,18 +471,19 @@ export function renderGroupMemoriesView(viewport, group, user, isAdmin, ctx) {
       const mem = allMemories.find(m => m.id === btn.getAttribute('data-more-mem'));
       if (!mem) return;
       const isSynced = mem.driveSyncStatus === 'synced' || (mem.driveUrl && DriveBridge.isRealFolderConfigured(mem.driveUrl));
-      const canDelete = isAdmin || mem.authorId === user.id;
+      const safeDriveUrl = Utils.safeUrl(mem.driveUrl, '');
+      const canDelete = store.canDeleteMemory(group, mem, user);
 
       UI.openModal({
-        title: Utils.sanitize(mem.title),
+        title: mem.title,
         contentHtml: `
           <div style="display:flex;flex-direction:column;gap:.55rem;">
             <button type="button" class="btn btn-secondary" id="mm-view">👁️ Ver álbum y comentarios</button>
             <button type="button" class="btn btn-secondary" id="mm-edit">✏️ Editar recuerdo</button>
             <button type="button" class="btn btn-secondary" id="mm-feat">${mem.isFeatured ? '⭐ Quitar de destacados' : '⭐ Marcar como destacado'}</button>
             <button type="button" class="btn btn-secondary" id="mm-quote">💬 Citar en el chat</button>
-            ${isSynced && mem.driveUrl
-              ? `<a href="${Utils.sanitize(mem.driveUrl)}" target="_blank" rel="noopener" class="btn btn-secondary" style="text-align:center;">☁️ Abrir en Google Drive ↗</a>`
+            ${isSynced && safeDriveUrl
+              ? `<a href="${Utils.sanitize(safeDriveUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary" style="text-align:center;">☁️ Abrir en Google Drive ↗</a>`
               : `<button type="button" class="btn btn-secondary" id="mm-drive">☁️ Subir a Google Drive</button>`}
             ${canDelete ? `<button type="button" class="btn" id="mm-del" style="background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.5);color:var(--error);">🗑️ Eliminar recuerdo</button>` : ''}
           </div>`,
@@ -509,9 +511,9 @@ export function renderGroupMemoriesView(viewport, group, user, isAdmin, ctx) {
             UI.showToast(res.ok ? '¡Subido a Google Drive! ☁️' : (res.error || 'No se pudo subir.'), res.ok ? 'success' : 'error');
           });
           document.getElementById('mm-del')?.addEventListener('click', () => {
-            store.deleteMemoryFromActiveGroup(mem.id);
+            const res = store.deleteMemoryFromActiveGroup(mem.id);
             UI.closeModal();
-            UI.showToast('Recuerdo eliminado 🗑️', 'info');
+            UI.showToast(res?.ok ? 'Recuerdo eliminado 🗑️' : (res?.error || 'No tienes permiso para eliminar este recuerdo.'), res?.ok ? 'info' : 'error');
           });
         }
       });

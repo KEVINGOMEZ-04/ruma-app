@@ -6,7 +6,6 @@ import { store } from '../core/store.js';
 import { CryptoAuth } from '../core/crypto.js';
 import { Entitlements, PLAN_LIMITS } from '../core/entitlements.js';
 import { Utils } from '../core/utils.js';
-import { CloudSync } from '../services/cloud-sync.js';
 import { UI } from '../components/ui.js';
 import { renderAuthScreen } from './auth-interface.js';
 
@@ -26,10 +25,6 @@ export function renderHomeInterface(container) {
     ? user.avatar
     : 'assets/ruma_default_avatar.png';
   const accountSubLabel = isPrem ? 'Cuenta Plus ✨' : 'Cuenta personal';
-  const quotaLabel = isPrem
-    ? 'ruma Plus · Grupos ilimitados ✨'
-    : `Plan Gratis · ${myGroups.length} / ${PLAN_LIMITS.free.maxTotalGroups} grupos`;
-  const cloudOnline = CloudSync.getStatus() !== 'offline';
 
   container.innerHTML = `
     <div class="ruma-home-shell">

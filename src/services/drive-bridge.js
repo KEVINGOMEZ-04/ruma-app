@@ -284,35 +284,77 @@ export const DriveBridge = {
       onProgress({ stage: 'drive_folder', percent: 15, fileName: subfolderName });
     }
 
-    const driveSubfolder = await DriveResumableUploader.createSubfolder(token, parentFolderId, subfolderName);
-    const updatedFiles = [...(memory.files || [])];
+    // Reutilizar la subcarpeta de Drive ya creada si es un reintento idempotente
+    let driveSubfolder = null;
+    if (memory.driveSubfolderId) {
+      try {
+        const verified = await DriveResumableUploader.verifyFolderAccess(token, memory.driveSubfolderId);
+        driveSubfolder = {
+          id: verified.id,
+          name: verified.name || subfolderName,
+          webViewLink: verified.webViewLink || memory.driveUrl || `https://drive.google.com/drive/folders/${verified.id}`
+        };
+      } catch (_) {
+        driveSubfolder = null;
+      }
+    }
+    if (!driveSubfolder) {
+      driveSubfolder = await DriveResumableUploader.createSubfolder(token, parentFolderId, subfolderName);
+    }
 
-    // 1. Si hay archivos en IndexedDB, subirlos con su calidad original
+    const updatedFiles = [...(memory.files || [])];
+    let uploadedOrAlreadySyncedCount = 0;
+    let missingOriginalCount = 0;
+
+    // 1. Si hay archivos en IndexedDB, subir solo los que aún no tienen driveFileId
     if (updatedFiles.length > 0) {
       for (let i = 0; i < updatedFiles.length; i++) {
         const fMeta = updatedFiles[i];
-        const record = await MediaStorage.getMedia(fMeta.id);
-        const blobToUpload = record?.blob || (fMeta.thumbnail ? this.dataUrlToBlob(fMeta.thumbnail) : null);
-        if (blobToUpload) {
-          const fileObj = blobToUpload instanceof File
-            ? blobToUpload
-            : new File([blobToUpload], fMeta.name || `Foto_${i + 1}.jpg`, { type: fMeta.type || blobToUpload.type || 'image/jpeg' });
-          const uploaded = await DriveResumableUploader.uploadLargeFile(token, driveSubfolder.id, fileObj, (p) => {
-            if (typeof onProgress === 'function') {
-              onProgress({
-                stage: 'drive_upload',
-                fileIndex: i + 1,
-                totalFiles: updatedFiles.length,
-                ...p
-              });
-            }
-          });
-          updatedFiles[i] = {
-            ...fMeta,
-            driveFileId: uploaded.id,
-            driveViewLink: uploaded.webViewLink
-          };
+        if (fMeta?.driveFileId) {
+          uploadedOrAlreadySyncedCount++;
+          continue;
         }
+        const record = await MediaStorage.getMedia(fMeta.id);
+        let fileObj = null;
+        if (record?.blob) {
+          fileObj = record.blob instanceof File
+            ? record.blob
+            : new File([record.blob], fMeta.name || `Archivo_${i + 1}`, { type: fMeta.type || record.blob.type || 'application/octet-stream' });
+        } else if (fMeta.thumbnail && !fMeta.isVideo) {
+          // Solo usar miniatura como respaldo para imágenes (nunca disfrazar un JPEG como vídeo .mp4)
+          const thumbBlob = this.dataUrlToBlob(fMeta.thumbnail);
+          if (thumbBlob) {
+            const safeBaseName = String(fMeta.name || `Foto_${i + 1}`).replace(/\.[^.]+$/, '');
+            const ext = (thumbBlob.type || '').includes('png') ? 'png' : 'jpg';
+            fileObj = new File([thumbBlob], `${safeBaseName}.${ext}`, { type: thumbBlob.type || 'image/jpeg' });
+          }
+        }
+
+        if (!fileObj) {
+          missingOriginalCount++;
+          continue;
+        }
+
+        const uploaded = await DriveResumableUploader.uploadLargeFile(token, driveSubfolder.id, fileObj, (p) => {
+          if (typeof onProgress === 'function') {
+            onProgress({
+              stage: 'drive_upload',
+              fileIndex: i + 1,
+              totalFiles: updatedFiles.length,
+              ...p
+            });
+          }
+        });
+        updatedFiles[i] = {
+          ...fMeta,
+          driveFileId: uploaded.id,
+          driveViewLink: uploaded.webViewLink
+        };
+        uploadedOrAlreadySyncedCount++;
+      }
+
+      if (uploadedOrAlreadySyncedCount === 0 && missingOriginalCount > 0) {
+        throw new Error('Los archivos originales de este recuerdo solo existen en el dispositivo donde se subieron y no están disponibles localmente para enviarlos a Drive.');
       }
     } else if (Array.isArray(memory.photos) && memory.photos.length > 0) {
       // 2. Si solo hay fotos base64 en memory.photos, subirlas
@@ -320,7 +362,8 @@ export const DriveBridge = {
         const photoStr = memory.photos[i];
         const blob = this.dataUrlToBlob(photoStr);
         if (blob) {
-          const fileObj = new File([blob], `Foto_${i + 1}.jpg`, { type: blob.type || 'image/jpeg' });
+          const ext = (blob.type || '').includes('png') ? 'png' : 'jpg';
+          const fileObj = new File([blob], `Foto_${i + 1}.${ext}`, { type: blob.type || 'image/jpeg' });
           const uploaded = await DriveResumableUploader.uploadMultipartFile(token, driveSubfolder.id, fileObj);
           updatedFiles.push({
             id: Utils.generateId('blob'),
@@ -336,13 +379,16 @@ export const DriveBridge = {
       }
     }
 
-    if (memory.voiceNote) {
+    if (memory.voiceNote && !memory.driveVoiceFileId) {
       const voiceBlob = this.dataUrlToBlob(memory.voiceNote);
       if (voiceBlob) {
         const mime = voiceBlob.type || 'audio/mp4';
         const ext = mime.includes('mp4') || mime.includes('aac') ? 'm4a' : (mime.includes('ogg') ? 'ogg' : 'webm');
         const voiceFile = new File([voiceBlob], `Nota_de_Voz.${ext}`, { type: mime });
-        await DriveResumableUploader.uploadMultipartFile(token, driveSubfolder.id, voiceFile).catch(() => {});
+        const voiceUp = await DriveResumableUploader.uploadMultipartFile(token, driveSubfolder.id, voiceFile).catch(() => null);
+        if (voiceUp?.id) {
+          memory.driveVoiceFileId = voiceUp.id;
+        }
       }
     }
 

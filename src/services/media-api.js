@@ -96,8 +96,8 @@ export const MediaService = {
           tmdbCache.set(endpoint, data);
           return data;
         }
-        // Si TMDb responde 404 (no existe), no desperdiciar reintentos con claves de respaldo
-        if (res.status === 404) return null;
+        // Si TMDb responde 400/404, no desperdiciar reintentos con claves de respaldo
+        if (res.status === 400 || res.status === 404) return null;
       } catch (err) {
         console.warn('TMDb fallback warning:', err);
       }

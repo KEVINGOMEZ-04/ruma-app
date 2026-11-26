@@ -292,14 +292,44 @@ export function renderGroupSeriesView(viewport, group, user, ctx) {
     if (s) openMediaCommentsModal('series', s);
   }));
 
+  const lockedSeriesIds = Entitlements.getLockedMediaIds(group, 'series');
   viewport.querySelectorAll('[data-sr-more]').forEach(btn => btn.addEventListener('click', e => {
     e.stopPropagation();
     const s = find(btn.getAttribute('data-sr-more'));
     if (!s) return;
+    const isLocked = lockedSeriesIds.has(s.id);
     const canDelete = store.canDeleteMediaItem(group, s, user);
     const proposer = s.proposedBy?.name || s.addedBy || 'Miembro';
+
+    if (isLocked) {
+      UI.openModal({
+        title: `🔒 ${s.title}`,
+        contentHtml: `
+          <div style="display:flex;flex-direction:column;gap:.65rem;">
+            <p style="font-size:.84rem;color:var(--text-secondary);margin:0;">
+              Esta serie excede el límite de 5 series del <strong>Plan Free</strong>. Activa ruma Plus para desbloquearla o libera espacio eliminando una serie.
+            </p>
+            <button type="button" class="btn btn-primary" id="sr-m-upgrade">✨ Ver ruma Plus</button>
+            <div style="font-size:.75rem;color:var(--text-muted);">Añadida por <b>${Utils.sanitize(proposer)}</b></div>
+            ${canDelete ? `<button type="button" class="btn" id="sr-m-del" style="background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.5);color:var(--error);">🗑️ Eliminar serie</button>` : ''}
+          </div>`,
+        onMount: () => {
+          document.getElementById('sr-m-upgrade')?.addEventListener('click', () => {
+            UI.closeModal();
+            UI.showUpgradeModal('Mejora a ruma Plus para desbloquear todas las series del grupo sin límite de 5.', () => store.upgradeGroupToPremium(group.id));
+          });
+          document.getElementById('sr-m-del')?.addEventListener('click', () => {
+            const res = store.deleteMediaItem('series', s.id);
+            UI.closeModal();
+            UI.showToast(res.ok ? 'Serie eliminada 🗑️' : res.error, res.ok ? 'info' : 'error');
+          });
+        }
+      });
+      return;
+    }
+
     UI.openModal({
-      title: Utils.sanitize(s.title),
+      title: s.title,
       contentHtml: `
         <div style="display:flex;flex-direction:column;gap:.6rem;">
           <button type="button" class="btn btn-secondary" id="sr-m-open">▶ Capítulos &amp; Maratón</button>

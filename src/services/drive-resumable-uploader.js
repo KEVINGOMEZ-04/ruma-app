@@ -9,6 +9,26 @@
 
 const CHUNK_SIZE = 5 * 1024 * 1024; // 5 MB por fragmento (múltiplo de 256 KB requerido por Google)
 const MULTIPART_THRESHOLD = 4.5 * 1024 * 1024; // 4.5 MB
+const DEFAULT_TIMEOUT_MS = 45000;
+const CHUNK_TIMEOUT_MS = 120000;
+
+async function fetchWithTimeout(url, options = {}, timeoutMs = DEFAULT_TIMEOUT_MS) {
+  if (typeof AbortController === 'undefined') {
+    return fetch(url, options);
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (err) {
+    if (err?.name === 'AbortError') {
+      throw new Error('Tiempo de espera agotado al conectar con Google Drive. Verifica tu conexión e inténtalo de nuevo.');
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 export const DriveResumableUploader = {
   /**
@@ -18,8 +38,8 @@ export const DriveResumableUploader = {
     if (!accessToken) throw new Error('Inicia sesión con tu cuenta de Google primero.');
     if (!folderId) throw new Error('ID de carpeta de Google Drive no válido.');
 
-    const res = await fetch(
-      `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(folderId)}?fields=id,name,mimeType,webViewLink,capabilities&supportsAllDrives=true`,
+    const res = await fetchWithTimeout(
+      `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(folderId)}?fields=id,name,mimeType,trashed,webViewLink,capabilities&supportsAllDrives=true`,
       {
         method: 'GET',
         headers: { Authorization: `Bearer ${accessToken}` }
@@ -39,6 +59,12 @@ export const DriveResumableUploader = {
     }
 
     const data = await res.json();
+    if (data.trashed) {
+      throw new Error(`La carpeta "${data.name || folderId}" está en la papelera de Google Drive.`);
+    }
+    if (data.mimeType && data.mimeType !== 'application/vnd.google-apps.folder') {
+      throw new Error(`El enlace proporcionado no corresponde a una carpeta de Google Drive ("${data.name || folderId}").`);
+    }
     if (data.capabilities && data.capabilities.canAddChildren === false) {
       throw new Error(`Tu cuenta tiene acceso de solo lectura a la carpeta "${data.name}". Necesitas permisos de Editor para subir recuerdos.`);
     }
@@ -73,7 +99,7 @@ export const DriveResumableUploader = {
       metadata.parents = [parentFolderId];
     }
 
-    const res = await fetch('https://www.googleapis.com/drive/v3/files?supportsAllDrives=true&fields=id,name,webViewLink', {
+    const res = await fetchWithTimeout('https://www.googleapis.com/drive/v3/files?supportsAllDrives=true&fields=id,name,webViewLink', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -96,7 +122,7 @@ export const DriveResumableUploader = {
   },
 
   /**
-   * Subida Multipart directa en 1 petición (rápida y sin preflight complejo para fotos y videos medianos)
+   * Subida Multipart directa conforme al estándar `multipart/related` de Google Drive API v3 (archivos <= 4.5 MB)
    */
   async uploadMultipartFile(accessToken, folderId, file, onProgress = null) {
     const fileName = file.name || `archivo_${Date.now()}`;
@@ -112,17 +138,26 @@ export const DriveResumableUploader = {
       parents: folderId ? [folderId] : []
     };
 
-    const form = new FormData();
-    form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
-    form.append('file', file, fileName);
+    const boundary = `ruma_drive_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+    const body = new Blob([
+      `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n`,
+      JSON.stringify(metadata),
+      `\r\n--${boundary}\r\nContent-Type: ${fileMime}\r\n\r\n`,
+      file,
+      `\r\n--${boundary}--`
+    ], { type: `multipart/related; boundary=${boundary}` });
 
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true&fields=id,name,webViewLink',
       {
         method: 'POST',
-        headers: { Authorization: `Bearer ${accessToken}` },
-        body: form
-      }
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': `multipart/related; boundary=${boundary}`
+        },
+        body
+      },
+      CHUNK_TIMEOUT_MS
     );
 
     if (!res.ok) {
@@ -145,8 +180,8 @@ export const DriveResumableUploader = {
 
   /**
    * Sube un archivo de cualquier tamaño:
-   * - Si pesa <= 4.5 MB, usa Multipart directo
-   * - Si pesa > 4.5 MB, usa protocolo Resumible por chunks de 5 MB (con fallback a Multipart)
+   * - Si pesa <= 4.5 MB, usa Multipart directo (`multipart/related`)
+   * - Si pesa > 4.5 MB, usa protocolo Resumible por chunks de 5 MB (sin degradar a multipart en archivos grandes)
    */
   async uploadLargeFile(accessToken, folderId, file, onProgress = null) {
     if (!accessToken) throw new Error('Token de acceso requerido.');
@@ -160,85 +195,85 @@ export const DriveResumableUploader = {
     const fileMime = file.type || 'application/octet-stream';
     const fileName = file.name || `archivo_${Date.now()}`;
 
-    try {
-      // 1. Iniciar la sesión de subida resumible en Google
-      const initRes = await fetch(
-        'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&supportsAllDrives=true',
-        {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            'Content-Type': 'application/json; charset=UTF-8',
-            'X-Upload-Content-Type': fileMime,
-            'X-Upload-Content-Length': String(fileSize)
-          },
-          body: JSON.stringify({
-            name: fileName,
-            parents: folderId ? [folderId] : []
-          })
-        }
-      );
-
-      if (!initRes.ok) {
-        const err = await initRes.json().catch(() => ({}));
-        throw new Error(err.error?.message || 'No se pudo iniciar la sesión de subida con Google Drive.');
+    // 1. Iniciar la sesión de subida resumible en Google
+    const initRes = await fetchWithTimeout(
+      'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&supportsAllDrives=true&fields=id,name,webViewLink',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json; charset=UTF-8',
+          'X-Upload-Content-Type': fileMime,
+          'X-Upload-Content-Length': String(fileSize)
+        },
+        body: JSON.stringify({
+          name: fileName,
+          parents: folderId ? [folderId] : []
+        })
       }
+    );
 
-      const uploadUrl = initRes.headers.get('Location');
-      if (!uploadUrl) {
-        return this.uploadMultipartFile(accessToken, folderId, file, onProgress);
-      }
-
-      // 2. Subir el archivo en fragmentos (chunks)
-      let startByte = 0;
-
-      while (startByte < fileSize) {
-        const endByte = Math.min(startByte + CHUNK_SIZE, fileSize);
-        const chunk = file.slice(startByte, endByte);
-
-        const chunkRes = await fetch(uploadUrl, {
-          method: 'PUT',
-          headers: {
-            'Content-Range': `bytes ${startByte}-${endByte - 1}/${fileSize}`
-          },
-          body: chunk
-        });
-
-        if (chunkRes.status === 308) {
-          startByte = endByte;
-          if (typeof onProgress === 'function') {
-            const percent = Math.round((startByte / fileSize) * 100);
-            onProgress({
-              uploadedBytes: startByte,
-              totalBytes: fileSize,
-              percent,
-              fileName
-            });
-          }
-        } else if (chunkRes.ok) {
-          const finalData = await chunkRes.json();
-          if (typeof onProgress === 'function') {
-            onProgress({
-              uploadedBytes: fileSize,
-              totalBytes: fileSize,
-              percent: 100,
-              fileName
-            });
-          }
-          return {
-            id: finalData.id,
-            name: finalData.name,
-            size: fileSize,
-            webViewLink: `https://drive.google.com/file/d/${finalData.id}/view`
-          };
-        } else {
-          const errData = await chunkRes.json().catch(() => ({}));
-          throw new Error(errData.error?.message || 'Error durante la transferencia del archivo a Google Drive.');
-        }
-      }
-    } catch (resumableErr) {
-      console.warn('Reintentando subida mediante Multipart directo:', resumableErr);
-      return this.uploadMultipartFile(accessToken, folderId, file, onProgress);
+    if (!initRes.ok) {
+      const err = await initRes.json().catch(() => ({}));
+      throw new Error(err.error?.message || `No se pudo iniciar la sesión de subida con Google Drive (HTTP ${initRes.status}).`);
     }
+
+    const uploadUrl = initRes.headers.get('Location');
+    if (!uploadUrl) {
+      throw new Error('Google Drive no devolvió la URL de sesión resumible para este archivo grande.');
+    }
+
+    // 2. Subir el archivo en fragmentos (chunks)
+    let startByte = 0;
+
+    while (startByte < fileSize) {
+      const endByte = Math.min(startByte + CHUNK_SIZE, fileSize);
+      const chunk = file.slice(startByte, endByte);
+
+      const chunkRes = await fetchWithTimeout(uploadUrl, {
+        method: 'PUT',
+        headers: {
+          'Content-Range': `bytes ${startByte}-${endByte - 1}/${fileSize}`
+        },
+        body: chunk
+      }, CHUNK_TIMEOUT_MS);
+
+      if (chunkRes.status === 308) {
+        const rangeHeader = chunkRes.headers?.get?.('Range') || '';
+        const match = rangeHeader.match(/bytes=0-(\d+)/i);
+        const acknowledgedNext = match ? Number(match[1]) + 1 : endByte;
+        startByte = Math.max(startByte + 1, Math.min(fileSize, acknowledgedNext));
+        if (typeof onProgress === 'function') {
+          const percent = Math.round((startByte / fileSize) * 100);
+          onProgress({
+            uploadedBytes: startByte,
+            totalBytes: fileSize,
+            percent,
+            fileName
+          });
+        }
+      } else if (chunkRes.ok) {
+        const finalData = await chunkRes.json();
+        if (typeof onProgress === 'function') {
+          onProgress({
+            uploadedBytes: fileSize,
+            totalBytes: fileSize,
+            percent: 100,
+            fileName
+          });
+        }
+        return {
+          id: finalData.id,
+          name: finalData.name || fileName,
+          size: fileSize,
+          webViewLink: finalData.webViewLink || `https://drive.google.com/file/d/${finalData.id}/view`
+        };
+      } else {
+        const errData = await chunkRes.json().catch(() => ({}));
+        throw new Error(errData.error?.message || `Error durante la transferencia del archivo a Google Drive (HTTP ${chunkRes.status}).`);
+      }
+    }
+
+    throw new Error('La subida resumible a Google Drive terminó sin confirmación del servidor.');
   }
 };

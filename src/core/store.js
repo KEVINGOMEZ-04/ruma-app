@@ -289,11 +289,38 @@ class RumaStore {
             mergedProg[uid] = wp;
           }
         });
+        const commentsMap = new Map();
+        (os.comments || []).forEach(c => { if (c?.id) commentsMap.set(c.id, c); });
+        (ws.comments || []).forEach(c => { if (c?.id) commentsMap.set(c.id, c); });
         return {
           ...os,
           ...ws,
           userProgress: mergedProg,
-          ratings: { ...(os.ratings || {}), ...(ws.ratings || {}) }
+          ratings: { ...(os.ratings || {}), ...(ws.ratings || {}) },
+          comments: Array.from(commentsMap.values()).sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''))
+        };
+      });
+
+      // Fusionar calificaciones por usuario y comentarios de canciones entre dispositivos
+      const olderSongsMap = new Map((older.songs || []).map(s => [s.id, s]));
+      const baseSongs = Array.isArray(winner.songs) ? winner.songs : (older.songs || []);
+      const mergedSongs = baseSongs.map(ws => {
+        const os = olderSongsMap.get(ws.id);
+        if (!os) return ws;
+        const mergedRatings = { ...(os.ratings || {}), ...(ws.ratings || {}) };
+        const ratingVals = Object.values(mergedRatings).map(Number).filter(n => Number.isFinite(n) && n > 0);
+        const commentsMap = new Map();
+        (os.comments || []).forEach(c => { if (c?.id) commentsMap.set(c.id, c); });
+        (ws.comments || []).forEach(c => { if (c?.id) commentsMap.set(c.id, c); });
+        return {
+          ...os,
+          ...ws,
+          ratings: mergedRatings,
+          ...(ratingVals.length > 0 ? {
+            ratingCount: ratingVals.length,
+            rating: Number((ratingVals.reduce((a, b) => a + b, 0) / ratingVals.length).toFixed(1))
+          } : {}),
+          comments: Array.from(commentsMap.values()).sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''))
         };
       });
 
@@ -302,6 +329,7 @@ class RumaStore {
         ...winner,
         movies: mergedMovies,
         series: mergedSeries,
+        songs: mergedSongs,
         activities: Array.isArray(winner.activities) ? winner.activities : (older.activities || []),
         goals: Array.isArray(winner.goals) ? winner.goals : (older.goals || []),
         notes: Array.isArray(winner.notes) ? winner.notes : (older.notes || []),
@@ -465,10 +493,12 @@ class RumaStore {
 
   setTheme(theme, emit = true) {
     const normalized = theme === 'light' ? 'light' : 'dark';
-    document.documentElement.setAttribute('data-theme', normalized);
-    document.body.setAttribute('data-theme', normalized);
-    const metaTheme = document.querySelector('meta[name="theme-color"]');
-    if (metaTheme) metaTheme.setAttribute('content', normalized === 'light' ? '#FCFAFF' : '#15111E');
+    if (typeof document !== 'undefined') {
+      document.documentElement?.setAttribute('data-theme', normalized);
+      document.body?.setAttribute('data-theme', normalized);
+      const metaTheme = document.querySelector('meta[name="theme-color"]');
+      if (metaTheme) metaTheme.setAttribute('content', normalized === 'light' ? '#FCFAFF' : '#15111E');
+    }
     safeSetStorage(CONFIG.storageKeys.theme, normalized);
     if (emit) this.notify();
   }
@@ -1017,10 +1047,16 @@ class RumaStore {
       return { ok: false, reason: check.reason };
     }
 
+    const existingCodes = new Set(allGroups.map(g => String(g.code || '').toUpperCase()));
+    let uniqueCode = Utils.generateGroupCode();
+    for (let attempt = 0; attempt < 20 && existingCodes.has(uniqueCode); attempt++) {
+      uniqueCode = Utils.generateGroupCode();
+    }
+
     const newGroup = {
       id: Utils.generateId('grp'),
       name: (name || 'Mi Grupo ruma').trim(),
-      code: Utils.generateGroupCode(),
+      code: uniqueCode,
       description: (description || '').trim(),
       plan: plan === 'premium' ? 'premium' : 'free',
       creatorId: user.id,
@@ -1081,9 +1117,12 @@ class RumaStore {
   }
 
   async joinGroupByCodeOrQueryAsync(codeOrQuery) {
-    const clean = String(codeOrQuery || '').trim().toUpperCase();
+    const clean = String(codeOrQuery || '').replace(/[\s-]+/g, '').trim().toUpperCase();
+    if (clean.length !== 6 || !/^[A-Z0-9]{6}$/.test(clean)) {
+      return { ok: false, reason: 'Ingresa un código de invitación exacto de 6 caracteres (ej: K9R4M2).' };
+    }
 
-    // 1. Intentar buscar primero si el grupo específico existe en la nube por código
+    // 1. Intentar buscar primero si el grupo específico existe en la nube por código exacto
     try {
       const specificGroup = await CloudSync.findGroupByCode(clean);
       if (specificGroup && specificGroup.id) {
@@ -1092,7 +1131,7 @@ class RumaStore {
     } catch (_) {}
 
     // 2. Si aún no está en local, intentar descargar el estado global
-    if (!this.getGroups().some(g => g.code.toUpperCase() === clean || g.name.toUpperCase().includes(clean))) {
+    if (!this.getGroups().some(g => String(g.code || '').trim().toUpperCase() === clean)) {
       try {
         const cloud = await CloudSync.pullCloudState(true);
         if (cloud) {
@@ -1101,7 +1140,7 @@ class RumaStore {
       } catch (_) {}
     }
 
-    const res = this.joinGroupByCodeOrQuery(codeOrQuery);
+    const res = this.joinGroupByCodeOrQuery(clean);
     if (res.ok) {
       await this.pushMergedStateToCloud();
     }
@@ -1110,16 +1149,18 @@ class RumaStore {
 
   joinGroupByCodeOrQuery(codeOrQuery) {
     const user = this.getCurrentUser();
+    if (!user) return { ok: false, reason: 'Inicia sesión para unirte a un grupo.' };
     const allGroups = this.getGroups();
-    const clean = String(codeOrQuery || '').trim().toUpperCase();
+    const clean = String(codeOrQuery || '').replace(/[\s-]+/g, '').trim().toUpperCase();
 
-    const target = allGroups.find(g =>
-      g.code.toUpperCase() === clean ||
-      g.name.toUpperCase().includes(clean)
-    );
+    if (clean.length !== 6 || !/^[A-Z0-9]{6}$/.test(clean)) {
+      return { ok: false, reason: 'Ingresa un código de invitación exacto de 6 caracteres (ej: K9R4M2).' };
+    }
+
+    const target = allGroups.find(g => String(g.code || '').trim().toUpperCase() === clean);
 
     if (!target) {
-      return { ok: false, reason: 'No se encontró ningún grupo en la nube con ese código o nombre. Verifica los 6 caracteres.' };
+      return { ok: false, reason: 'No se encontró ningún grupo con ese código de invitación. Verifica los 6 caracteres.' };
     }
 
     if ((target.members || []).some(m => m.id === user.id)) {
@@ -1354,13 +1395,29 @@ class RumaStore {
 
     const existingIdx = group.memories.findIndex(m => m.id === id);
     if (existingIdx >= 0) {
-      memoryData.comments = group.memories[existingIdx].comments || [];
+      const prev = group.memories[existingIdx];
+      memoryData.comments = prev.comments || [];
+      memoryData.authorId = prev.authorId || memoryData.authorId;
+      memoryData.authorName = prev.authorName || memoryData.authorName;
+      memoryData.authorAvatar = prev.authorAvatar || memoryData.authorAvatar;
+      memoryData.createdAt = prev.createdAt || memoryData.createdAt;
+      memoryData.updatedAt = new Date().toISOString();
+      if (!memoryData.driveSubfolderId && prev.driveSubfolderId) {
+        memoryData.driveSubfolderId = prev.driveSubfolderId;
+      }
+      if (prev.subfolderName && (!files || files.length === 0)) {
+        memoryData.subfolderName = prev.subfolderName;
+      }
       if (!files || files.length === 0) {
-        memoryData.files = group.memories[existingIdx].files || [];
-        if (group.memories[existingIdx].driveSyncStatus === 'synced' && memoryData.driveSyncStatus !== 'synced') {
+        memoryData.files = prev.files || [];
+        memoryData.filesCount = Math.max(memoryData.files.length, allPhotos.length, prev.filesCount || 1);
+        if (prev.driveSyncStatus === 'synced' && memoryData.driveSyncStatus !== 'synced') {
           memoryData.driveSyncStatus = 'synced';
-          memoryData.driveUrl = group.memories[existingIdx].driveUrl || memoryData.driveUrl;
+          memoryData.driveUrl = prev.driveUrl || memoryData.driveUrl;
         }
+      } else if (prev.files && prev.files.length > 0) {
+        memoryData.files = [...prev.files, ...memoryData.files];
+        memoryData.filesCount = Math.max(memoryData.files.length, allPhotos.length, 1);
       }
       group.memories[existingIdx] = memoryData;
     } else {
@@ -1402,11 +1459,24 @@ class RumaStore {
     }
   }
 
+  canDeleteMemory(group, memory, user = null) {
+    const u = user || this.getCurrentUser();
+    if (!group || !memory || !u) return false;
+    const isAdmin = Entitlements.isGroupAdmin(group, u.id);
+    const isAuthor = Boolean(memory.authorId && memory.authorId === u.id);
+    return Boolean(isAdmin || isAuthor);
+  }
+
   deleteMemoryFromActiveGroup(memoryId) {
+    const user = this.getCurrentUser();
     const allGroups = this.getGroups();
     const group = allGroups.find(g => g.id === this.getActiveGroup()?.id);
-    if (!group) return;
+    if (!group || !user) return { ok: false, error: 'Grupo no disponible.' };
     const target = (group.memories || []).find(m => m.id === memoryId);
+    if (!target) return { ok: false, error: 'Recuerdo no encontrado.' };
+    if (!this.canDeleteMemory(group, target, user)) {
+      return { ok: false, error: 'Solo quien creó el recuerdo o un administrador del grupo puede eliminarlo.' };
+    }
     if (target?.files?.length) {
       const ids = target.files.map(f => f?.id).filter(Boolean);
       if (ids.length) MediaStorage.deleteMediaBatch(ids).catch(() => {});
@@ -1414,6 +1484,7 @@ class RumaStore {
     group.memories = (group.memories || []).filter(m => m.id !== memoryId);
     this.saveGroups(allGroups, true, [group.id]);
     this.notify();
+    return { ok: true };
   }
 
   toggleMemoryFeatured(memoryId) {
@@ -1584,6 +1655,7 @@ class RumaStore {
     const allGroups = this.getGroups();
     const group = allGroups.find(g => g.id === this.getActiveGroup()?.id);
     if (!group || !user) return null;
+    if (Entitlements.isMediaItemLocked(group, 'movies', movieId)) return null;
     const movie = (group.movies || []).find(m => m.id === movieId);
     if (!movie) return null;
 
@@ -1651,6 +1723,7 @@ class RumaStore {
     const allGroups = this.getGroups();
     const group = allGroups.find(g => g.id === this.getActiveGroup()?.id);
     if (!group || !user) return null;
+    if (Entitlements.isMediaItemLocked(group, 'books', bookId)) return null;
     const book = (group.books || []).find(b => b.id === bookId);
     if (!book) return null;
 
@@ -1736,6 +1809,7 @@ class RumaStore {
     const allGroups = this.getGroups();
     const group = allGroups.find(g => g.id === this.getActiveGroup()?.id);
     if (!group || !user) return null;
+    if (Entitlements.isMediaItemLocked(group, 'books', bookId)) return null;
     const book = (group.books || []).find(b => b.id === bookId);
     if (!book) return null;
 
@@ -1853,6 +1927,7 @@ class RumaStore {
     const allGroups = this.getGroups();
     const group = allGroups.find(g => g.id === this.getActiveGroup()?.id);
     if (!group || !user || !String(text || '').trim()) return null;
+    if (Entitlements.isMediaItemLocked(group, 'books', bookId)) return null;
     const book = (group.books || []).find(b => b.id === bookId);
     if (!book) return null;
 
@@ -1906,6 +1981,7 @@ class RumaStore {
 
     const book = (group.books || []).find(b => b.id === bookId);
     if (!book) return null;
+    if (Entitlements.isMediaItemLocked(group, 'books', bookId)) return null;
     group.clubBookId = book.id;
     this.logActivity(group, user, 'book', `Fijó "${book.title}" como lectura del club`);
     this.saveGroups(allGroups, true, [group.id]);
@@ -1931,6 +2007,9 @@ class RumaStore {
     const active = this.getActiveGroup();
     const group = allGroups.find(g => g.id === active?.id);
     if (!group || !user) return { ok: false, error: 'Grupo no disponible.' };
+    if (Entitlements.isMediaItemLocked(group, category, itemId)) {
+      return { ok: false, needsUpgrade: true, error: 'Este elemento está bloqueado en el Plan Free.' };
+    }
 
     const list = group[category] || [];
     const item = list.find(x => x.id === itemId);
@@ -2026,6 +2105,7 @@ class RumaStore {
     const allGroups = this.getGroups();
     const group = allGroups.find(g => g.id === this.getActiveGroup()?.id);
     if (!group || !user || !text.trim()) return null;
+    if (Entitlements.isMediaItemLocked(group, category, itemId)) return null;
 
     const item = (group[category] || []).find(x => x.id === itemId);
     if (!item) return null;
@@ -2098,6 +2178,7 @@ class RumaStore {
     const allGroups = this.getGroups();
     const group = allGroups.find(g => g.id === this.getActiveGroup()?.id);
     if (!group || !user) return null;
+    if (Entitlements.isMediaItemLocked(group, 'songs', songId)) return null;
     const song = (group.songs || []).find(s => s.id === songId);
     if (!song) return null;
 
@@ -2153,6 +2234,7 @@ class RumaStore {
     const allGroups = this.getGroups();
     const group = allGroups.find(g => g.id === this.getActiveGroup()?.id);
     if (!group || !user) return null;
+    if (Entitlements.isMediaItemLocked(group, 'series', seriesId)) return null;
 
     const series = (group.series || []).find(s => s.id === seriesId);
     if (!series) return null;
@@ -2230,6 +2312,7 @@ class RumaStore {
     const allGroups = this.getGroups();
     const group = allGroups.find(g => g.id === this.getActiveGroup()?.id);
     if (!group || !user) return null;
+    if (Entitlements.isMediaItemLocked(group, 'series', seriesId)) return null;
 
     const series = (group.series || []).find(s => s.id === seriesId);
     if (!series) return null;
@@ -2292,6 +2375,7 @@ class RumaStore {
     const allGroups = this.getGroups();
     const group = allGroups.find(g => g.id === this.getActiveGroup()?.id);
     if (!group || !user) return null;
+    if (Entitlements.isMediaItemLocked(group, 'series', seriesId)) return null;
 
     const series = (group.series || []).find(s => s.id === seriesId);
     if (!series) return null;
@@ -2360,8 +2444,10 @@ class RumaStore {
   canDeleteMediaItem(group, item, user = null) {
     const u = user || this.getCurrentUser();
     if (!group || !item || !u) return false;
-    const isLeader = group.creatorId === u.id;
-    const isProposer = (item.proposedBy && item.proposedBy.id === u.id) || (item.addedBy && item.addedBy === u.name);
+    const isLeader = group.creatorId === u.id || Entitlements.isGroupAdmin(group, u.id);
+    const isProposer = (item.proposedBy && item.proposedBy.id === u.id)
+      || (item.authorId && item.authorId === u.id)
+      || (item.addedBy && item.addedBy === u.name);
     return Boolean(isLeader || isProposer);
   }
 

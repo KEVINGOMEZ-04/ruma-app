@@ -382,7 +382,8 @@ export const MusicService = {
     const playable = playlistTracks.filter(Boolean);
     if (playable.length === 0) return;
     const idx = playable.findIndex(t => t.id === currentPlayingId);
-    const prev = playable[(idx - 1 + playable.length) % playable.length];
+    const prevIdx = idx <= 0 ? playable.length - 1 : idx - 1;
+    const prev = playable[prevIdx];
     if (prev) this.playTrackOrResolve(prev);
   },
 

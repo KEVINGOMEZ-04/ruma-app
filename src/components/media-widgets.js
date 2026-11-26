@@ -68,8 +68,8 @@ export function renderProvidersStrip(item) {
     <div class="wp-strip" title="Dónde ver (datos reales de JustWatch vía TMDb)">
       <span class="wp-strip-label">${main.length ? '📺 Ver en' : '💳 Alquiler/compra'}</span>
       ${list.map(p => `
-        <a class="wp-logo" href="${esc(providerLink(p, wp, item.title))}" target="_blank" rel="noopener" title="${esc(p.name)} · ${esc(p.types ? p.types.join(' / ') : p.type)}" data-stop>
-          ${p.logo ? `<img src="${esc(p.logo)}" alt="${esc(p.name)}" loading="lazy">` : `<span>${esc((p.name || '?').slice(0, 2))}</span>`}
+        <a class="wp-logo" href="${esc(Utils.safeUrl(providerLink(p, wp, item.title), '#'))}" target="_blank" rel="noopener noreferrer" title="${esc(p.name)} · ${esc(p.types ? p.types.join(' / ') : p.type)}" data-stop>
+          ${p.logo ? `<img src="${esc(Utils.safeUrl(p.logo, ''))}" alt="${esc(p.name)}" loading="lazy">` : `<span>${esc((p.name || '?').slice(0, 2))}</span>`}
         </a>
       `).join('')}
       ${extra > 0 ? `<span class="wp-more">+${extra}</span>` : ''}
@@ -92,7 +92,7 @@ export function renderProvidersSection(item) {
       <div class="wp-none" style="display:block;padding:0.7rem 0.9rem;">
         🚫 No hay plataformas de streaming registradas para "${esc(title)}" en ${esc(COUNTRY_NAMES[wp.country] || 'tu región')} en este momento.
       </div>
-      <a class="btn btn-secondary btn-sm" style="margin-top:0.6rem;" href="https://www.justwatch.com/co/buscar?q=${q}" target="_blank" rel="noopener">🔎 Buscar en JustWatch</a>
+      <a class="btn btn-secondary btn-sm" style="margin-top:0.6rem;" href="https://www.justwatch.com/co/buscar?q=${q}" target="_blank" rel="noopener noreferrer">🔎 Buscar en JustWatch</a>
     `;
   } else {
     const groups = {};
@@ -108,8 +108,8 @@ export function renderProvidersSection(item) {
         <div class="wp-group-title ${TYPE_STYLE[t]?.cls || ''}">${TYPE_STYLE[t]?.icon || '📺'} ${esc(t)}</div>
         <div class="wp-group-list">
           ${groups[t].map(p => `
-            <a class="wp-provider" href="${esc(providerLink(p, wp, title))}" target="_blank" rel="noopener">
-              ${p.logo ? `<img src="${esc(p.logo)}" alt="${esc(p.name)}" loading="lazy">` : ''}
+            <a class="wp-provider" href="${esc(Utils.safeUrl(providerLink(p, wp, title), '#'))}" target="_blank" rel="noopener noreferrer">
+              ${p.logo ? `<img src="${esc(Utils.safeUrl(p.logo, ''))}" alt="${esc(p.name)}" loading="lazy">` : ''}
               <span>${esc(p.name)}</span>
               <span class="wp-go">↗</span>
             </a>
@@ -125,7 +125,7 @@ export function renderProvidersSection(item) {
           <div class="wp-group-list">
             ${wp.networks.map(n => `
               <span class="wp-provider wp-provider-static">
-                ${n.logo ? `<img src="${esc(n.logo)}" alt="${esc(n.name)}" loading="lazy" style="background:#fff;object-fit:contain;padding:2px;">` : ''}
+                ${n.logo ? `<img src="${esc(Utils.safeUrl(n.logo, ''))}" alt="${esc(n.name)}" loading="lazy" style="background:#fff;object-fit:contain;padding:2px;">` : ''}
                 <span>${esc(n.name)}</span>
               </span>
             `).join('')}
@@ -135,13 +135,14 @@ export function renderProvidersSection(item) {
     }
   }
 
+  const safeWpLink = Utils.safeUrl(wp?.link, '');
   return `
     <div class="wp-section">
       <div class="wp-section-head">
         <strong>📺 ¿Dónde ver "${esc(title)}"?</strong>
         <div style="display:flex;gap:0.4rem;align-items:center;flex-wrap:wrap;">
           ${wp?.country ? `<span class="badge badge-free">📍 ${esc(COUNTRY_NAMES[wp.country] || wp.country)}</span>` : ''}
-          ${wp?.link ? `<a class="badge badge-admin" href="${esc(wp.link)}" target="_blank" rel="noopener" style="text-decoration:none;">Ver todas las opciones ↗</a>` : ''}
+          ${safeWpLink ? `<a class="badge badge-admin" href="${esc(safeWpLink)}" target="_blank" rel="noopener noreferrer" style="text-decoration:none;">Ver todas las opciones ↗</a>` : ''}
         </div>
       </div>
       ${body}

@@ -13,7 +13,13 @@ import { CONFIG } from '../core/config.js';
 let currentSession = null;
 
 function loadPersistedSession() {
-  if (currentSession) return currentSession;
+  if (currentSession) {
+    if (currentSession.accessToken && currentSession.expiresAt && Date.now() < currentSession.expiresAt) {
+      return currentSession;
+    }
+    currentSession = null;
+    try { localStorage.removeItem(CONFIG.storageKeys.driveAuthSession); } catch (_) {}
+  }
   try {
     const raw = localStorage.getItem(CONFIG.storageKeys.driveAuthSession);
     if (!raw) return null;

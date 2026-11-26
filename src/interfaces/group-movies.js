@@ -39,8 +39,8 @@ function renderCompactProviders(movie) {
   return `
     <div class="rmv-provs">
       ${list.map(p => `
-        <a class="rmv-prov-logo" href="${Utils.sanitize(providerLink(p, wp, movie.title))}" target="_blank" rel="noopener" title="${Utils.sanitize(p.name)}" data-stop-card>
-          ${p.logo ? `<img src="${Utils.sanitize(p.logo)}" alt="${Utils.sanitize(p.name)}" loading="lazy">` : `<span>${Utils.sanitize((p.name || '?').slice(0, 2))}</span>`}
+        <a class="rmv-prov-logo" href="${Utils.sanitize(Utils.safeUrl(providerLink(p, wp, movie.title), '#'))}" target="_blank" rel="noopener noreferrer" title="${Utils.sanitize(p.name)}" data-stop-card>
+          ${p.logo ? `<img src="${Utils.sanitize(Utils.safeUrl(p.logo, ''))}" alt="${Utils.sanitize(p.name)}" loading="lazy">` : `<span>${Utils.sanitize((p.name || '?').slice(0, 2))}</span>`}
         </a>
       `).join('')}
       ${extra > 0 ? `<span class="rmv-prov-more">+${extra}</span>` : ''}
@@ -395,7 +395,7 @@ export function renderGroupMoviesView(viewport, group, user, ctx) {
         // Si la película está bloqueada en Plan Free, respetar bloqueo (solo upgrade o eliminar para liberar cupo)
         if (isLocked) {
           UI.openModal({
-            title: `🔒 ${Utils.sanitize(movie.title)}`,
+            title: `🔒 ${movie.title}`,
             contentHtml: `
               <div style="display:flex;flex-direction:column;gap:.7rem;">
                 <p style="font-size:.84rem;color:var(--text-secondary);margin:0;">
@@ -434,7 +434,7 @@ export function renderGroupMoviesView(viewport, group, user, ctx) {
         }
 
         UI.openModal({
-          title: Utils.sanitize(movie.title),
+          title: movie.title,
           contentHtml: `
             <div style="display:flex;flex-direction:column;gap:.6rem;">
               <div style="font-size:.78rem;color:var(--text-muted);">Tu estado personal (no modifica el de los demás):</div>

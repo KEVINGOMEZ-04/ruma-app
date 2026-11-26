@@ -214,9 +214,9 @@ export function renderGroupMusicView(viewport, group, user, ctx) {
                   ${song.note ? `<p class="rmu-note">“${Utils.sanitize(song.note)}” <span class="rmu-note-by">— ${Utils.sanitize(who)}</span></p>` : ''}
                   ${linked.length ? `<button type="button" class="rmu-linked" data-mu-linked="${Utils.sanitize(linked.map(m => m.id).join(','))}">🎴 Usada en ${linked.length} recuerdo${linked.length === 1 ? '' : 's'} ›</button>` : ''}
                   <div class="rmu-links">
-                    <a class="rmu-pl spotify" target="_blank" rel="noopener" href="${Utils.sanitize(song.spotifyUrl || MusicService.buildSpotifyUrl(song.title, song.artist))}" title="Escuchar en Spotify"><img class="rmu-brand-icon" src="assets/logos/spotify.svg" alt="" width="14" height="14">Spotify</a>
-                    <a class="rmu-pl youtube" target="_blank" rel="noopener" href="${Utils.sanitize(song.youtubeUrl || MusicService.buildYoutubeUrl(song.title, song.artist))}" title="Ver en YouTube"><img class="rmu-brand-icon" src="assets/logos/youtube.svg" alt="" width="14" height="14">YouTube</a>
-                    <a class="rmu-pl apple" target="_blank" rel="noopener" href="${Utils.sanitize(song.appleMusicUrl || MusicService.buildAppleMusicUrl(song.title, song.artist))}" title="Escuchar en Apple Music"><img class="rmu-brand-icon" src="assets/logos/apple-music.svg" alt="" width="14" height="14">Apple</a>
+                    <a class="rmu-pl spotify" target="_blank" rel="noopener noreferrer" href="${Utils.sanitize(Utils.safeUrl(song.spotifyUrl || MusicService.buildSpotifyUrl(song.title, song.artist), '#'))}" title="Escuchar en Spotify"><img class="rmu-brand-icon" src="assets/logos/spotify.svg" alt="" width="14" height="14">Spotify</a>
+                    <a class="rmu-pl youtube" target="_blank" rel="noopener noreferrer" href="${Utils.sanitize(Utils.safeUrl(song.youtubeUrl || MusicService.buildYoutubeUrl(song.title, song.artist), '#'))}" title="Ver en YouTube"><img class="rmu-brand-icon" src="assets/logos/youtube.svg" alt="" width="14" height="14">YouTube</a>
+                    <a class="rmu-pl apple" target="_blank" rel="noopener noreferrer" href="${Utils.sanitize(Utils.safeUrl(song.appleMusicUrl || MusicService.buildAppleMusicUrl(song.title, song.artist), '#'))}" title="Escuchar en Apple Music"><img class="rmu-brand-icon" src="assets/logos/apple-music.svg" alt="" width="14" height="14">Apple</a>
                     <button type="button" class="rmu-pl lyrics" data-mu-lyrics="${id}">${svg(ICO.mic, 13)}Letra</button>
                   </div>
                 `}
@@ -350,21 +350,27 @@ export function renderGroupMusicView(viewport, group, user, ctx) {
     const canManage = store.canDeleteMediaItem(group, s, user) || getSongAuthorId(s) === user.id;
     const who = getSongAuthorName(s, memberById);
     UI.openModal({
-      title: Utils.sanitize(s.title),
+      title: isLocked ? `🔒 ${s.title}` : s.title,
       contentHtml: `
         <div style="display:flex;flex-direction:column;gap:.6rem;">
-          ${!isLocked ? `
+          ${isLocked ? `
+            <p style="font-size:.84rem;color:var(--text-secondary);margin:0;">
+              Esta canción excede el límite de 5 canciones del <strong>Plan Free</strong>. Activa ruma Plus para desbloquearla o libera espacio eliminando una canción.
+            </p>
+            <button type="button" class="btn btn-primary" id="mu-m-upgrade">✨ Ver ruma Plus</button>
+          ` : `
             <button type="button" class="btn btn-secondary" id="mu-m-lyrics">🎤 Ver letra</button>
             <button type="button" class="btn btn-secondary" id="mu-m-comm">💬 Comentarios (${(s.comments || []).length})</button>
             <button type="button" class="btn btn-secondary" id="mu-m-quote">↩ Citar en el chat</button>
             ${canManage && typeof openEditSongModal === 'function' ? `<button type="button" class="btn btn-secondary" id="mu-m-edit">✏️ Editar dedicatoria y recuerdos</button>` : ''}
-          ` : ''}
+          `}
           <div style="font-size:.75rem;color:var(--text-muted);">Añadida por <b>${Utils.sanitize(who)}</b></div>
           ${canManage ? `<button type="button" class="btn" id="mu-m-del" style="background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.5);color:var(--error);">🗑️ Eliminar canción</button>` :
             `<div style="font-size:.74rem;color:var(--text-muted);text-align:center;padding:.45rem;border-radius:.6rem;background:var(--surface-secondary);">🔒 Solo quien la añadió (${Utils.sanitize(who)}) o el líder del grupo pueden editarla o eliminarla.</div>`}
         </div>`,
       onMount: () => {
         const on = (i, fn) => document.getElementById(i)?.addEventListener('click', () => { UI.closeModal(); fn(); });
+        on('mu-m-upgrade', () => UI.showUpgradeModal('Mejora a ruma Plus para desbloquear toda la playlist del grupo sin límite de 5.', () => store.upgradeGroupToPremium(group.id)));
         on('mu-m-lyrics', () => openLyricsModal(s));
         on('mu-m-comm', () => openMediaCommentsModal('songs', s));
         on('mu-m-quote', () => onQuoteSong(s));

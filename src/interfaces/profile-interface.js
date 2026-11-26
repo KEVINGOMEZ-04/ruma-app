@@ -66,6 +66,8 @@ function normalizeLinkUrl(platformId, rawInput) {
   const raw = String(rawInput || '').trim();
   if (!raw) return '';
   if (/^https?:\/\//i.test(raw)) return raw;
+  // Rechazar cualquier otro esquema explícito (javascript:, data:, vbscript:, file:, etc.)
+  if (/^[a-z][a-z0-9+.-]*:/i.test(raw)) return '';
   // Si parece dominio o ruta con punto (ej. instagram.com/kevin o open.spotify.com/...)
   if (/^[a-z0-9-]+(\.[a-z0-9-]+)+([/?#].*)?$/i.test(raw)) {
     return `https://${raw}`;
@@ -136,8 +138,9 @@ export function renderProfileInterface(container) {
     ? profileUser.avatar
     : 'assets/ruma_default_avatar.png';
 
-  const bannerStyle = profileUser.bannerImage
-    ? `background-image:url('${esc(profileUser.bannerImage)}');`
+  const safeBannerImg = Utils.safeUrl(profileUser.bannerImage, '');
+  const bannerStyle = safeBannerImg
+    ? `background-image:url('${esc(safeBannerImg)}');`
     : `background:${esc(profileUser.bannerGradient || PRESET_GRADIENTS[0])};`;
 
   container.innerHTML = `
@@ -280,7 +283,8 @@ export function renderProfileInterface(container) {
             <div class="rpf-links-list">
               ${links.map(lk => {
                 const meta = LINK_PLATFORMS.find(p => p.id === lk.platform) || LINK_PLATFORMS[LINK_PLATFORMS.length - 1];
-                const href = normalizeLinkUrl(lk.platform, lk.url);
+                const href = Utils.safeUrl(normalizeLinkUrl(lk.platform, lk.url), '');
+                if (!href) return '';
                 return `
                   <a class="rpf-link-item" href="${esc(href)}" target="_blank" rel="noopener noreferrer">
                     <span class="rpf-link-ico" aria-hidden="true">${renderPlatformBadge(meta)}</span>

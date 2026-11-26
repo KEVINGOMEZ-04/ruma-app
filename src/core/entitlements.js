@@ -195,10 +195,15 @@ export const Entitlements = {
       return { g, idx, isCreator, ts };
     });
 
-    // Prioridad para conservar: primero creados por el usuario, luego los más antiguos ingresados
+    // Prioridad para conservar (orden total estricto y transitivo):
+    // 1) grupos creados por el usuario, 2) legacy sin timestamp antes que recientes con timestamp,
+    // 3) timestamp más antiguo, 4) índice menor.
     const ordered = [...withMeta].sort((a, b) => {
       if (a.isCreator !== b.isCreator) return a.isCreator ? -1 : 1;
-      if (a.ts && b.ts && a.ts !== b.ts) return a.ts.localeCompare(b.ts);
+      const aHasTs = Boolean(a.ts);
+      const bHasTs = Boolean(b.ts);
+      if (aHasTs !== bHasTs) return aHasTs ? 1 : -1;
+      if (aHasTs && a.ts !== b.ts) return a.ts.localeCompare(b.ts);
       return a.idx - b.idx;
     });
 
@@ -207,7 +212,7 @@ export const Entitlements = {
   },
 
   /**
-   * Devuelve un Set con los IDs de ítems bloqueados (movies | series | songs) en un grupo Free cuando exceden 5.
+   * Devuelve un Set con los IDs de ítems bloqueados (movies | series | songs | books) en un grupo Free cuando exceden 5.
    * Conserva los 5 más antiguos y bloquea los más recientes agregados.
    */
   getLockedMediaIds(group, category) {
@@ -223,17 +228,29 @@ export const Entitlements = {
     const max = maxMap[category] ?? 5;
     if (list.length <= max) return locked;
 
-    // addMediaToActiveGroup usa unshift (nuevos al inicio), así que sin createdAt los más antiguos tienen mayor índice
+    // addMediaToActiveGroup usa unshift (nuevos al inicio), así que los legacy sin createdAt son los más antiguos (mayor idx).
+    // Tupla totalmente ordenada (transitiva): (hasTs, ts, -idx)
     const orderedOldestFirst = list.map((item, idx) => ({
       item,
       idx,
       ts: item?.createdAt || ''
     })).sort((a, b) => {
-      if (a.ts && b.ts && a.ts !== b.ts) return a.ts.localeCompare(b.ts);
+      const aHasTs = Boolean(a.ts);
+      const bHasTs = Boolean(b.ts);
+      if (aHasTs !== bHasTs) return aHasTs ? 1 : -1;
+      if (aHasTs && a.ts !== b.ts) return a.ts.localeCompare(b.ts);
       return b.idx - a.idx;
     });
 
     orderedOldestFirst.slice(max).forEach(e => locked.add(e.item.id));
     return locked;
+  },
+
+  /**
+   * Indica si un elemento específico está bloqueado por límites del Plan Free.
+   */
+  isMediaItemLocked(group, category, itemId) {
+    if (!group || !itemId) return false;
+    return this.getLockedMediaIds(group, category).has(itemId);
   }
 };

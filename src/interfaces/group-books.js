@@ -706,7 +706,7 @@ function renderBookCard(book, prog, user, isLocked, isClubBook, userPace) {
 // MENÚ DE OPCIONES SECUNDARIAS (⋯) — ACTION SHEET MÓVIL
 // ============================================================================
 function openBookOptionsMenu(group, book, user, ctx) {
-  const { openReviewModal, openMediaCommentsModal, onQuoteBook } = ctx;
+  const { openReviewModal, onQuoteBook } = ctx;
   const canDelete = store.canDeleteMediaItem(group, book, user);
   const proposer = book.proposedBy?.name || book.addedBy || 'Miembro';
   const prog = store.getUserBookProgress(book, user.id);
@@ -966,7 +966,6 @@ function openReadingSessionModal(bookId, user, onFinished) {
   const book = (group?.books || []).find(b => b.id === bookId);
   if (!book) return;
 
-  const prog = store.getUserBookProgress(book, user.id);
   const storageKey = `ruma_reading_timer_${book.id}`;
   let saved = null;
   try { saved = JSON.parse(sessionStorage.getItem(storageKey) || 'null'); } catch (_) {}
