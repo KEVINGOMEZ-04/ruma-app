@@ -182,3 +182,112 @@ describe('DriveBridge.syncExistingMemoryToDrive idempotency (AUD-08)', () => {
     await expect(DriveBridge.syncExistingMemoryToDrive(group, videoOnlyMem)).rejects.toThrow(/originales/i);
   });
 });
+
+describe('Google OAuth minimal scopes, Ruma 🌷 root folder & Drive HD streaming', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    localStorage.clear();
+    GoogleAuth.clearToken();
+  });
+
+  it('uses non-restricted drive.file scope for Drive and profile-only scopes for login', () => {
+    expect(CONFIG.googleDrive.scopes).toContain('https://www.googleapis.com/auth/drive.file');
+    expect(CONFIG.googleDrive.scopes).not.toMatch(/\/auth\/drive(\s|$)/);
+    expect(CONFIG.googleDrive.profileScopes).not.toContain('drive');
+    expect(CONFIG.googleDrive.rootFolderName).toBe('Ruma 🌷');
+  });
+
+  it('distinguishes profile-only login sessions from Drive-authorized sessions', () => {
+    localStorage.setItem(CONFIG.storageKeys.driveAuthSession, JSON.stringify({
+      accessToken: 'tok_profile_only',
+      email: 'user@example.com',
+      hasDriveScope: false,
+      expiresAt: Date.now() + 60_000
+    }));
+
+    expect(GoogleAuth.getAccessToken()).toBe('tok_profile_only');
+    expect(GoogleAuth.hasDriveAccess()).toBe(false);
+    expect(GoogleAuth.getDriveAccessToken()).toBeNull();
+    expect(GoogleAuth.isConnected()).toBe(false);
+
+    GoogleAuth.clearToken();
+    localStorage.setItem(CONFIG.storageKeys.driveAuthSession, JSON.stringify({
+      accessToken: 'tok_drive_file',
+      email: 'user@example.com',
+      hasDriveScope: true,
+      expiresAt: Date.now() + 60_000
+    }));
+
+    expect(GoogleAuth.hasDriveAccess()).toBe(true);
+    expect(GoogleAuth.getDriveAccessToken()).toBe('tok_drive_file');
+  });
+
+  it('reuses existing Ruma 🌷 root folder without creating duplicates, or creates Ruma 🌷 when absent', async () => {
+    // 1) Existing Ruma 🌷 found -> reuses it (1 GET call, no POST)
+    globalThis.fetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        files: [{ id: 'ruma_existing_id', name: 'Ruma 🌷', webViewLink: 'https://drive.google.com/drive/folders/ruma_existing_id' }]
+      })
+    });
+
+    const reused = await DriveResumableUploader.createRootGroupFolder('tok_123');
+    expect(reused.id).toBe('ruma_existing_id');
+    expect(reused.name).toBe('Ruma 🌷');
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+
+    // 2) Not found -> creates folder named exactly 'Ruma 🌷'
+    let createdBody = null;
+    globalThis.fetch = vi.fn()
+      .mockImplementationOnce(async () => ({ ok: true, json: async () => ({ files: [] }) }))
+      .mockImplementationOnce(async (_url, opts) => {
+        createdBody = JSON.parse(opts.body);
+        return { ok: true, json: async () => ({ id: 'ruma_new_id', name: 'Ruma 🌷', webViewLink: 'https://drive.google.com/drive/folders/ruma_new_id' }) };
+      });
+
+    const created = await DriveResumableUploader.createRootGroupFolder('tok_123');
+    expect(created.id).toBe('ruma_new_id');
+    expect(createdBody.name).toBe('Ruma 🌷');
+    expect(createdBody.mimeType).toBe('application/vnd.google-apps.folder');
+  });
+
+  it('resolves cross-device HD/video media from Drive when Drive is connected, or flags needsDriveConnect otherwise', async () => {
+    const { DriveBridge } = await import('../src/services/drive-bridge.js');
+    const { MediaStorage } = await import('../src/services/media-storage.js');
+
+    vi.spyOn(MediaStorage, 'getObjectUrl').mockResolvedValue(null);
+    vi.spyOn(MediaStorage, 'saveMedia').mockResolvedValue({});
+
+    const fileMeta = {
+      id: 'blob_remote_1',
+      name: 'playa.mp4',
+      type: 'video/mp4',
+      isVideo: true,
+      thumbnail: 'data:image/jpeg;base64,AAAA',
+      driveFileId: 'drive_vid_1',
+      driveViewLink: 'https://drive.google.com/file/d/drive_vid_1/view'
+    };
+
+    // Without Drive token -> falls back to thumbnail and flags needsDriveConnect
+    const offlineRes = await DriveBridge.resolveMemoryFileMedia(fileMeta, { id: 'g1' });
+    expect(offlineRes.source).toBe('thumbnail');
+    expect(offlineRes.needsDriveConnect).toBe(true);
+    expect(offlineRes.originalIsVideo).toBe(true);
+
+    // With Drive token -> downloads real video blob from Drive and returns objectURL
+    localStorage.setItem(CONFIG.storageKeys.driveAuthSession, JSON.stringify({
+      accessToken: 'tok_drive_ok',
+      email: 'member@example.com',
+      hasDriveScope: true,
+      expiresAt: Date.now() + 60_000
+    }));
+    vi.spyOn(DriveResumableUploader, 'downloadFileBlob').mockResolvedValue(new Blob(['video-bytes'], { type: 'video/mp4' }));
+
+    const hdRes = await DriveBridge.resolveMemoryFileMedia(fileMeta, { id: 'g1' });
+    expect(hdRes.source).toBe('drive');
+    expect(hdRes.isVideo).toBe(true);
+    expect(hdRes.needsDriveConnect).toBe(false);
+    expect(hdRes.url).toMatch(/^blob:/);
+    URL.revokeObjectURL(hdRes.url);
+  });
+});

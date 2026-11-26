@@ -6,6 +6,7 @@ import { store } from '../core/store.js';
 import { Utils } from '../core/utils.js';
 import { UI } from '../components/ui.js';
 import { CONFIG } from '../core/config.js';
+import { GoogleAuth } from '../services/google-auth.js';
 
 function showRecoveryCodeModal(recoveryCode, heading = 'Guarda tu código de recuperación') {
   if (!recoveryCode) return;
@@ -237,15 +238,15 @@ export function renderAuthScreen(container) {
 
         <div id="auth-google-feedback" style="display:none;margin-top:0.85rem;padding:0.7rem 0.9rem;border-radius:14px;font-size:0.8rem;text-align:left;width:100%;"></div>
 
-        <!-- Acceso con Google pausado temporalmente durante pruebas beta -->
+        <!-- Acceso rápido con Google (solo perfil/correo; Drive se solicita después en Recuerdos) -->
         <div class="ruma-auth-divider">
           <span class="line"></span>
-          <span class="text">acceso con Google · próximamente</span>
+          <span class="text">o continúa con Google</span>
           <span class="line"></span>
         </div>
 
         <div class="ruma-auth-social-row">
-          <button type="button" class="ruma-auth-google-box" id="btn-auth-google-signin" title="Acceso con Google disponible próximamente" aria-disabled="true" style="opacity:0.5;filter:grayscale(0.25);">
+          <button type="button" class="ruma-auth-google-box" id="btn-auth-google-signin" title="Continuar con Google" aria-label="Continuar con Google">
             <svg width="24" height="24" viewBox="0 0 48 48" aria-hidden="true">
               <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
               <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
@@ -356,7 +357,46 @@ export function renderAuthScreen(container) {
   });
 
   btnGoogle?.addEventListener('click', () => {
-    UI.showToast('El acceso con Google está pausado por ahora. Usa tu correo, teléfono o @usuario ✨', 'info');
+    const feedback = document.getElementById('auth-google-feedback');
+    if (feedback) feedback.style.display = 'none';
+    if (!GoogleAuth.hasValidClientId()) {
+      UI.showToast('El acceso con Google no está configurado en esta instalación.', 'error');
+      return;
+    }
+    btnGoogle.disabled = true;
+    btnGoogle.style.opacity = '0.6';
+
+    // Llamada directa sin `await` previo para preservar el gesto táctil en Safari iOS
+    GoogleAuth.signInWithProfile()
+      .then(async (session) => {
+        if (!session?.email) {
+          throw new Error('Google no devolvió tu correo electrónico. Intenta de nuevo.');
+        }
+        const res = await store.loginWithGoogleAsync({
+          email: session.email,
+          name: session.name,
+          picture: session.picture
+        });
+        if (!res?.ok) {
+          throw new Error(res?.error || 'No se pudo completar el inicio de sesión con Google.');
+        }
+        UI.showToast(`¡Bienvenido, ${res.user.name}! 💜`, 'success');
+      })
+      .catch((err) => {
+        const msg = err?.message || 'No se pudo iniciar sesión con Google.';
+        if (feedback) {
+          feedback.style.display = 'block';
+          feedback.style.background = 'rgba(239,68,68,0.14)';
+          feedback.style.border = '1px solid rgba(239,68,68,0.35)';
+          feedback.style.color = 'var(--error)';
+          feedback.textContent = msg;
+        }
+        UI.showToast(msg, 'error');
+      })
+      .finally(() => {
+        btnGoogle.disabled = false;
+        btnGoogle.style.opacity = '';
+      });
   });
 
   loginForm?.addEventListener('submit', async (e) => {
@@ -368,16 +408,21 @@ export function renderAuthScreen(container) {
       btn.disabled = true;
       btn.textContent = 'Iniciando sesión...';
     }
-    const res = await store.loginAsync(id, pw);
-    if (btn) {
-      btn.disabled = false;
-      btn.textContent = 'Iniciar sesión';
+    try {
+      const res = await store.loginAsync(id, pw);
+      if (!res.ok) {
+        UI.showToast(res.error, 'error');
+        return;
+      }
+      UI.showToast(`¡Bienvenido, ${res.user.name}! 💜`, 'success');
+    } catch (_) {
+      UI.showToast('Error al iniciar sesión. Revisa tu conexión e intenta de nuevo.', 'error');
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = 'Iniciar sesión';
+      }
     }
-    if (!res.ok) {
-      UI.showToast(res.error, 'error');
-      return;
-    }
-    UI.showToast(`¡Bienvenido, ${res.user.name}! 💜`, 'success');
   });
 
   regForm?.addEventListener('submit', async (e) => {
@@ -389,24 +434,29 @@ export function renderAuthScreen(container) {
       btn.disabled = true;
       btn.textContent = 'Creando cuenta...';
     }
-    const res = await store.registerAsync({
-      name: document.getElementById('reg-name')?.value,
-      username: document.getElementById('reg-username')?.value,
-      email: isEmail ? rawContact : '',
-      phone: !isEmail ? rawContact : '',
-      password: document.getElementById('reg-password')?.value
-    });
-    if (btn) {
-      btn.disabled = false;
-      btn.textContent = 'Crear cuenta';
-    }
-    if (!res.ok) {
-      UI.showToast(res.error, 'error');
-      return;
-    }
-    UI.showToast(`¡Cuenta creada en la nube, ${res.user.name}! 🎉`, 'success');
-    if (res.recoveryCode) {
-      setTimeout(() => showRecoveryCodeModal(res.recoveryCode, 'Guarda tu código de recuperación'), 120);
+    try {
+      const res = await store.registerAsync({
+        name: document.getElementById('reg-name')?.value,
+        username: document.getElementById('reg-username')?.value,
+        email: isEmail ? rawContact : '',
+        phone: !isEmail ? rawContact : '',
+        password: document.getElementById('reg-password')?.value
+      });
+      if (!res.ok) {
+        UI.showToast(res.error, 'error');
+        return;
+      }
+      UI.showToast(`¡Cuenta creada en la nube, ${res.user.name}! 🎉`, 'success');
+      if (res.recoveryCode) {
+        setTimeout(() => showRecoveryCodeModal(res.recoveryCode, 'Guarda tu código de recuperación'), 120);
+      }
+    } catch (_) {
+      UI.showToast('Error al crear la cuenta. Intenta de nuevo.', 'error');
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = 'Crear cuenta';
+      }
     }
   });
 }

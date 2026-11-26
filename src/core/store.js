@@ -798,6 +798,21 @@ class RumaStore {
     return { ok: true, user: newUser, recoveryCode };
   }
 
+  async loginWithGoogleAsync(profile) {
+    try {
+      const cloud = await CloudSync.pullCloudState(true);
+      if (cloud) {
+        this.applyRemoteCloudState(cloud, false);
+      }
+    } catch (_) {}
+    const res = this.loginWithGoogle(profile);
+    if (res?.ok) {
+      this.checkPendingInviteFromUrl();
+      await this.pushMergedStateToCloud();
+    }
+    return res;
+  }
+
   loginWithGoogle({ email, name, picture }) {
     const cleanEmail = String(email || '').trim().toLowerCase();
     const displayName = String(name || 'Usuario de Google').trim();
@@ -1482,6 +1497,10 @@ class RumaStore {
       this.logActivity(group, user, 'memory', `${memoryData.filesCount} ${memoryData.filesCount === 1 ? 'archivo' : 'archivos'} · ${memoryData.title}`);
     }
 
+    if (record.rootDriveFolderUrl && !DriveBridge.isRealFolderConfigured(group.driveFolderUrl)) {
+      group.driveFolderUrl = record.rootDriveFolderUrl;
+    }
+
     this.saveGroups(allGroups);
     this.notify();
     return {
@@ -1503,7 +1522,11 @@ class RumaStore {
 
     try {
       const synced = await DriveBridge.syncExistingMemoryToDrive(group, mem, onProgress);
-      Object.assign(mem, synced);
+      if (synced.rootDriveFolderUrl && !DriveBridge.isRealFolderConfigured(group.driveFolderUrl)) {
+        group.driveFolderUrl = synced.rootDriveFolderUrl;
+      }
+      const { rootDriveFolderUrl: _rootUrl, ...memPatch } = synced;
+      Object.assign(mem, memPatch);
       this.saveGroups(allGroups);
       this.notify();
       return { ok: true, memory: mem };

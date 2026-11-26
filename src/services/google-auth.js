@@ -1,11 +1,11 @@
 /**
  * ruma 🌟 — Servicio de Autenticación Oficial con Google Identity Services (GIS OAuth 2.0)
  *
- * - Permite iniciar sesión con Google ("Conectar cuenta de Google Drive") usando OAuth 2.0.
- * - Solicita el permiso de Google Drive para poder crear subcarpetas y subir fotos/videos
- *   dentro de cualquier carpeta existente de Google Drive cuyo enlace pegue el usuario.
- * - Persiste el token OAuth y el perfil de Google conectado (email, nombre, avatar) en localStorage
- *   mientras la sesión esté vigente (1 hora), y permite renovarlo con un clic.
+ * - Separa «Iniciar sesión con Google» (solo `openid email profile`, sin pedir Drive)
+ *   de «Conectar Google Drive» (autorización incremental con `drive.file`, solo carpeta Ruma 🌷).
+ * - Preserva el gesto táctil síncrono en iPhone / Safari iOS evitando `await` antes de abrir el popup
+ *   cuando GIS ya fue precargado desde `index.html`.
+ * - Evita forzar `prompt: 'consent'` en renovaciones cuando el usuario ya autorizó la app.
  */
 
 import { CONFIG } from '../core/config.js';
@@ -42,6 +42,16 @@ function savePersistedSession(session) {
       localStorage.removeItem(CONFIG.storageKeys.driveAuthSession);
     }
   } catch (_) {}
+}
+
+function sessionHasDriveScope(session) {
+  if (!session || !session.accessToken) return false;
+  if (typeof session.hasDriveScope === 'boolean') return session.hasDriveScope;
+  // Retrocompatibilidad con sesiones guardadas antes de separar login vs Drive
+  if (typeof session.grantedScope === 'string') {
+    return session.grantedScope.includes('drive');
+  }
+  return true;
 }
 
 export const GoogleAuth = {
@@ -85,8 +95,8 @@ export const GoogleAuth = {
 
       const existing = document.getElementById('google-identity-script');
       if (existing) {
-        existing.addEventListener('load', () => resolve(window.google));
-        existing.addEventListener('error', () => reject(new Error('No se pudo cargar Google Identity Services.')));
+        existing.addEventListener('load', () => resolve(window.google), { once: true });
+        existing.addEventListener('error', () => reject(new Error('No se pudo cargar Google Identity Services.')), { once: true });
         return;
       }
 
@@ -122,25 +132,31 @@ export const GoogleAuth = {
   },
 
   /**
-   * Abre el popup oficial de Inicio de Sesión de Google para autorizar Google Drive.
+   * Lanza el flujo OAuth 2.0 GIS preservando el gesto síncrono del clic (crítico en Safari iOS).
    */
-  async requestDriveAccess(customClientId = '', group = null) {
+  _requestToken({ scopes, expectDriveScope = false, customClientId = '', group = null, prompt = '' }) {
     const effectiveClientId = (customClientId || this.getClientId(group) || '').trim();
 
     if (!effectiveClientId || effectiveClientId === 'DEMO_CLIENT_ID' || !effectiveClientId.includes('.apps.googleusercontent.com')) {
       const err = new Error('CLIENT_ID_MISSING');
       err.code = 'CLIENT_ID_MISSING';
-      throw err;
+      return Promise.reject(err);
     }
 
     this.setClientId(effectiveClientId);
-    await this.loadGoogleScript();
 
-    return new Promise((resolve, reject) => {
+    const prevSession = loadPersistedSession();
+    const loginHint = prevSession?.email || '';
+
+    const runTokenFlow = () => new Promise((resolve, reject) => {
       try {
+        if (!window.google?.accounts?.oauth2) {
+          return reject(new Error('El servicio de Google aún está cargando. Toca de nuevo en un segundo.'));
+        }
         const tokenClient = window.google.accounts.oauth2.initTokenClient({
           client_id: effectiveClientId,
-          scope: CONFIG.googleDrive.scopes || 'https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/userinfo.email',
+          scope: scopes,
+          include_granted_scopes: true,
           callback: async (response) => {
             if (response.error) {
               return reject(new Error(response.error_description || response.error));
@@ -148,15 +164,22 @@ export const GoogleAuth = {
             const accessToken = response.access_token;
             const expiresInSec = parseInt(response.expires_in, 10) || 3599;
             const expiresAt = Date.now() + (expiresInSec - 60) * 1000;
+            const grantedScope = String(response.scope || scopes || '');
+            const hasDriveScope = expectDriveScope
+              ? (grantedScope.includes('drive.file') || grantedScope.includes('/auth/drive'))
+              : (sessionHasDriveScope(prevSession) || grantedScope.includes('drive.file') || grantedScope.includes('/auth/drive'));
+
             const profile = await this.fetchGoogleUserProfile(accessToken);
 
             const session = {
               accessToken,
               expiresAt,
               clientId: effectiveClientId,
-              email: profile?.email || '',
-              name: profile?.name || 'Cuenta Google conectada',
-              picture: profile?.picture || '',
+              grantedScope,
+              hasDriveScope,
+              email: profile?.email || prevSession?.email || '',
+              name: profile?.name || prevSession?.name || 'Cuenta Google conectada',
+              picture: profile?.picture || prevSession?.picture || '',
               connectedAt: new Date().toISOString()
             };
 
@@ -164,14 +187,62 @@ export const GoogleAuth = {
             resolve(session);
           },
           error_callback: (err) => {
+            if (err?.type === 'popup_failed_to_open') {
+              return reject(new Error('El navegador bloqueó la ventana de Google. Permite ventanas emergentes e inténtalo de nuevo.'));
+            }
             reject(new Error(err?.message || 'Se canceló o bloqueó la ventana de inicio de sesión de Google.'));
           }
         });
 
-        tokenClient.requestAccessToken({ prompt: 'consent' });
+        const reqOpts = {};
+        if (prompt !== undefined && prompt !== null) {
+          reqOpts.prompt = prompt;
+        }
+        if (loginHint && prompt !== 'select_account') {
+          reqOpts.hint = loginHint;
+        }
+        // Llamada síncrona dentro del clic para no perder el gesto táctil en Safari iOS
+        tokenClient.requestAccessToken(reqOpts);
       } catch (err) {
         reject(err);
       }
+    });
+
+    // Si GIS ya está precargado (caso normal), lanzar síncronamente sin `await` previo
+    if (window.google?.accounts?.oauth2) {
+      return runTokenFlow();
+    }
+
+    // Fallback si el usuario pulsó antes de terminar de cargar el script de index.html
+    return this.loadGoogleScript().then(() => runTokenFlow());
+  },
+
+  /**
+   * Inicia sesión con Google pidiendo SOLO perfil y correo (`openid email profile`).
+   * No solicita permisos de Google Drive en el login inicial.
+   */
+  signInWithProfile(customClientId = '') {
+    return this._requestToken({
+      scopes: CONFIG.googleDrive.profileScopes || 'openid email profile',
+      expectDriveScope: false,
+      customClientId,
+      prompt: 'select_account'
+    });
+  },
+
+  /**
+   * Solicita autorización incremental de Google Drive (`drive.file`: solo carpeta Ruma 🌷).
+   * En renovaciones no fuerza `prompt: 'consent'` para mejorar la experiencia en móvil.
+   */
+  requestDriveAccess(customClientId = '', group = null, { forceConsent = false } = {}) {
+    const prevSession = loadPersistedSession();
+    const prompt = forceConsent ? 'consent' : (prevSession?.email ? '' : 'select_account');
+    return this._requestToken({
+      scopes: CONFIG.googleDrive.scopes || 'https://www.googleapis.com/auth/drive.file openid email profile',
+      expectDriveScope: true,
+      customClientId,
+      group,
+      prompt
     });
   },
 
@@ -184,13 +255,22 @@ export const GoogleAuth = {
     return s ? s.accessToken : null;
   },
 
+  getDriveAccessToken() {
+    const s = loadPersistedSession();
+    return s && sessionHasDriveScope(s) ? s.accessToken : null;
+  },
+
+  hasDriveAccess() {
+    return Boolean(this.getDriveAccessToken());
+  },
+
   isConnected() {
-    return Boolean(this.getAccessToken());
+    return this.hasDriveAccess();
   },
 
   clearToken() {
     const s = loadPersistedSession();
-    if (s?.accessToken && window.google?.accounts?.oauth2?.revoke) {
+    if (s?.accessToken && typeof window !== 'undefined' && window.google?.accounts?.oauth2?.revoke) {
       try { window.google.accounts.oauth2.revoke(s.accessToken, () => {}); } catch (_) {}
     }
     savePersistedSession(null);

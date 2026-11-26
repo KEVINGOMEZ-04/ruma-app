@@ -304,9 +304,12 @@ function openAddPlanModal(dateStr, onSaved) {
 }
 
 function openUploadMemoryModal(group, editingMemory = null, prefillDate = null, isAdmin = true) {
-  const today = prefillDate || editingMemory?.date || new Date().toISOString().split('T')[0];
+  const nowLocal = new Date();
+  const localToday = `${nowLocal.getFullYear()}-${String(nowLocal.getMonth() + 1).padStart(2, '0')}-${String(nowLocal.getDate()).padStart(2, '0')}`;
+  const today = prefillDate || editingMemory?.date || localToday;
   const sampleFolder = Utils.buildDriveSubfolderName(editingMemory?.title || 'Mi Recuerdo', today);
   const googleSession = GoogleAuth.getSession();
+  const hasDriveAccess = GoogleAuth.hasDriveAccess();
   const hasRealFolder = DriveBridge.isRealFolderConfigured(group?.driveFolderUrl);
   let selectedSong = editingMemory?.song || null;
   let recordedVoiceDataUrl = editingMemory?.voiceNote || null;
@@ -364,21 +367,21 @@ function openUploadMemoryModal(group, editingMemory = null, prefillDate = null, 
           </div>
         </div>
 
-        <div style="background:var(--bg-elevated);padding:0.8rem 0.95rem;border-radius:var(--radius-sm);margin-bottom:1rem;font-size:0.8rem;border:1px solid ${googleSession ? 'rgba(16,185,129,0.4)' : 'var(--border-subtle)'};display:flex;align-items:center;justify-content:space-between;gap:0.75rem;flex-wrap:wrap;">
+        <div style="background:var(--bg-elevated);padding:0.8rem 0.95rem;border-radius:var(--radius-sm);margin-bottom:1rem;font-size:0.8rem;border:1px solid ${hasDriveAccess ? 'rgba(16,185,129,0.4)' : 'var(--border-subtle)'};display:flex;align-items:center;justify-content:space-between;gap:0.75rem;flex-wrap:wrap;">
           <div>
             <div style="color:var(--brand-lilac-soft);">
-              📁 Subcarpeta que se creará en Google Drive:
+              📁 Subcarpeta que se creará dentro de <strong>Ruma 🌷</strong>:
             </div>
             <strong id="mem-folder-preview" style="color:var(--text-primary);">${Utils.sanitize(sampleFolder)}</strong>
-            <div style="font-size:0.74rem;color:${googleSession ? '#34D399' : '#FBBF24'};margin-top:0.2rem;">
-              ${googleSession
-                ? `🟢 Conectado a Google (${Utils.sanitize(googleSession.email || googleSession.name)})${hasRealFolder ? ' · Subirá a la carpeta del grupo' : ' · Subirá a tu Google Drive'}`
-                : '⚠️ Cuenta Google no conectada: se guardará en tu dispositivo y podrás subirlo a Drive cuando conectes Google.'}
+            <div style="font-size:0.74rem;color:${hasDriveAccess ? '#34D399' : '#FBBF24'};margin-top:0.2rem;">
+              ${hasDriveAccess
+                ? `🟢 Google Drive conectado (${Utils.sanitize(googleSession?.email || googleSession?.name || 'Drive')})${hasRealFolder ? ' · Subirá a la carpeta vinculada' : ' · Creará tu carpeta Ruma 🌷 automáticamente'}`
+                : '⚠️ Google Drive no conectado: se guardará en tu dispositivo y podrás subirlo a Ruma 🌷 cuando conectes Drive.'}
             </div>
           </div>
-          ${!googleSession ? `
+          ${!hasDriveAccess ? `
             <button type="button" class="btn btn-secondary btn-sm" id="btn-mem-modal-connect-drive">
-              🔑 Conectar Google
+              🔑 Conectar Drive
             </button>
           ` : ''}
         </div>
@@ -612,20 +615,19 @@ async function openMemoryDetailModal(group, mem, user) {
   const photos = [...(mem.photos || [])];
   if (photos.length === 0 && mem.coverPreview) photos.push(mem.coverPreview);
 
-  // Resolver archivos binarios guardados en IndexedDB si los hay
+  // Resolver archivos binarios desde IndexedDB local o descargarlos/cachearlos desde Google Drive (`driveFileId`)
   const resolvedMedia = [];
   for (const fileMeta of (mem.files || [])) {
-    const objUrl = await MediaStorage.getObjectUrl(fileMeta.id);
-    if (objUrl) {
-      resolvedMedia.push({ url: objUrl, isVideo: Boolean(fileMeta.isVideo), name: fileMeta.name });
-    } else if (fileMeta.thumbnail) {
-      resolvedMedia.push({ url: fileMeta.thumbnail, isVideo: false, name: fileMeta.name });
+    const resolved = await DriveBridge.resolveMemoryFileMedia(fileMeta, group);
+    if (resolved) {
+      resolvedMedia.push(resolved);
     }
   }
   if (resolvedMedia.length === 0) {
-    photos.forEach((p, idx) => resolvedMedia.push({ url: p, isVideo: false, name: `Foto ${idx + 1}` }));
+    photos.forEach((p, idx) => resolvedMedia.push({ url: p, isVideo: false, name: `Foto ${idx + 1}`, source: 'thumbnail', needsDriveConnect: false }));
   }
 
+  const hasCloudOnlyMedia = resolvedMedia.some(item => item.needsDriveConnect);
   const comments = mem.comments || [];
 
   UI.openModal({
@@ -664,6 +666,17 @@ async function openMemoryDetailModal(group, mem, user) {
           </div>
         </div>
 
+        ${hasCloudOnlyMedia ? `
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.6rem;padding:0.75rem 0.9rem;border-radius:var(--radius-md);background:rgba(192,132,252,0.12);border:1px solid var(--border-strong);font-size:0.8rem;">
+            <span style="color:var(--text-secondary);">
+              ☁️ Este recuerdo tiene fotos HD o vídeos guardados en Google Drive.
+            </span>
+            <button type="button" class="btn btn-primary btn-sm" id="btn-mem-connect-drive-hd">
+              🔑 Conectar Drive para ver en HD
+            </button>
+          </div>
+        ` : ''}
+
         <!-- Galería deslizable con Lightbox -->
         ${resolvedMedia.length > 0 ? `
           <div>
@@ -675,7 +688,7 @@ async function openMemoryDetailModal(group, mem, user) {
                 <div style="width:120px;height:95px;border-radius:var(--radius-sm);overflow:hidden;flex-shrink:0;cursor:pointer;border:1px solid var(--border-subtle);position:relative;" data-lightbox-idx="${idx}">
                   ${item.isVideo
                     ? `<video src="${Utils.sanitize(Utils.safeUrl(item.url, ''))}#t=0.001" muted playsinline webkit-playsinline preload="metadata" style="width:100%;height:100%;object-fit:cover;"></video><span class="badge badge-admin" style="position:absolute;bottom:4px;right:4px;">▶</span>`
-                    : `<img src="${Utils.sanitize(Utils.safeUrl(item.url, 'assets/ruma_icon_512.png'))}" alt="media" style="width:100%;height:100%;object-fit:cover;">`
+                    : `<img src="${Utils.sanitize(Utils.safeUrl(item.url, 'assets/ruma_icon_512.png'))}" alt="media" style="width:100%;height:100%;object-fit:cover;">${item.originalIsVideo ? `<span class="badge badge-admin" style="position:absolute;bottom:4px;right:4px;">▶ Drive</span>` : ''}`
                   }
                 </div>
               `).join('')}
@@ -716,13 +729,40 @@ async function openMemoryDetailModal(group, mem, user) {
     },
     onMount: (modalEl) => {
       document.getElementById('mem-detail-hero-img')?.addEventListener('click', () => {
-        UI.openLightbox(mem.coverPreview || photos[0], false, mem.title);
+        const first = resolvedMedia[0];
+        if (first) UI.openLightbox(first.url, first.isVideo, mem.title);
+        else UI.openLightbox(mem.coverPreview || photos[0], false, mem.title);
+      });
+
+      document.getElementById('btn-mem-connect-drive-hd')?.addEventListener('click', (e) => {
+        const btn = e.currentTarget;
+        btn.disabled = true;
+        btn.textContent = '⏳ Conectando...';
+        // Llamada síncrona en el clic para no perder el gesto táctil en Safari iOS
+        GoogleAuth.requestDriveAccess('', group)
+          .then(() => {
+            UI.showToast('Google Drive conectado · Cargando en HD ☁️', 'success');
+            openMemoryDetailModal(group, mem, user);
+          })
+          .catch((err) => {
+            btn.disabled = false;
+            btn.textContent = '🔑 Conectar Drive para ver en HD';
+            UI.showToast(err?.message || 'No se pudo conectar Google Drive.', 'error');
+          });
       });
 
       modalEl.querySelectorAll('[data-lightbox-idx]').forEach(el => {
         el.addEventListener('click', () => {
           const item = resolvedMedia[Number(el.getAttribute('data-lightbox-idx'))];
-          if (item) UI.openLightbox(item.url, item.isVideo, item.name);
+          if (!item) return;
+          if (item.originalIsVideo && !item.isVideo && item.driveViewLink) {
+            const safeLink = Utils.safeUrl(item.driveViewLink, '');
+            if (safeLink) {
+              window.open(safeLink, '_blank', 'noopener,noreferrer');
+              return;
+            }
+          }
+          UI.openLightbox(item.url, item.isVideo, item.name);
         });
       });
 

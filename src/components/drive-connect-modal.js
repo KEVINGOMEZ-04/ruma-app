@@ -16,41 +16,42 @@ import { UI } from './ui.js';
 
 export function renderDriveConnectionPanelHtml(group, isAdmin = true) {
   const session = GoogleAuth.getSession();
+  const hasDrive = GoogleAuth.hasDriveAccess();
   const clientId = GoogleAuth.getClientId(group);
   const hasRealFolder = DriveBridge.isRealFolderConfigured(group?.driveFolderUrl);
   const safePicture = Utils.safeUrl(session?.picture, '');
 
   return `
     <div style="display:flex;flex-direction:column;gap:1.1rem;">
-      <!-- Estado actual de la sesión de Google -->
-      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.75rem;padding:0.9rem 1rem;border-radius:var(--radius-md);background:${session ? 'rgba(16,185,129,0.12)' : 'rgba(245,158,11,0.1)'};border:1px solid ${session ? 'rgba(16,185,129,0.4)' : 'rgba(245,158,11,0.35)'};">
+      <!-- Estado actual de la sesión de Google Drive -->
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.75rem;padding:0.9rem 1rem;border-radius:var(--radius-md);background:${hasDrive ? 'rgba(16,185,129,0.12)' : 'rgba(245,158,11,0.1)'};border:1px solid ${hasDrive ? 'rgba(16,185,129,0.4)' : 'rgba(245,158,11,0.35)'};">
         <div style="display:flex;align-items:center;gap:0.75rem;">
-          ${safePicture ? `<img src="${Utils.sanitize(safePicture)}" alt="Google" style="width:40px;height:40px;border-radius:50%;object-fit:cover;">` : `<div style="width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,0.1);display:flex;align-items:center;justify-content:center;font-size:1.2rem;">${session ? '🟢' : '🔐'}</div>`}
+          ${safePicture ? `<img src="${Utils.sanitize(safePicture)}" alt="Google" style="width:40px;height:40px;border-radius:50%;object-fit:cover;">` : `<div style="width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,0.1);display:flex;align-items:center;justify-content:center;font-size:1.2rem;">${hasDrive ? '🟢' : '🔐'}</div>`}
           <div>
-            <div style="font-weight:800;font-size:0.92rem;color:${session ? '#34D399' : '#FBBF24'};">
-              ${session ? `Conectado con Google Drive (${Utils.sanitize(session.name)})` : 'Cuenta de Google no conectada'}
+            <div style="font-weight:800;font-size:0.92rem;color:${hasDrive ? '#34D399' : '#FBBF24'};">
+              ${hasDrive ? `Conectado con Google Drive (${Utils.sanitize(session.name)})` : 'Google Drive no conectado'}
             </div>
             <div style="font-size:0.78rem;color:var(--text-secondary);">
-              ${session
-                ? `${Utils.sanitize(session.email || 'Sesión OAuth 2.0 activa')} · Lista para crear subcarpetas y subir fotos/videos`
-                : 'Conecta tu cuenta de Google para que los recuerdos se suban automáticamente a tu Google Drive.'}
+              ${hasDrive
+                ? `${Utils.sanitize(session.email || 'Sesión OAuth 2.0 activa')} · Acceso privado solo a tu carpeta Ruma 🌷`
+                : 'Conecta tu cuenta de Google para crear la carpeta Ruma 🌷 y respaldar allí tus recuerdos (sin acceso al resto de tu Drive).'}
             </div>
           </div>
         </div>
         <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
-          <button type="button" class="btn ${session ? 'btn-secondary' : 'btn-primary'} btn-sm" id="btn-drive-google-login">
-            ${session ? '🔄 Reconectar Google' : '🔑 Iniciar sesión con Google'}
+          <button type="button" class="btn ${hasDrive ? 'btn-secondary' : 'btn-primary'} btn-sm" id="btn-drive-google-login">
+            ${hasDrive ? '🔄 Renovar Google Drive' : '🔑 Conectar Google Drive'}
           </button>
-          ${session ? `<button type="button" class="btn btn-danger btn-sm" id="btn-drive-google-logout">Desconectar</button>` : ''}
+          ${hasDrive ? `<button type="button" class="btn btn-danger btn-sm" id="btn-drive-google-logout">Desconectar</button>` : ''}
         </div>
       </div>
 
-      <!-- Carpeta Principal de Google Drive del Grupo -->
+      <!-- Carpeta Principal Ruma 🌷 en Google Drive -->
       <div style="padding:1rem;background:var(--bg-elevated);border-radius:var(--radius-md);border:1px solid var(--border-subtle);">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.5rem;">
-          <label class="form-label" style="margin:0;">📂 Carpeta Principal de Google Drive del Grupo</label>
+          <label class="form-label" style="margin:0;">📂 Carpeta Ruma 🌷 en Google Drive</label>
           <span class="badge ${hasRealFolder ? 'badge-free' : 'badge-admin'}">
-            ${hasRealFolder ? '📁 Carpeta vinculada' : 'Opcional (o créala en 1 clic)'}
+            ${hasRealFolder ? '📁 Carpeta vinculada' : 'Se crea en 1 toque'}
           </span>
         </div>
         <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
@@ -60,17 +61,17 @@ export function renderDriveConnectionPanelHtml(group, isAdmin = true) {
             class="form-input"
             style="flex:1;min-width:220px;"
             value="${Utils.sanitize(hasRealFolder ? group.driveFolderUrl : '')}"
-            placeholder="https://drive.google.com/drive/folders/1A2B3C4D5E6F..."
+            placeholder="https://drive.google.com/drive/folders/..."
             ${!isAdmin ? 'disabled' : ''}
           >
           ${isAdmin ? `
-            <button type="button" class="btn btn-secondary btn-sm" id="btn-drive-create-auto-folder" title="Crea automáticamente una carpeta nueva en tu Google Drive y la vincula al grupo">
-              ✨ Crear carpeta en mi Drive
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-drive-create-auto-folder" title="Crea o vincula la carpeta Ruma 🌷 en tu Google Drive">
+              ✨ Crear / vincular Ruma 🌷
             </button>
           ` : ''}
         </div>
         <small style="display:block;color:var(--text-muted);font-size:0.76rem;margin-top:0.4rem;">
-          Cada recuerdo creará dentro de esta carpeta una subcarpeta con formato <code>[Nombre del Recuerdo - Día y Fecha]</code> y subirá allí sus fotos, videos y nota de voz.
+          ruma solo accede a la carpeta <strong>Ruma 🌷</strong> que crea para ti. Dentro de ella, cada recuerdo creará su propia subcarpeta <code>[Nombre del Recuerdo - Día y Fecha]</code> con sus fotos, videos y nota de voz.
         </small>
       </div>
       <input type="hidden" id="inp-drive-client-id" value="${Utils.sanitize(clientId)}">

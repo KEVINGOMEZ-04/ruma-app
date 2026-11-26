@@ -27,10 +27,12 @@ export const CONFIG = {
     language: 'es-ES'
   },
 
-  // Google Drive OAuth 2.0
+  // Google Drive OAuth 2.0 (scope mínimo `drive.file`: solo carpeta Ruma 🌷 y archivos creados por la app)
   googleDrive: {
     clientId: import.meta.env?.VITE_GOOGLE_CLIENT_ID || '419243559314-jriep6ork2h3o44ht83r5fe20ekpi3io.apps.googleusercontent.com',
-    scopes: 'https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile'
+    profileScopes: 'openid email profile',
+    scopes: 'https://www.googleapis.com/auth/drive.file openid email profile',
+    rootFolderName: 'Ruma 🌷'
   },
 
   // Sincronización en la Nube en Tiempo Real (Firebase Realtime Database)

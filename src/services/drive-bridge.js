@@ -45,16 +45,16 @@ export const DriveBridge = {
   },
 
   /**
-   * Obtiene un token OAuth activo; si no hay sesión o expiró y forceInteractive=true,
-   * abre el popup de inicio de sesión de Google.
+   * Obtiene un token OAuth con permiso de Google Drive (`drive.file`);
+   * si no hay sesión o expiró y forceInteractive=true, abre el flujo OAuth de Google.
    */
   async ensureAccessToken(group = null, forceInteractive = false) {
-    let token = GoogleAuth.getAccessToken();
+    let token = GoogleAuth.getDriveAccessToken();
     if (token && !token.startsWith('demo_')) return token;
 
     if (forceInteractive && GoogleAuth.hasValidClientId(group)) {
       const session = await GoogleAuth.requestDriveAccess('', group);
-      return session?.accessToken || null;
+      return session?.hasDriveScope ? (session.accessToken || null) : null;
     }
 
     return null;
@@ -66,26 +66,26 @@ export const DriveBridge = {
   async testFolderConnection(folderUrlOrId, group = null) {
     const folderId = this.extractFolderId(folderUrlOrId);
     if (!folderId || DEMO_FOLDER_IDS.has(folderId)) {
-      throw new Error('Pega el enlace real de tu carpeta de Google Drive (o usa el botón «Crear carpeta automática en mi Drive»).');
+      throw new Error('Vincula primero la carpeta Ruma 🌷 con el botón «Crear / vincular carpeta Ruma 🌷».');
     }
 
     const token = await this.ensureAccessToken(group, true);
     if (!token) {
-      throw new Error('Inicia sesión con tu cuenta de Google para verificar la carpeta.');
+      throw new Error('Conecta tu cuenta de Google Drive para verificar la carpeta.');
     }
 
     return DriveResumableUploader.verifyFolderAccess(token, folderId);
   },
 
   /**
-   * Crea una carpeta principal para el grupo en el Google Drive del usuario conectado
+   * Busca o crea la carpeta principal `Ruma 🌷` en el Google Drive del usuario conectado
    */
   async createGroupFolderInDrive(group) {
     const token = await this.ensureAccessToken(group, true);
     if (!token) {
-      throw new Error('Inicia sesión con tu cuenta de Google primero.');
+      throw new Error('Conecta tu cuenta de Google Drive primero.');
     }
-    return DriveResumableUploader.createRootGroupFolder(token, group?.name || 'Mi Grupo');
+    return DriveResumableUploader.createRootGroupFolder(token);
   },
 
   /**
@@ -107,9 +107,76 @@ export const DriveBridge = {
   },
 
   /**
+   * Resuelve un archivo de recuerdo para cualquier miembro del grupo:
+   * 1) Si existe localmente en IndexedDB, devuelve su objectURL al instante.
+   * 2) Si falta localmente pero tiene `driveFileId` y el usuario tiene Google Drive conectado,
+   *    descarga el original desde Drive, lo guarda en IndexedDB y devuelve el objectURL HD/vídeo.
+   * 3) Si aún no conecta Drive, devuelve la miniatura como respaldo indicando `needsDriveConnect`.
+   */
+  async resolveMemoryFileMedia(fileMeta, group = null) {
+    if (!fileMeta) return null;
+    const localUrl = await MediaStorage.getObjectUrl(fileMeta.id);
+    if (localUrl) {
+      return {
+        url: localUrl,
+        isVideo: Boolean(fileMeta.isVideo),
+        name: fileMeta.name || 'Archivo',
+        source: 'local',
+        driveFileId: fileMeta.driveFileId || '',
+        driveViewLink: fileMeta.driveViewLink || '',
+        needsDriveConnect: false
+      };
+    }
+
+    if (fileMeta.driveFileId) {
+      const token = GoogleAuth.getDriveAccessToken();
+      if (token) {
+        try {
+          const blob = await DriveResumableUploader.downloadFileBlob(token, fileMeta.driveFileId);
+          const typedBlob = blob.type
+            ? blob
+            : new Blob([blob], { type: fileMeta.type || (fileMeta.isVideo ? 'video/mp4' : 'image/jpeg') });
+          await MediaStorage.saveMedia(fileMeta.id, typedBlob, {
+            groupId: group?.id || '',
+            name: fileMeta.name || 'Archivo'
+          }).catch(() => {});
+          const objUrl = URL.createObjectURL(typedBlob);
+          return {
+            url: objUrl,
+            isVideo: Boolean(fileMeta.isVideo),
+            name: fileMeta.name || 'Archivo',
+            source: 'drive',
+            driveFileId: fileMeta.driveFileId,
+            driveViewLink: fileMeta.driveViewLink || `https://drive.google.com/file/d/${fileMeta.driveFileId}/view`,
+            needsDriveConnect: false
+          };
+        } catch (_) {
+          // Si el usuario actual no tiene permiso sobre ese archivo específico o falló la red, caer a miniatura + enlace Drive
+        }
+      }
+    }
+
+    if (fileMeta.thumbnail) {
+      return {
+        url: fileMeta.thumbnail,
+        isVideo: false,
+        originalIsVideo: Boolean(fileMeta.isVideo),
+        name: fileMeta.name || 'Archivo',
+        source: 'thumbnail',
+        driveFileId: fileMeta.driveFileId || '',
+        driveViewLink: fileMeta.driveViewLink || (fileMeta.driveFileId ? `https://drive.google.com/file/d/${fileMeta.driveFileId}/view` : ''),
+        needsDriveConnect: Boolean(fileMeta.driveFileId)
+      };
+    }
+
+    return null;
+  },
+
+  /**
    * Sincroniza un recuerdo completo con fotos/videos pesados:
    * 1. Guarda en IndexedDB para disponibilidad instantánea y offline
-   * 2. Si Google Drive está vinculado, crea la subcarpeta y sube cada archivo
+   * 2. Si Google Drive ya está conectado (sin abrir popup tras `await` en iOS Safari),
+   *    asegura la carpeta `Ruma 🌷`, crea la subcarpeta del recuerdo y sube cada archivo.
    */
   async syncMemoryToDrive(group, memoryPayload, files = [], onProgress = null) {
     return this.syncMemory(group, memoryPayload, files, onProgress);
@@ -156,29 +223,21 @@ export const DriveBridge = {
       });
     }
 
-    // 2. Subir a Google Drive si hay carpeta real y cuenta Google conectada (o si se puede solicitar token)
+    // 2. Subir a Google Drive si ya existe token activo de `drive.file`
+    // (No abrir popup tras `await` para evitar bloqueos de Safari iOS)
     let driveSubfolder = null;
+    let rootDriveFolderUrl = '';
     let driveSyncStatus = 'local_only'; // 'synced' | 'local_only' | 'error'
     let driveSyncError = '';
 
     const rawFolderUrl = group.driveFolderUrl || group.driveFolderId || '';
     const hasRealFolder = this.isRealFolderConfigured(rawFolderUrl);
-    const parentFolderId = hasRealFolder ? this.extractFolderId(rawFolderUrl) : '';
+    let parentFolderId = hasRealFolder ? this.extractFolderId(rawFolderUrl) : '';
 
-    // Intentar obtener token activo (o pedir login si el Client ID ya está configurado y hay carpeta o cuenta)
-    let token = GoogleAuth.getAccessToken();
+    let token = GoogleAuth.getDriveAccessToken();
     if (token && token.startsWith('demo_')) token = null;
 
-    if (!token && hasRealFolder && GoogleAuth.hasValidClientId(group)) {
-      try {
-        token = await this.ensureAccessToken(group, true);
-      } catch (authErr) {
-        driveSyncStatus = 'error';
-        driveSyncError = authErr.message || 'No se autorizó el inicio de sesión con Google.';
-      }
-    }
-
-    if (token && (parentFolderId || GoogleAuth.isConnected())) {
+    if (token) {
       try {
         if (typeof onProgress === 'function') {
           onProgress({
@@ -188,10 +247,16 @@ export const DriveBridge = {
           });
         }
 
-        // Si el grupo no tenía una carpeta real configurada (o tenía la de demo), crear la subcarpeta en la raíz o carpeta padre
+        // Si el grupo aún no tenía carpeta vinculada, buscar o crear `Ruma 🌷` automáticamente
+        if (!parentFolderId) {
+          const rootFolder = await DriveResumableUploader.createRootGroupFolder(token);
+          parentFolderId = rootFolder.id;
+          rootDriveFolderUrl = rootFolder.webViewLink;
+        }
+
         driveSubfolder = await DriveResumableUploader.createSubfolder(token, parentFolderId, subfolderName);
 
-        // Subir cada foto/video a la subcarpeta de Google Drive
+        // Subir cada foto/video a la subcarpeta del recuerdo dentro de `Ruma 🌷`
         for (let i = 0; i < processedFiles.length; i++) {
           const item = processedFiles[i];
           if (item.originalFile) {
@@ -246,6 +311,7 @@ export const DriveBridge = {
       authorId: memoryPayload.authorId,
       authorName: memoryPayload.authorName,
       subfolderName,
+      rootDriveFolderUrl,
       driveSubfolderId: driveSubfolder?.id || '',
       driveSubfolderUrl: driveSubfolder?.webViewLink || '',
       driveSyncStatus,
@@ -277,7 +343,8 @@ export const DriveBridge = {
     }
 
     const rawFolderUrl = group.driveFolderUrl || group.driveFolderId || '';
-    const parentFolderId = this.isRealFolderConfigured(rawFolderUrl) ? this.extractFolderId(rawFolderUrl) : '';
+    let parentFolderId = this.isRealFolderConfigured(rawFolderUrl) ? this.extractFolderId(rawFolderUrl) : '';
+    let rootDriveFolderUrl = '';
     const subfolderName = memory.subfolderName || Utils.buildDriveSubfolderName(memory.title, memory.date);
 
     if (typeof onProgress === 'function') {
@@ -299,6 +366,11 @@ export const DriveBridge = {
       }
     }
     if (!driveSubfolder) {
+      if (!parentFolderId) {
+        const rootFolder = await DriveResumableUploader.createRootGroupFolder(token);
+        parentFolderId = rootFolder.id;
+        rootDriveFolderUrl = rootFolder.webViewLink;
+      }
       driveSubfolder = await DriveResumableUploader.createSubfolder(token, parentFolderId, subfolderName);
     }
 
@@ -394,6 +466,7 @@ export const DriveBridge = {
 
     return {
       subfolderName,
+      rootDriveFolderUrl,
       driveSubfolderId: driveSubfolder.id,
       driveUrl: driveSubfolder.webViewLink,
       driveSyncStatus: 'synced',

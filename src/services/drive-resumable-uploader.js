@@ -7,6 +7,8 @@
  * - Incluye soporte para Unidades Compartidas (supportsAllDrives=true).
  */
 
+import { CONFIG } from '../core/config.js';
+
 const CHUNK_SIZE = 5 * 1024 * 1024; // 5 MB por fragmento (múltiplo de 256 KB requerido por Google)
 const MULTIPART_THRESHOLD = 4.5 * 1024 * 1024; // 4.5 MB
 const DEFAULT_TIMEOUT_MS = 45000;
@@ -77,11 +79,62 @@ export const DriveResumableUploader = {
   },
 
   /**
-   * Crea una carpeta nueva en la raíz de Google Drive del usuario si aún no tiene una
+   * Busca o crea la carpeta principal `Ruma 🌷` en la raíz del Google Drive del usuario
+   * (compatible con el scope mínimo `drive.file`, sin duplicar carpetas).
    */
-  async createRootGroupFolder(accessToken, groupName = 'ruma') {
-    const folderName = `ruma 🌟 — ${groupName}`;
+  async createRootGroupFolder(accessToken) {
+    if (!accessToken) throw new Error('Inicia sesión con tu cuenta de Google primero.');
+    const folderName = CONFIG.googleDrive?.rootFolderName || 'Ruma 🌷';
+    const escapedName = folderName.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    const q = encodeURIComponent(`name = '${escapedName}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`);
+
+    try {
+      const searchRes = await fetchWithTimeout(
+        `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name,webViewLink)&pageSize=5&supportsAllDrives=true&includeItemsFromAllDrives=true`,
+        {
+          method: 'GET',
+          headers: { Authorization: `Bearer ${accessToken}` }
+        }
+      );
+      if (searchRes.ok) {
+        const listData = await searchRes.json();
+        const existing = Array.isArray(listData.files) && listData.files[0];
+        if (existing?.id) {
+          return {
+            id: existing.id,
+            name: existing.name || folderName,
+            webViewLink: existing.webViewLink || `https://drive.google.com/drive/folders/${existing.id}`
+          };
+        }
+      }
+    } catch (_) {
+      // Si la búsqueda falla de forma transitoria, continuar creando la carpeta
+    }
+
     return this.createSubfolder(accessToken, '', folderName);
+  },
+
+  /**
+   * Descarga el binario original (foto HD o vídeo) de un archivo guardado en Google Drive
+   */
+  async downloadFileBlob(accessToken, fileId) {
+    if (!accessToken) throw new Error('Token de acceso a Google Drive requerido.');
+    if (!fileId) throw new Error('ID de archivo de Google Drive no válido.');
+
+    const res = await fetchWithTimeout(
+      `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media&supportsAllDrives=true`,
+      {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${accessToken}` }
+      },
+      CHUNK_TIMEOUT_MS
+    );
+
+    if (!res.ok) {
+      throw new Error(`No se pudo descargar el archivo desde Google Drive (HTTP ${res.status}).`);
+    }
+
+    return res.blob();
   },
 
   /**
