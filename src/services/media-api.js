@@ -198,7 +198,7 @@ export const MediaService = {
   async getMovieDetails(tmdbId) {
     if (!tmdbId) return null;
     try {
-      const data = await this.fetchTmdb(`/movie/${tmdbId}?append_to_response=images,videos,watch/providers&include_image_language=es,en,null&include_video_language=es,en`);
+      const data = await this.fetchTmdb(`/movie/${tmdbId}?append_to_response=images,videos,watch/providers,credits&include_image_language=es,en,null&include_video_language=es,en`);
       if (!data) return null;
 
       const hours = data.runtime ? Math.floor(data.runtime / 60) : 0;
@@ -210,6 +210,12 @@ export const MediaService = {
         .slice(0, 8)
         .map(img => `https://image.tmdb.org/t/p/w780${img.file_path}`);
 
+      const crew = (data.credits && Array.isArray(data.credits.crew)) ? data.credits.crew : [];
+      const directors = crew.filter(c => c.job === 'Director' && c.name).map(c => c.name).slice(0, 2);
+      const castList = (data.credits && Array.isArray(data.credits.cast))
+        ? data.credits.cast.filter(c => c.name).slice(0, 6).map(c => c.name)
+        : [];
+
       return {
         tmdbId: data.id,
         title: data.title,
@@ -218,6 +224,8 @@ export const MediaService = {
         duration: durationFormatted,
         runtimeMinutes: data.runtime || 0,
         genres: genresFormatted || 'Cine',
+        director: directors.join(', '),
+        cast: castList.join(', '),
         overview: data.overview || 'Sin sinopsis disponible.',
         tagline: data.tagline || '',
         poster: data.poster_path ? `${CONFIG.tmdb.imageBaseUrl}${data.poster_path}` : 'assets/ruma_icon_512.png',
@@ -225,7 +233,8 @@ export const MediaService = {
         voteAverage: data.vote_average ? Number(data.vote_average).toFixed(1) : '',
         gallery,
         trailerUrl: this._trailerFrom(data.videos),
-        watchProviders: this.extractWatchProviders(data['watch/providers'])
+        watchProviders: this.extractWatchProviders(data['watch/providers']),
+        detailsHydrated: true
       };
     } catch (err) {
       console.warn('Error getMovieDetails:', err);

@@ -375,17 +375,18 @@ const inFlight = new Set();
 const failedThisSession = new Set();
 const PROVIDERS_TTL = 1000 * 60 * 60 * 24 * 3; // 3 días
 
-function needsRefresh(item) {
+function needsRefresh(item, category) {
   if (!item.tmdbId) return false;
   const key = `${item.id}`;
   if (inFlight.has(key) || failedThisSession.has(key)) return false;
   if (!item.watchProviders) return true;
+  if (category === 'movies' && !item.detailsHydrated && !item.cast && !item.director) return true;
   return Date.now() - (item.watchProviders.updatedAt || 0) > PROVIDERS_TTL;
 }
 
 export async function hydrateMediaFromTmdb(group, category) {
   if (!group) return;
-  const items = (group[category] || []).filter(needsRefresh);
+  const items = (group[category] || []).filter(item => needsRefresh(item, category));
   if (!items.length) return;
   items.forEach(i => inFlight.add(i.id));
 
@@ -401,12 +402,15 @@ export async function hydrateMediaFromTmdb(group, category) {
             duration: item.duration || d.duration,
             runtimeMinutes: d.runtimeMinutes,
             genres: item.genres || d.genres,
+            director: d.director || item.director || '',
+            cast: d.cast || item.cast || '',
             synopsis: item.synopsis || d.overview,
             tagline: d.tagline,
             backdrop: item.backdrop || d.backdrop,
             gallery: (item.gallery && item.gallery.length) ? item.gallery : d.gallery,
             trailerUrl: item.trailerUrl || d.trailerUrl,
-            tmdbRating: d.voteAverage || item.tmdbRating
+            tmdbRating: d.voteAverage || item.tmdbRating,
+            detailsHydrated: true
           }
         });
       } else {

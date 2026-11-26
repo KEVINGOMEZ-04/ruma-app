@@ -54,6 +54,14 @@ function safeSetStorage(key, value) {
   }
 }
 
+// Evita incrustar copias repetidas de avatares base64 (~30-60 KB) dentro de logs, películas o reseñas.
+// La UI resuelve el avatar actualizado desde group.members / accounts por userId.
+function compactAvatar(avatar) {
+  if (!avatar || typeof avatar !== 'string') return '';
+  if (avatar.startsWith('data:') || avatar.length > 2000) return '';
+  return avatar;
+}
+
 function normalizeAccountList(val) {
   if (Array.isArray(val)) return val;
   if (val && typeof val === 'object') return Object.values(val);
@@ -913,7 +921,7 @@ class RumaStore {
       type,
       userId: user.id,
       userName: user.name,
-      userAvatar: user.avatar,
+      userAvatar: compactAvatar(user.avatar),
       detail: String(detail || '').slice(0, 80),
       at: new Date().toISOString()
     });
@@ -1452,20 +1460,42 @@ class RumaStore {
     const group = allGroups.find(g => g.id === active?.id);
     if (!group || !user) return { ok: false, error: 'Grupo no disponible.' };
 
+    group[category] = group[category] || [];
+
+    // Evitar duplicados por tmdbId en películas y series
+    if ((category === 'movies' || category === 'series') && itemData?.tmdbId) {
+      const exists = group[category].some(x => String(x.tmdbId) === String(itemData.tmdbId));
+      if (exists) {
+        return {
+          ok: false,
+          duplicate: true,
+          error: category === 'movies'
+            ? 'Esta película ya está en la cartelera del grupo.'
+            : 'Esta serie ya está en la lista del grupo.'
+        };
+      }
+    }
+
     const check = Entitlements.canAddMediaItem(group, category);
     if (!check.allowed) {
       return { ok: false, needsUpgrade: true, error: check.reason };
     }
 
-    group[category] = group[category] || [];
+    const validMovieStatuses = ['Por ver', 'Vista', 'Favorita'];
+    const initialMovieStatus = validMovieStatuses.includes(itemData?.status) ? itemData.status : 'Por ver';
+    const movieUserStatuses = category === 'movies'
+      ? { ...(itemData.userStatuses || {}), [user.id]: initialMovieStatus }
+      : itemData.userStatuses;
+
     const newItem = {
       id: Utils.generateId(category.slice(0, 3)),
       ...itemData,
+      ...(category === 'movies' ? { userStatuses: movieUserStatuses } : {}),
       addedBy: user.name,
       proposedBy: itemData.proposedBy || {
         id: user.id,
         name: user.name,
-        avatar: user.avatar,
+        avatar: compactAvatar(user.avatar),
         date: Utils.formatShortDate(new Date().toISOString())
       },
       comments: itemData.comments || [],
@@ -1893,7 +1923,7 @@ class RumaStore {
       review: String(review || '').trim(),
       tags: Array.isArray(tags) ? tags.slice(0, 6) : [],
       userName: user.name,
-      userAvatar: user.avatar,
+      userAvatar: compactAvatar(user.avatar),
       progressLabel,
       completedWhenRated,
       updatedAt: new Date().toISOString()

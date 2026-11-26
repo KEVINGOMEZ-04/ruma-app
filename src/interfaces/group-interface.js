@@ -805,9 +805,10 @@ function renderMoviesTab(viewport, group, user) {
 
 async function openMovieDetailModal(group, movie, user) {
   const refresh = () => (store.getActiveGroup()?.movies || []).find(m => m.id === movie.id) || movie;
+  const activeGroup = () => store.getActiveGroup() || group;
 
-  // Datos reales de TMDb (ficha + plataformas en una sola llamada)
-  if (movie.tmdbId && (!movie.watchProviders || !movie.gallery || !movie.trailerUrl || !movie.synopsis)) {
+  // Datos reales de TMDb (evita re-pedir en cada apertura si ya fue hidratada, aunque no tenga tráiler)
+  if (movie.tmdbId && !movie.detailsHydrated && (!movie.watchProviders || !movie.cast || !movie.synopsis)) {
     const details = await MediaService.getMovieDetails(movie.tmdbId);
     if (details) {
       store.applyMediaPatches(group.id, [{
@@ -817,21 +818,35 @@ async function openMovieDetailModal(group, movie, user) {
           watchProviders: details.watchProviders,
           duration: movie.duration || details.duration,
           genres: movie.genres || details.genres,
+          director: details.director || movie.director || '',
+          cast: details.cast || movie.cast || '',
           synopsis: movie.synopsis || details.overview,
           tagline: details.tagline,
           backdrop: movie.backdrop || details.backdrop,
-          gallery: details.gallery || [],
+          gallery: (movie.gallery && movie.gallery.length) ? movie.gallery : (details.gallery || []),
           trailerUrl: movie.trailerUrl || details.trailerUrl || '',
-          tmdbRating: details.voteAverage || movie.tmdbRating
+          tmdbRating: details.voteAverage || movie.tmdbRating,
+          detailsHydrated: true
         }
       }], true);
       movie = refresh();
     }
   }
 
+  const grp = activeGroup();
   const trailerLink = movie.trailerUrl || `https://www.youtube.com/results?search_query=${encodeURIComponent(movie.title + ' trailer oficial')}`;
   const myRating = movie.ratings?.[user.id];
+  const myStatus = store.getUserMovieStatus(movie, user.id);
   const avg = getAverage(movie);
+  const proposerName = movie.proposedBy?.name || movie.addedBy || 'Miembro';
+  const priorityNum = Number(movie.priority || 0);
+  const priorityLabel = priorityNum >= 5 ? '🔥 Urgente (5/5)' : priorityNum === 4 ? '⚡ Alta (4/5)' : priorityNum === 3 ? 'Media (3/5)' : '';
+
+  const members = grp.members || [];
+  const seenMembers = members.filter(m => {
+    const st = store.getUserMovieStatus(movie, m.id);
+    return st === 'Vista' || st === 'Favorita';
+  });
 
   UI.openModal({
     title: `🎬 ${movie.title} (${movie.year || ''})`,
@@ -844,25 +859,66 @@ async function openMovieDetailModal(group, movie, user) {
           <div style="flex:1;min-width:200px;display:flex;flex-direction:column;justify-content:space-between;gap:0.65rem;">
             <div>
               <div style="display:flex;gap:0.45rem;flex-wrap:wrap;margin-bottom:0.4rem;">
-                <span class="badge badge-admin">${Utils.sanitize(store.getUserMovieStatus(movie, user.id))}</span>
                 ${movie.tmdbRating ? `<span class="badge badge-premium">⭐ TMDb ${Utils.sanitize(movie.tmdbRating)}</span>` : ''}
                 ${avg !== null ? `<span class="badge badge-premium">👥 Grupo ${avg.toFixed(1)}</span>` : ''}
                 ${movie.duration ? `<span class="badge badge-free">⏱ ${Utils.sanitize(movie.duration)}</span>` : ''}
+                ${priorityLabel ? `<span class="badge badge-admin">${priorityLabel}</span>` : ''}
               </div>
               <h2 style="font-family:var(--font-display);font-size:1.4rem;">${Utils.sanitize(movie.title)}</h2>
               ${movie.tagline ? `<div style="font-size:0.82rem;font-style:italic;color:var(--text-muted);">“${Utils.sanitize(movie.tagline)}”</div>` : ''}
-              <div style="font-size:0.82rem;color:var(--brand-lilac);margin-top:0.2rem;">${Utils.sanitize(movie.genres || 'Cine')}</div>
+              <div style="font-size:0.82rem;color:var(--brand-lilac);margin-top:0.2rem;">${Utils.sanitize(movie.genres || 'Cine')} · Propuesta por <b>${Utils.sanitize(proposerName)}</b></div>
               <p style="font-size:0.86rem;color:var(--text-secondary);margin-top:0.55rem;line-height:1.5;">
                 ${Utils.sanitize(movie.synopsis || 'Sin sinopsis disponible.')}
               </p>
             </div>
             <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
               <a href="${Utils.sanitize(trailerLink)}" target="_blank" rel="noopener" class="btn btn-primary btn-sm">▶ Ver Tráiler</a>
-              <button type="button" class="btn btn-secondary btn-sm" id="btn-modal-jump-review">${myRating ? `✏️ Editar mi reseña (${Number(myRating.score).toFixed(1)})` : '✍️ Reseñar ahora'}</button>
+              <button type="button" class="btn btn-secondary btn-sm" id="btn-modal-jump-review">${myRating ? `✏️ Editar mi reseña (${Number(myRating.score).toFixed(1)})` : '✍️ Reseñar'}</button>
               <button type="button" class="btn btn-secondary btn-sm" id="btn-modal-comments-movie">💬 Comentarios (${(movie.comments || []).length})</button>
+              <button type="button" class="btn btn-secondary btn-sm" id="btn-modal-quote-movie">↩ Citar en chat</button>
             </div>
           </div>
         </div>
+
+        <!-- Tu estado personal directo en la ficha -->
+        <div class="rmv-detail-status-box">
+          <div class="rmv-detail-status-head">
+            <span>Tu estado personal</span>
+            <small>Solo cambia para ti</small>
+          </div>
+          <div class="rmv-detail-status-row">
+            ${[
+              ['Por ver', '🌱 Por ver'],
+              ['Vista', '🍿 Vista'],
+              ['Favorita', '❤️ Favorita']
+            ].map(([st, lbl]) => `
+              <button type="button" class="btn ${myStatus === st ? 'btn-primary' : 'btn-secondary'} btn-sm" data-detail-mv-st="${st}">${lbl}</button>
+            `).join('')}
+          </div>
+          ${members.length > 0 ? `
+            <div class="rmv-seen-row">
+              <span class="rmv-seen-lbl">${seenMembers.length === 0 ? 'Nadie del grupo la ha visto aún' : seenMembers.length === members.length ? `✅ Todos la vieron (${seenMembers.length}/${members.length})` : `👁️ Vista por ${seenMembers.length} de ${members.length}:`}</span>
+              ${seenMembers.length > 0 ? `
+                <div class="rmv-seen-avatars">
+                  ${seenMembers.map(m => `
+                    <span class="rmv-seen-chip" title="${Utils.sanitize(m.name)} (${Utils.sanitize(store.getUserMovieStatus(movie, m.id))})">
+                      <img src="${Utils.sanitize(m.avatar || 'assets/ruma_default_avatar.png')}" alt="${Utils.sanitize(m.name)}">
+                      <span>${Utils.sanitize((m.name || '').split(' ')[0])}</span>
+                    </span>
+                  `).join('')}
+                </div>
+              ` : ''}
+            </div>
+          ` : ''}
+        </div>
+
+        <!-- Dirección y Reparto principal -->
+        ${(movie.director || movie.cast) ? `
+          <div class="rmv-credits-box">
+            ${movie.director ? `<div><b>🎬 Dirección:</b> ${Utils.sanitize(movie.director)}</div>` : ''}
+            ${movie.cast ? `<div><b>🎭 Reparto:</b> ${Utils.sanitize(movie.cast)}</div>` : ''}
+          </div>
+        ` : ''}
 
         <!-- Plataformas reales de streaming -->
         ${renderProvidersSection(movie)}
@@ -875,7 +931,7 @@ async function openMovieDetailModal(group, movie, user) {
           </div>
           <div class="rv-panel-col">
             <div class="rv-panel-title">👥 Reseñas del grupo</div>
-            ${renderGroupReviews(movie, group, user, { compact: false, category: 'movies' })}
+            ${renderGroupReviews(movie, grp, user, { compact: false, category: 'movies' })}
           </div>
         </div>
 
@@ -893,9 +949,17 @@ async function openMovieDetailModal(group, movie, user) {
       </div>
     `,
     onMount: (modalEl) => {
+      modalEl.querySelectorAll('[data-detail-mv-st]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const st = btn.getAttribute('data-detail-mv-st');
+          store.setUserMovieStatus(movie.id, st);
+          UI.showToast(`Tu estado en "${movie.title}": ${st}`, 'info');
+          openMovieDetailModal(activeGroup(), refresh(), user);
+        });
+      });
       bindReviewForm(modalEl.querySelector('#movie-review-panel'), 'movies', movie, () => {
         // Reabrir con los datos actualizados para ver la reseña publicada
-        openMovieDetailModal(store.getActiveGroup() || group, refresh(), user);
+        openMovieDetailModal(activeGroup(), refresh(), user);
       });
       modalEl.querySelector('[data-review-item]')?.addEventListener('click', () => {
         modalEl.querySelector('#movie-review-panel textarea')?.focus();
@@ -909,6 +973,18 @@ async function openMovieDetailModal(group, movie, user) {
       document.getElementById('btn-modal-comments-movie')?.addEventListener('click', () => {
         UI.closeModal();
         openMediaCommentsModal('movies', movie);
+      });
+      document.getElementById('btn-modal-quote-movie')?.addEventListener('click', () => {
+        UI.closeModal();
+        pendingChatQuote = {
+          type: 'movie',
+          itemId: movie.id,
+          label: '🎬 Película',
+          title: `${movie.title} (${movie.year || ''})`,
+          subtitle: `Estado: ${store.getUserMovieStatus(movie, user.id)}`,
+          thumb: movie.poster || 'assets/ruma_default_avatar.png'
+        };
+        store.navigate('group', { groupTab: 'chat' });
       });
       modalEl.querySelectorAll('[data-movie-still]').forEach(img => {
         img.addEventListener('click', () => {
@@ -1678,8 +1754,16 @@ function openSearchTmdbModal(group, category) {
           return;
         }
 
-        resultsEl.innerHTML = results.map((r, i) => `
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:0.75rem;padding:0.65rem;background:var(--bg-elevated);border-radius:var(--radius-sm);border:1px solid var(--border-subtle);">
+        const existingIds = new Set(
+          ((store.getActiveGroup() || group)?.[category] || [])
+            .map(item => item.tmdbId ? String(item.tmdbId) : '')
+            .filter(Boolean)
+        );
+
+        resultsEl.innerHTML = results.map((r, i) => {
+          const alreadyAdded = r.tmdbId && existingIds.has(String(r.tmdbId));
+          return `
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:0.75rem;padding:0.65rem;background:var(--bg-elevated);border-radius:var(--radius-sm);border:1px solid var(--border-subtle);${alreadyAdded ? 'opacity:0.75;' : ''}">
             <div style="display:flex;align-items:center;gap:0.75rem;min-width:0;flex:1;">
               <img src="${Utils.sanitize(r.poster)}" alt="poster" style="width:46px;height:66px;border-radius:6px;object-fit:cover;flex-shrink:0;">
               <div style="min-width:0;">
@@ -1691,9 +1775,11 @@ function openSearchTmdbModal(group, category) {
                 </div>
               </div>
             </div>
-            <button type="button" class="btn btn-primary btn-sm" data-pick-tmdb="${i}">+ Añadir</button>
-          </div>
-        `).join('');
+            ${alreadyAdded
+              ? `<span class="badge badge-free" style="flex-shrink:0;">✅ En cartelera</span>`
+              : `<button type="button" class="btn btn-primary btn-sm" data-pick-tmdb="${i}">+ Añadir</button>`}
+          </div>`;
+        }).join('');
 
         resultsEl.querySelectorAll('[data-pick-tmdb]').forEach(btn => {
           btn.addEventListener('click', async () => {
@@ -1722,12 +1808,15 @@ function openSearchTmdbModal(group, category) {
                   ...payload,
                   duration: details.duration,
                   genres: details.genres || payload.genres,
+                  director: details.director || '',
+                  cast: details.cast || '',
                   synopsis: details.overview || payload.synopsis,
                   gallery: details.gallery || [],
                   trailerUrl: details.trailerUrl || '',
                   tagline: details.tagline || '',
                   runtimeMinutes: details.runtimeMinutes,
-                  watchProviders: details.watchProviders
+                  watchProviders: details.watchProviders,
+                  detailsHydrated: true
                 };
               }
             } else if (!isMovies && picked.tmdbId) {
@@ -1760,7 +1849,7 @@ function openSearchTmdbModal(group, category) {
             UI.closeModal();
             if (!res.ok) {
               if (res.needsUpgrade) UI.showUpgradeModal(res.error, () => store.upgradeGroupToPremium(group.id));
-              else UI.showToast(res.error, 'error');
+              else UI.showToast(res.error, res.duplicate ? 'info' : 'error');
               return;
             }
             UI.showToast(`"${picked.title}" añadida con ficha oficial de TMDb ✨`, 'success');
