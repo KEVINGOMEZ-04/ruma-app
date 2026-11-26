@@ -84,7 +84,7 @@ export function renderAuthScreen(container) {
 
         <!-- Subtítulo -->
         <p class="ruma-auth-tagline">
-          Tus personas <span class="dot">·</span> Tus recuerdos <span class="dot">·</span> <span class="accent">Tu refugio</span>
+          Descubre <span class="dot">•</span> Comparte <span class="dot">•</span> <span class="accent">Conecta</span>
         </p>
 
         <!-- Selector Píldora: Iniciar sesión / Crear cuenta -->

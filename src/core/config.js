@@ -4,7 +4,7 @@
 
 export const CONFIG = {
   appName: 'ruma',
-  tagline: 'Tus personas · Tus recuerdos · Tu refugio',
+  tagline: 'Descubre • Comparte • Conecta',
   version: '1.0.0',
 
   // TMDb API (Películas & Series)
