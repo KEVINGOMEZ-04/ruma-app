@@ -199,7 +199,7 @@ export function renderHomeInterface(container) {
                         <span class="badge badge-admin">
                           ${isCreator ? '👑 Creador' : (isAdmin ? '🛡️ Admin' : '👤 Miembro')}
                         </span>
-                        ${isLocked ? `<span class="badge" style="background:rgba(239,68,68,.18);border:1px solid rgba(248,113,113,.45);color:#fca5a5;">🔒 Bloqueado</span>` : ''}
+                        ${isLocked ? `<span class="badge" style="background:rgba(239,68,68,.18);border:1px solid rgba(248,113,113,.45);color:var(--error);">🔒 Bloqueado</span>` : ''}
                       </div>
                       <button
                         type="button"

@@ -366,7 +366,7 @@ function openUploadMemoryModal(group, editingMemory = null, prefillDate = null, 
             <div style="color:var(--brand-lilac-soft);">
               📁 Subcarpeta que se creará en Google Drive:
             </div>
-            <strong id="mem-folder-preview" style="color:#fff;">${Utils.sanitize(sampleFolder)}</strong>
+            <strong id="mem-folder-preview" style="color:var(--text-primary);">${Utils.sanitize(sampleFolder)}</strong>
             <div style="font-size:0.74rem;color:${googleSession ? '#34D399' : '#FBBF24'};margin-top:0.2rem;">
               ${googleSession
                 ? `🟢 Conectado a Google (${Utils.sanitize(googleSession.email || googleSession.name)})${hasRealFolder ? ' · Subirá a la carpeta del grupo' : ' · Subirá a tu Google Drive'}`
@@ -633,7 +633,7 @@ async function openMemoryDetailModal(group, mem, user) {
         <!-- Portada principal -->
         <div style="position:relative;height:260px;border-radius:var(--radius-lg);overflow:hidden;background:#070312;">
           <img src="${Utils.sanitize(mem.coverPreview || photos[0] || 'assets/ruma_icon_512.png')}" alt="${Utils.sanitize(mem.title)}" style="width:100%;height:100%;object-fit:cover;cursor:pointer;" id="mem-detail-hero-img">
-          <div style="position:absolute;inset:0;background:linear-gradient(to top, rgba(9,3,20,0.92), transparent 60%);display:flex;flex-direction:column;justify-content:flex-end;padding:1.25rem;">
+          <div class="mem-hero-overlay">
             <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.3rem;">
               ${mem.isFeatured ? `<span class="badge badge-premium">⭐ Destacado</span>` : ''}
               <span class="badge badge-admin">📅 ${Utils.sanitize(Utils.formatFullSpanishDate(mem.date))}</span>
@@ -839,7 +839,7 @@ async function openMovieDetailModal(group, movie, user) {
     contentHtml: `
       <div style="display:flex;flex-direction:column;gap:1.15rem;">
         <!-- Cabecera con Backdrop y Póster -->
-        <div class="media-hero" style="${movie.backdrop ? `background-image:linear-gradient(135deg, rgba(18,7,38,0.94), rgba(35,17,71,0.80)), url('${Utils.sanitize(movie.backdrop)}');` : ''}">
+        <div class="media-hero ${movie.backdrop ? 'has-backdrop' : ''}" style="${movie.backdrop ? `background-image:linear-gradient(135deg, rgba(18,7,38,0.94), rgba(35,17,71,0.80)), url('${Utils.sanitize(movie.backdrop)}');` : ''}">
           <img src="${Utils.sanitize(movie.poster || 'assets/ruma_icon_512.png')}" alt="Poster" style="width:120px;height:180px;border-radius:var(--radius-md);object-fit:cover;flex-shrink:0;box-shadow:0 10px 30px rgba(0,0,0,0.45);">
           <div style="flex:1;min-width:200px;display:flex;flex-direction:column;justify-content:space-between;gap:0.65rem;">
             <div>
@@ -1117,7 +1117,7 @@ async function renderSeriesDetailView(viewport, group, series, user) {
           </div>
         </div>
 
-        <div class="media-hero" style="${series.backdrop ? `background-image:linear-gradient(135deg, rgba(18,7,38,0.94), rgba(35,17,71,0.82)), url('${Utils.sanitize(series.backdrop)}');` : ''}">
+        <div class="media-hero ${series.backdrop ? 'has-backdrop' : ''}" style="${series.backdrop ? `background-image:linear-gradient(135deg, rgba(18,7,38,0.94), rgba(35,17,71,0.82)), url('${Utils.sanitize(series.backdrop)}');` : ''}">
           <img src="${Utils.sanitize(series.poster || 'assets/ruma_icon_512.png')}" alt="Poster" style="width:130px;height:190px;border-radius:var(--radius-md);object-fit:cover;flex-shrink:0;box-shadow:0 10px 30px rgba(0,0,0,0.45);">
           <div style="flex:1;min-width:220px;display:flex;flex-direction:column;justify-content:space-between;gap:0.75rem;">
             <div>

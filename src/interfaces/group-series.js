@@ -166,7 +166,7 @@ export function renderGroupSeriesView(viewport, group, user, ctx) {
                       : `<span class="rms-badge ${bm.cls}">${bm.icon} ${bm.label}</span>`}
                   </div>
                   ${isLocked ? `
-                    <div class="rmv-watched-some" style="color:#fca5a5;">🔒 Excede el límite de 5 series del Plan Free</div>
+                    <div class="rmv-watched-some" style="color:var(--error);">🔒 Excede el límite de 5 series del Plan Free</div>
                   ` : `
                     <div class="rms-progress">
                       <span class="rms-prog-txt">${pr.label} (${pr.pct}%)</span>
@@ -267,7 +267,7 @@ export function renderGroupSeriesView(viewport, group, user, ctx) {
           <button type="button" class="btn btn-secondary" id="sr-m-comm">💬 Comentarios (${(s.comments || []).length})</button>
           <button type="button" class="btn btn-secondary" id="sr-m-quote">↩ Citar en el chat</button>
           <div style="font-size:.75rem;color:var(--text-muted);">Añadida por <b>${Utils.sanitize(proposer)}</b></div>
-          ${canDelete ? `<button type="button" class="btn" id="sr-m-del" style="background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.5);color:#fca5a5;">🗑️ Eliminar serie</button>` : `
+          ${canDelete ? `<button type="button" class="btn" id="sr-m-del" style="background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.5);color:var(--error);">🗑️ Eliminar serie</button>` : `
             <div style="font-size:.74rem;color:var(--text-muted);text-align:center;padding:.35rem;border-radius:.6rem;background:rgba(255,255,255,.03);">🔒 Solo quien la añadió (${Utils.sanitize(proposer)}) o el líder del grupo pueden eliminarla.</div>`}
         </div>`,
       onMount: () => {

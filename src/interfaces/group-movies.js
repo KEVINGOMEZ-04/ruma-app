@@ -257,7 +257,7 @@ export function renderGroupMoviesView(viewport, group, user, ctx) {
                     <span class="rmv-rating-pill">⭐ <b>${Utils.sanitize(String(ratingNum))}</b></span>
                   </div>
 
-                  ${isLocked ? `<div class="rmv-watched-some" style="color:#fca5a5;">🔒 Excede el límite de 5 películas del Plan Free</div>` : watchedLine}
+                  ${isLocked ? `<div class="rmv-watched-some" style="color:var(--error);">🔒 Excede el límite de 5 películas del Plan Free</div>` : watchedLine}
 
                   <div class="rmv-bottom">
                     ${renderCompactProviders(movie)}
@@ -407,7 +407,7 @@ export function renderGroupMoviesView(viewport, group, user, ctx) {
             </div>
 
             ${canDelete ? `
-              <button type="button" class="btn" id="mv-m-del" style="background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.5);color:#fca5a5;">
+              <button type="button" class="btn" id="mv-m-del" style="background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.5);color:var(--error);">
                 🗑️ Eliminar película
               </button>
             ` : `

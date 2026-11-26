@@ -1122,9 +1122,9 @@
 }
 
 .rgl-due-pill.is-overdue {
-  background: rgba(244, 63, 94, 0.16);
-  border-color: rgba(251, 113, 133, 0.42);
-  color: #fda4af;
+  background: var(--error-soft);
+  border-color: rgba(220, 38, 38, 0.35);
+  color: var(--error);
 }
 
 .rgl-more-btn {

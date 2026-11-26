@@ -121,7 +121,7 @@ export function renderGroupMusicView(viewport, group, user, ctx) {
                   </div>
                 </div>
                 ${isLocked ? `
-                  <div class="rmv-watched-some" style="color:#fca5a5;">🔒 Excede el límite de 5 canciones del Plan Free</div>
+                  <div class="rmv-watched-some" style="color:var(--error);">🔒 Excede el límite de 5 canciones del Plan Free</div>
                   <div class="rmu-links">
                     <button type="button" class="rms-btn is-locked" data-locked-song>🔒 Bloqueada · Activar ruma Plus</button>
                   </div>
@@ -224,7 +224,7 @@ export function renderGroupMusicView(viewport, group, user, ctx) {
           <button type="button" class="btn btn-secondary" id="mu-m-comm">💬 Comentarios (${(s.comments || []).length})</button>
           <button type="button" class="btn btn-secondary" id="mu-m-quote">↩ Citar en el chat</button>
           <div style="font-size:.75rem;color:var(--text-muted);">Añadida por <b>${Utils.sanitize(who)}</b></div>
-          ${canDelete ? `<button type="button" class="btn" id="mu-m-del" style="background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.5);color:#fca5a5;">🗑️ Eliminar canción</button>` :
+          ${canDelete ? `<button type="button" class="btn" id="mu-m-del" style="background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.5);color:var(--error);">🗑️ Eliminar canción</button>` :
             `<div style="font-size:.74rem;color:var(--text-muted);text-align:center;padding:.35rem;border-radius:.6rem;background:rgba(255,255,255,.03);">🔒 Solo quien la añadió (${Utils.sanitize(who)}) o el líder del grupo pueden eliminarla.</div>`}
         </div>`,
       onMount: () => {

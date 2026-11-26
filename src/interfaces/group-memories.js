@@ -483,7 +483,7 @@ export function renderGroupMemoriesView(viewport, group, user, isAdmin, ctx) {
             ${isSynced && mem.driveUrl
               ? `<a href="${Utils.sanitize(mem.driveUrl)}" target="_blank" rel="noopener" class="btn btn-secondary" style="text-align:center;">☁️ Abrir en Google Drive ↗</a>`
               : `<button type="button" class="btn btn-secondary" id="mm-drive">☁️ Subir a Google Drive</button>`}
-            ${canDelete ? `<button type="button" class="btn" id="mm-del" style="background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.5);color:#fca5a5;">🗑️ Eliminar recuerdo</button>` : ''}
+            ${canDelete ? `<button type="button" class="btn" id="mm-del" style="background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.5);color:var(--error);">🗑️ Eliminar recuerdo</button>` : ''}
           </div>`,
         onMount: () => {
           document.getElementById('mm-view')?.addEventListener('click', () => { UI.closeModal(); openMemoryDetailModal(group, mem, user); });

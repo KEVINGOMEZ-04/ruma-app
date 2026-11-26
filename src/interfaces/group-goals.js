@@ -1331,7 +1331,7 @@ function openParticipantsModal(group, act) {
     title: 'Integrantes participantes',
     contentHtml: `
       <div class="rgl-form">
-        <p style="margin:0;font-size:0.82rem;color:#cbbbe6;">Toca los integrantes del grupo que participan en <b>${esc(act.title)}</b>.</p>
+        <p style="margin:0;font-size:0.82rem;color:var(--text-secondary);">Toca los integrantes del grupo que participan en <b style="color:var(--text-primary);">${esc(act.title)}</b>.</p>
         <div class="rgl-member-picker">
           ${members.map(m => `
             <button type="button" class="rgl-member-chip ${selected.has(m.id) ? 'active' : ''}" data-part-toggle="${esc(m.id)}">
@@ -1373,11 +1373,11 @@ function openActivityOptionsSheet(group, user, act, prog, { onEdit, onParticipan
     title: 'Opciones de la actividad',
     contentHtml: `
       <div class="rgl-sheet">
-        <div style="display:flex;align-items:center;gap:0.65rem;padding:0.6rem;border-radius:0.9rem;background:rgba(255,255,255,0.04);border:1px solid rgba(192,132,252,0.18);">
+        <div style="display:flex;align-items:center;gap:0.65rem;padding:0.6rem;border-radius:0.9rem;background:var(--surface-secondary);border:1px solid var(--border);">
           <div class="rgl-icon-badge" style="width:2.4rem;height:2.4rem;font-size:1.2rem;">${esc(act.icon || '🎉')}</div>
           <div style="min-width:0;flex:1;">
-            <b style="display:block;font-size:0.92rem;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(act.title)}</b>
-            <small style="font-size:0.74rem;color:#b8a3d9;">${prog.done}/${prog.total} responsabilidades · ${prog.pct}%</small>
+            <b style="display:block;font-size:0.92rem;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(act.title)}</b>
+            <small style="font-size:0.74rem;color:var(--text-secondary);">${prog.done}/${prog.total} responsabilidades · ${prog.pct}%</small>
           </div>
         </div>
 
@@ -1421,8 +1421,8 @@ function confirmDeleteActivity(act, onDeleted) {
     title: '¿Eliminar actividad?',
     contentHtml: `
       <div class="rgl-form">
-        <p style="margin:0;font-size:0.86rem;color:#dcd0f5;line-height:1.48;">
-          Se eliminará <b>${esc(act.icon || '🎉')} ${esc(act.title)}</b> junto con sus ${(act.tasks || []).length} responsabilidades. Esta acción no se puede deshacer.
+        <p style="margin:0;font-size:0.86rem;color:var(--text-secondary);line-height:1.48;">
+          Se eliminará <b style="color:var(--text-primary);">${esc(act.icon || '🎉')} ${esc(act.title)}</b> junto con sus ${(act.tasks || []).length} responsabilidades. Esta acción no se puede deshacer.
         </p>
         <div class="rgl-modal-foot">
           <button type="button" class="btn btn-secondary btn-sm" id="rgl-del-act-cancel">Cancelar</button>
@@ -1582,9 +1582,9 @@ function openTaskOptionsSheet(group, user, act, task) {
     title: 'Responsabilidad',
     contentHtml: `
       <div class="rgl-sheet">
-        <div style="padding:0.65rem 0.78rem;border-radius:0.9rem;background:rgba(255,255,255,0.04);border:1px solid rgba(192,132,252,0.18);">
-          <b style="display:block;font-size:0.92rem;color:#fff;">${esc(task.title)}</b>
-          ${task.description ? `<small style="display:block;margin-top:0.2rem;font-size:0.76rem;color:#cbbbe6;">${esc(task.description)}</small>` : ''}
+        <div style="padding:0.65rem 0.78rem;border-radius:0.9rem;background:var(--surface-secondary);border:1px solid var(--border);">
+          <b style="display:block;font-size:0.92rem;color:var(--text-primary);">${esc(task.title)}</b>
+          ${task.description ? `<small style="display:block;margin-top:0.2rem;font-size:0.76rem;color:var(--text-secondary);">${esc(task.description)}</small>` : ''}
         </div>
 
         <div>
