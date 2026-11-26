@@ -54,7 +54,19 @@ function safeSetStorage(key, value) {
   }
 }
 
-function mergeAccountObjects(older = {}, newer = {}) {
+function normalizeAccountList(val) {
+  if (Array.isArray(val)) return val;
+  if (val && typeof val === 'object') return Object.values(val);
+  return [];
+}
+
+function mergeAccountObjects(base = {}, incoming = {}) {
+  const bTime = base.updatedAt ? new Date(base.updatedAt).getTime() : 0;
+  const iTime = incoming.updatedAt ? new Date(incoming.updatedAt).getTime() : 0;
+  const incomingWins = iTime >= bTime;
+  const older = incomingWins ? base : incoming;
+  const newer = incomingWins ? incoming : base;
+
   const merged = { ...older, ...newer };
   // Preservar hash seguro y eliminar contraseña en texto plano una vez migrada
   if (newer.passwordHash || older.passwordHash) {
@@ -64,6 +76,9 @@ function mergeAccountObjects(older = {}, newer = {}) {
   if (newer.recoveryCodeHash || older.recoveryCodeHash) {
     merged.recoveryCodeHash = newer.recoveryCodeHash || older.recoveryCodeHash;
   }
+  if (merged.links !== undefined) merged.links = normalizeAccountList(merged.links);
+  if (merged.aboutTags !== undefined) merged.aboutTags = normalizeAccountList(merged.aboutTags);
+  if (merged.showcaseIds !== undefined) merged.showcaseIds = normalizeAccountList(merged.showcaseIds);
   return merged;
 }
 
@@ -2226,6 +2241,21 @@ class RumaStore {
             title: ser.title,
             year: ser.year || '',
             poster: ser.poster || 'assets/ruma_icon_512.png',
+            score: userRating.score,
+            groupName: grp.name
+          });
+        }
+      }
+      for (const bk of (grp.books || [])) {
+        const userRating = bk.ratings && bk.ratings[targetId];
+        if (userRating && !seenIds.has(bk.id)) {
+          seenIds.add(bk.id);
+          ratedItems.push({
+            id: bk.id,
+            type: 'Libro',
+            title: bk.title,
+            year: bk.year || '',
+            poster: bk.poster || 'assets/ruma_icon_512.png',
             score: userRating.score,
             groupName: grp.name
           });

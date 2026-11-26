@@ -12,6 +12,7 @@ import './styles/layout.css';
 import './styles/auth.css';
 import './styles/home.css';
 import './styles/group.css';
+import './styles/profile.css';
 
 import { store } from './core/store.js';
 import { Utils } from './core/utils.js';

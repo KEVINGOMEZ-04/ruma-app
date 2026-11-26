@@ -30,18 +30,18 @@ export function openImageCropperModal(file, {
     contentHtml: `
       <div style="display:flex;flex-direction:column;gap:.85rem;align-items:center;">
         <div style="font-size:.8rem;color:var(--text-secondary);text-align:center;">
-          Arrastra la imagen para encuadrar y usa el zoom
+          Arrastra para encuadrar · pellizca o desliza para hacer zoom
         </div>
-        <div id="ruma-crop-box" style="position:relative;width:100%;max-width:320px;aspect-ratio:${aspectW}/${aspectH};overflow:hidden;border-radius:${borderRadius};border:2px solid var(--primary);background:var(--surface-secondary);touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;cursor:grab;">
+        <div id="ruma-crop-box" style="position:relative;width:100%;max-width:300px;aspect-ratio:${aspectW}/${aspectH};overflow:hidden;border-radius:${borderRadius};border:2px solid var(--primary);background:var(--surface-secondary);touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;cursor:grab;">
           <img id="ruma-crop-img" src="${objUrl}" alt="" draggable="false" style="position:absolute;left:50%;top:50%;transform-origin:center;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;pointer-events:none;max-width:none;">
         </div>
-        <div style="width:100%;max-width:320px;display:flex;align-items:center;gap:.65rem;">
+        <div style="width:100%;max-width:300px;display:flex;align-items:center;gap:.65rem;">
           <span style="font-size:.78rem;color:var(--text-secondary);font-weight:600;">Zoom</span>
           <input type="range" id="ruma-crop-zoom" min="1" max="3" step="0.02" value="1" style="flex:1;accent-color:var(--primary-solid);">
         </div>
-        <div style="display:flex;gap:.6rem;width:100%;justify-content:flex-end;">
-          <button type="button" class="btn btn-secondary" id="ruma-crop-cancel">Cancelar</button>
-          <button type="button" class="btn btn-primary" id="ruma-crop-save" disabled>Guardar recorte</button>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:.55rem;width:100%;">
+          <button type="button" class="btn btn-secondary btn-sm" id="ruma-crop-cancel" style="width:100%;min-height:40px;">Cancelar</button>
+          <button type="button" class="btn btn-primary btn-sm" id="ruma-crop-save" style="width:100%;min-height:40px;" disabled>Guardar recorte</button>
         </div>
       </div>`,
     onMount: () => {
@@ -50,7 +50,8 @@ export function openImageCropperModal(file, {
       const zoomInp = document.getElementById('ruma-crop-zoom');
       const saveBtn = document.getElementById('ruma-crop-save');
       let scale = 1, baseScale = 1, dx = 0, dy = 0, loaded = false;
-      let dragging = false, sx = 0, sy = 0;
+      const pointers = new Map();
+      let lastPinchDist = 0;
 
       const apply = () => {
         if (!img || !box || !loaded) return;
@@ -82,24 +83,42 @@ export function openImageCropperModal(file, {
       };
       if (img.complete && img.naturalWidth) onReady();
 
+      const pinchDist = () => {
+        const pts = Array.from(pointers.values());
+        if (pts.length < 2) return 0;
+        return Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+      };
+
       box?.addEventListener('pointerdown', (e) => {
-        dragging = true;
-        sx = e.clientX;
-        sy = e.clientY;
+        pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
         box.style.cursor = 'grabbing';
         box.setPointerCapture?.(e.pointerId);
+        if (pointers.size === 2) lastPinchDist = pinchDist();
       });
       box?.addEventListener('pointermove', (e) => {
-        if (!dragging) return;
-        dx += e.clientX - sx;
-        dy += e.clientY - sy;
-        sx = e.clientX;
-        sy = e.clientY;
-        apply();
+        const prev = pointers.get(e.pointerId);
+        if (!prev) return;
+        const nx = e.clientX, ny = e.clientY;
+        if (pointers.size === 1) {
+          dx += nx - prev.x;
+          dy += ny - prev.y;
+          pointers.set(e.pointerId, { x: nx, y: ny });
+          apply();
+        } else if (pointers.size >= 2) {
+          pointers.set(e.pointerId, { x: nx, y: ny });
+          const dist = pinchDist();
+          if (lastPinchDist > 0 && dist > 0) {
+            scale = Math.max(1, Math.min(3, scale * (dist / lastPinchDist)));
+            if (zoomInp) zoomInp.value = String(scale.toFixed(2));
+            apply();
+          }
+          lastPinchDist = dist;
+        }
       });
-      const stopDrag = () => {
-        dragging = false;
-        if (box) box.style.cursor = 'grab';
+      const stopDrag = (e) => {
+        pointers.delete(e.pointerId);
+        if (pointers.size < 2) lastPinchDist = 0;
+        if (pointers.size === 0 && box) box.style.cursor = 'grab';
       };
       box?.addEventListener('pointerup', stopDrag);
       box?.addEventListener('pointercancel', stopDrag);
