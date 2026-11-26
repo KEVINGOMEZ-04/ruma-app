@@ -5,10 +5,12 @@
 
 import { CONFIG } from './config.js';
 import { Utils } from './utils.js';
+import { CryptoAuth } from './crypto.js';
 import { Entitlements } from './entitlements.js';
 import { DriveBridge } from '../services/drive-bridge.js';
 import { GoogleAuth } from '../services/google-auth.js';
 import { CloudSync } from '../services/cloud-sync.js';
+import { MediaStorage } from '../services/media-storage.js';
 import { PRELOADED_SERIES_EPISODES } from '../services/media-api.js';
 
 const DEMO_USERS = [
@@ -52,6 +54,19 @@ function safeSetStorage(key, value) {
   }
 }
 
+function mergeAccountObjects(older = {}, newer = {}) {
+  const merged = { ...older, ...newer };
+  // Preservar hash seguro y eliminar contraseña en texto plano una vez migrada
+  if (newer.passwordHash || older.passwordHash) {
+    merged.passwordHash = newer.passwordHash || older.passwordHash;
+    delete merged.password;
+  }
+  if (newer.recoveryCodeHash || older.recoveryCodeHash) {
+    merged.recoveryCodeHash = newer.recoveryCodeHash || older.recoveryCodeHash;
+  }
+  return merged;
+}
+
 class RumaStore {
   constructor() {
     this.listeners = [];
@@ -61,6 +76,10 @@ class RumaStore {
     this.memoryFilterIds = null; // Permite filtrar recuerdos vinculados desde una canción o película
     this.clientId = 'cli_' + Math.random().toString(36).slice(2, 10);
     this.cloudPushTimer = null;
+    this.dirtyAccountIds = new Set();
+    this.dirtyGroupIds = new Set();
+    this._syncedAccountSnapshots = new Map();
+    this._syncedGroupSnapshots = new Map();
     this.init();
   }
 
@@ -71,11 +90,25 @@ class RumaStore {
     if (!localStorage.getItem(CONFIG.storageKeys.groups)) {
       safeSetStorage(CONFIG.storageKeys.groups, JSON.stringify([]));
     }
+    this._refreshSnapshots(this.getAccounts(), this.getGroupsRaw());
     const savedTheme = localStorage.getItem(CONFIG.storageKeys.theme) || 'dark';
     this.setTheme(savedTheme, false);
 
     // Iniciar sincronización en la nube en tiempo real
     this.bootstrapCloudSync();
+  }
+
+  _refreshSnapshots(accounts = null, groups = null) {
+    if (Array.isArray(accounts)) {
+      accounts.forEach(a => {
+        if (a && a.id) this._syncedAccountSnapshots.set(a.id, JSON.stringify(a));
+      });
+    }
+    if (Array.isArray(groups)) {
+      groups.forEach(g => {
+        if (g && g.id) this._syncedGroupSnapshots.set(g.id, JSON.stringify(g));
+      });
+    }
   }
 
   isLegacyDemoGroup(g) {
@@ -85,15 +118,25 @@ class RumaStore {
   async bootstrapCloudSync() {
     try {
       const cloud = await CloudSync.pullCloudState();
-      if (cloud && Array.isArray(cloud.groups)) {
+      if (cloud && (Array.isArray(cloud.groups) || Array.isArray(cloud.accounts))) {
         this.applyRemoteCloudState(cloud, true);
+        // Si la nube aún estaba en formato v1 (`state.json`), migrar automáticamente a v2 particionado
+        if (cloud.needsV2Migration) {
+          await CloudSync.pushEntities({
+            accounts: this.getAccounts(),
+            groups: this.getGroupsRaw(),
+            clientId: this.clientId
+          });
+          this._refreshSnapshots(this.getAccounts(), this.getGroupsRaw());
+        }
       } else {
-        // Sembrar la nube con el estado inicial si aún está vacía
-        await CloudSync.pushCloudState({
+        // Sembrar la nube v2 con el estado inicial si aún está vacía
+        await CloudSync.pushEntities({
           accounts: this.getAccounts(),
           groups: this.getGroupsRaw(),
           clientId: this.clientId
         });
+        this._refreshSnapshots(this.getAccounts(), this.getGroupsRaw());
       }
 
       if (this.getCurrentUser()) {
@@ -146,9 +189,22 @@ class RumaStore {
         }
       });
 
+      // Lápidas de mensajes eliminados para evitar que reaparezcan al sincronizar entre dispositivos
+      const mergedDeletedMessages = { ...(older.deletedMessages || {}), ...(winner.deletedMessages || {}) };
+      const delEntries = Object.entries(mergedDeletedMessages);
+      if (delEntries.length > 250) {
+        delEntries.sort((a, b) => String(b[1] || '').localeCompare(String(a[1] || '')));
+        Object.keys(mergedDeletedMessages).forEach(k => delete mergedDeletedMessages[k]);
+        delEntries.slice(0, 250).forEach(([k, v]) => { mergedDeletedMessages[k] = v; });
+      }
+
       const mergedMessagesMap = new Map();
-      (older.messages || []).forEach(m => mergedMessagesMap.set(m.id, m));
-      (winner.messages || []).forEach(m => mergedMessagesMap.set(m.id, m));
+      (older.messages || []).forEach(m => {
+        if (m && m.id && !mergedDeletedMessages[m.id]) mergedMessagesMap.set(m.id, m);
+      });
+      (winner.messages || []).forEach(m => {
+        if (m && m.id && !mergedDeletedMessages[m.id]) mergedMessagesMap.set(m.id, m);
+      });
 
       const mergedActMap = new Map();
       (older.activity || []).forEach(a => mergedActMap.set(a.id, a));
@@ -178,6 +234,7 @@ class RumaStore {
         books: Array.isArray(winner.books) ? winner.books : (older.books || []),
         activity: mergedActivity,
         leftMembers: mergedLeftMembers,
+        deletedMessages: mergedDeletedMessages,
         members: Array.from(mergedMembersMap.values()),
         messages: Array.from(mergedMessagesMap.values())
       });
@@ -193,9 +250,14 @@ class RumaStore {
       const localAccounts = this.getAccounts();
       const mergedMap = new Map();
       localAccounts.forEach(a => mergedMap.set(a.id, a));
-      cloudData.accounts.forEach(a => mergedMap.set(a.id, { ...(mergedMap.get(a.id) || {}), ...a }));
+      cloudData.accounts.forEach(a => {
+        if (!a || !a.id) return;
+        const prev = mergedMap.get(a.id) || {};
+        mergedMap.set(a.id, mergeAccountObjects(prev, a));
+      });
       const mergedAccounts = Array.from(mergedMap.values());
       safeSetStorage(CONFIG.storageKeys.accounts, JSON.stringify(mergedAccounts));
+      this._refreshSnapshots(mergedAccounts, null);
       changed = true;
     }
 
@@ -203,6 +265,7 @@ class RumaStore {
       const localGroups = this.getGroupsRaw();
       const mergedGroups = this.mergeCloudAndLocalGroups(localGroups, cloudData.groups);
       safeSetStorage(CONFIG.storageKeys.groups, JSON.stringify(mergedGroups));
+      this._refreshSnapshots(null, mergedGroups);
       changed = true;
     }
 
@@ -231,41 +294,74 @@ class RumaStore {
         clearTimeout(this.cloudPushTimer);
         this.cloudPushTimer = null;
       }
+
+      const dirtyAccIds = Array.from(this.dirtyAccountIds);
+      const dirtyGrpIds = Array.from(this.dirtyGroupIds);
+      this.dirtyAccountIds.clear();
+      this.dirtyGroupIds.clear();
+
+      if (!dirtyAccIds.length && !dirtyGrpIds.length) return;
+
       const localAccounts = this.getAccounts();
       const localGroups = this.getGroupsRaw();
 
-      // Fusionar con lo que exista en la nube dando prioridad a los cambios locales recién guardados
-      const remote = await CloudSync.pullCloudState(true);
-      let finalAccounts = localAccounts;
-      let finalGroups = localGroups;
+      const accountsToPush = [];
+      const groupsToPush = [];
 
-      if (remote) {
-        if (Array.isArray(remote.accounts) && remote.accounts.length > 0) {
-          const accMap = new Map();
-          remote.accounts.forEach(a => accMap.set(a.id, a));
-          localAccounts.forEach(a => accMap.set(a.id, { ...(accMap.get(a.id) || {}), ...a }));
-          finalAccounts = Array.from(accMap.values());
-          safeSetStorage(CONFIG.storageKeys.accounts, JSON.stringify(finalAccounts));
-        }
-        if (Array.isArray(remote.groups) && remote.groups.length > 0) {
-          finalGroups = this.mergeCloudAndLocalGroups(remote.groups, localGroups);
-          safeSetStorage(CONFIG.storageKeys.groups, JSON.stringify(finalGroups));
-        }
+      // Merge granular por cuenta modificada (sin sobrescribir cuentas de otros usuarios)
+      if (dirtyAccIds.length > 0) {
+        const accMap = new Map(localAccounts.map(a => [a.id, a]));
+        const remoteResults = await Promise.all(dirtyAccIds.map(id => CloudSync.pullAccount(id)));
+        dirtyAccIds.forEach((id, idx) => {
+          const localAcc = accMap.get(id);
+          if (!localAcc) return;
+          const remoteAcc = remoteResults[idx];
+          const merged = remoteAcc ? mergeAccountObjects(remoteAcc, localAcc) : mergeAccountObjects({}, localAcc);
+          accMap.set(id, merged);
+          accountsToPush.push(merged);
+        });
+        const nextAccounts = Array.from(accMap.values());
+        safeSetStorage(CONFIG.storageKeys.accounts, JSON.stringify(nextAccounts));
+        this._refreshSnapshots(accountsToPush, null);
       }
 
-      await CloudSync.pushCloudState({
-        accounts: finalAccounts,
-        groups: finalGroups,
+      // Merge granular por grupo modificado (sin sobrescribir otros grupos)
+      if (dirtyGrpIds.length > 0) {
+        const grpMap = new Map(localGroups.map(g => [g.id, g]));
+        const remoteResults = await Promise.all(dirtyGrpIds.map(id => CloudSync.pullGroup(id)));
+        dirtyGrpIds.forEach((id, idx) => {
+          const localGrp = grpMap.get(id);
+          if (!localGrp) return;
+          const remoteGrp = remoteResults[idx];
+          const merged = remoteGrp
+            ? (this.mergeCloudAndLocalGroups([remoteGrp], [localGrp])[0] || localGrp)
+            : localGrp;
+          grpMap.set(id, merged);
+          groupsToPush.push(merged);
+        });
+        const nextGroups = Array.from(grpMap.values());
+        safeSetStorage(CONFIG.storageKeys.groups, JSON.stringify(nextGroups));
+        this._refreshSnapshots(null, groupsToPush);
+      }
+
+      const ok = await CloudSync.pushEntities({
+        accounts: accountsToPush,
+        groups: groupsToPush,
         clientId: this.clientId
       });
+
+      // Si falló la red, re-encolar los IDs para el próximo intento
+      if (!ok) {
+        accountsToPush.forEach(a => this.dirtyAccountIds.add(a.id));
+        groupsToPush.forEach(g => this.dirtyGroupIds.add(g.id));
+      }
     } catch (_) {}
   }
 
   async syncNowWithCloud() {
     try {
-      if (this.cloudPushTimer) {
+      if (this.cloudPushTimer || this.dirtyAccountIds.size > 0 || this.dirtyGroupIds.size > 0) {
         await this.pushMergedStateToCloud();
-        return;
       }
       const cloud = await CloudSync.pullCloudState(true);
       if (cloud) {
@@ -288,7 +384,7 @@ class RumaStore {
     document.body.setAttribute('data-theme', normalized);
     const metaTheme = document.querySelector('meta[name="theme-color"]');
     if (metaTheme) metaTheme.setAttribute('content', normalized === 'light' ? '#FCFAFF' : '#15111E');
-    localStorage.setItem(CONFIG.storageKeys.theme, normalized);
+    safeSetStorage(CONFIG.storageKeys.theme, normalized);
     if (emit) this.notify();
   }
 
@@ -296,7 +392,7 @@ class RumaStore {
     return localStorage.getItem(CONFIG.storageKeys.theme) || 'dark';
   }
 
-  // --- CUENTAS Y AUTENTICACIÓN TRIPLE (CON RESPALDO EN LA NUBE) ---
+  // --- CUENTAS Y AUTENTICACIÓN SEGURA (HASH PBKDF2 + CÓDIGO DE RECUPERACIÓN) ---
   getAccounts() {
     try {
       return JSON.parse(localStorage.getItem(CONFIG.storageKeys.accounts)) || DEMO_USERS;
@@ -305,7 +401,18 @@ class RumaStore {
     }
   }
 
-  saveAccounts(accounts, syncCloud = true) {
+  saveAccounts(accounts, syncCloud = true, explicitDirtyIds = null) {
+    if (Array.isArray(explicitDirtyIds) && explicitDirtyIds.length > 0) {
+      explicitDirtyIds.forEach(id => { if (id) this.dirtyAccountIds.add(id); });
+    } else if (Array.isArray(accounts)) {
+      accounts.forEach(a => {
+        if (!a || !a.id) return;
+        const snap = JSON.stringify(a);
+        if (this._syncedAccountSnapshots.get(a.id) !== snap) {
+          this.dirtyAccountIds.add(a.id);
+        }
+      });
+    }
     safeSetStorage(CONFIG.storageKeys.accounts, JSON.stringify(accounts));
     if (syncCloud) this.scheduleCloudPush();
   }
@@ -318,31 +425,6 @@ class RumaStore {
 
   async loginAsync(identifier, password) {
     await this.syncNowWithCloud();
-    return this.login(identifier, password);
-  }
-
-  async resetPasswordAsync(identifier, newPassword) {
-    await this.syncNowWithCloud();
-    const clean = String(identifier || '').trim().toLowerCase().replace(/^@/, '');
-    if (!clean || !newPassword) {
-      return { ok: false, error: 'Ingresa tu correo, teléfono o @usuario y la nueva contraseña.' };
-    }
-    const accounts = this.getAccounts();
-    const user = accounts.find(u =>
-      (u.email && u.email.toLowerCase() === clean) ||
-      (u.phone && u.phone.replace(/\s+/g, '') === clean) ||
-      (u.username && u.username.toLowerCase() === clean)
-    );
-    if (!user) {
-      return { ok: false, error: 'No encontramos ninguna cuenta con ese correo, teléfono o @usuario.' };
-    }
-    user.password = newPassword;
-    this.saveAccounts(accounts);
-    await this.pushMergedStateToCloud();
-    return { ok: true, user };
-  }
-
-  login(identifier, password) {
     const clean = String(identifier || '').trim().toLowerCase().replace(/^@/, '');
     const accounts = this.getAccounts();
     const user = accounts.find(u =>
@@ -352,70 +434,196 @@ class RumaStore {
     );
 
     if (!user) {
-      return { ok: false, error: 'No encontramos una cuenta con ese correo, teléfono o @usuario. Si eres nuevo, pulsa en "Crear Cuenta".' };
+      return { ok: false, error: 'No encontramos una cuenta con ese correo, teléfono o @usuario. Si eres nuevo, pulsa en "Crear cuenta".' };
     }
-    if (user.password !== password) {
+
+    const check = await CryptoAuth.verifyAccountPassword(password, user);
+    if (!check.valid) {
       return { ok: false, error: 'Contraseña incorrecta.' };
     }
 
-    localStorage.setItem(CONFIG.storageKeys.currentUserId, user.id);
+    // Migración transparente: reemplazar contraseña legacy en texto plano por hash PBKDF2
+    if (check.needsMigration) {
+      user.passwordHash = user.passwordHash || await CryptoAuth.hashSecret(password);
+      delete user.password;
+      user.updatedAt = new Date().toISOString();
+      this.saveAccounts(accounts, true, [user.id]);
+      this.pushMergedStateToCloud();
+    }
+
+    safeSetStorage(CONFIG.storageKeys.currentUserId, user.id);
     this.currentInterface = 'hub';
     this.checkPendingInviteFromUrl();
     this.notify();
     return { ok: true, user };
   }
 
-  async registerAsync(payload) {
+  /**
+   * Restablece contraseña únicamente si el usuario proporciona su Código de Recuperación personal válido.
+   */
+  async resetPasswordAsync(identifier, recoveryCode, newPassword) {
     await this.syncNowWithCloud();
-    const res = this.register(payload);
-    if (res.ok) {
-      await this.pushMergedStateToCloud();
+    const clean = String(identifier || '').trim().toLowerCase().replace(/^@/, '');
+    const cleanCode = CryptoAuth.normalizeRecoveryCode(recoveryCode);
+    const nextPw = String(newPassword || '');
+
+    if (!clean || !cleanCode || !nextPw) {
+      return { ok: false, error: 'Completa tu usuario/correo, tu código de recuperación y la nueva contraseña.' };
     }
-    return res;
+    if (nextPw.length < 6) {
+      return { ok: false, error: 'La nueva contraseña debe tener al menos 6 caracteres.' };
+    }
+
+    const accounts = this.getAccounts();
+    const user = accounts.find(u =>
+      (u.email && u.email.toLowerCase() === clean) ||
+      (u.phone && u.phone.replace(/\s+/g, '') === clean) ||
+      (u.username && u.username.toLowerCase() === clean)
+    );
+    if (!user) {
+      return { ok: false, error: 'No encontramos ninguna cuenta con esos datos.' };
+    }
+    if (!user.recoveryCodeHash) {
+      return {
+        ok: false,
+        error: 'Esta cuenta aún no tiene un código de recuperación configurado. Si tienes sesión abierta en otro dispositivo, genera uno en Ajustes → Mi Cuenta.'
+      };
+    }
+
+    const validCode = await CryptoAuth.verifySecret(cleanCode, user.recoveryCodeHash);
+    if (!validCode) {
+      return { ok: false, error: 'El código de recuperación no es válido.' };
+    }
+
+    // Rotar contraseña y generar un nuevo código de recuperación de un solo uso
+    const newRecoveryCode = CryptoAuth.generateRecoveryCode();
+    user.passwordHash = await CryptoAuth.hashSecret(nextPw);
+    delete user.password;
+    user.recoveryCodeHash = await CryptoAuth.hashSecret(CryptoAuth.normalizeRecoveryCode(newRecoveryCode));
+    user.updatedAt = new Date().toISOString();
+
+    this.saveAccounts(accounts, true, [user.id]);
+    await this.pushMergedStateToCloud();
+    return { ok: true, user, recoveryCode: newRecoveryCode };
   }
 
-  register({ name, username, email, phone, password }) {
+  /**
+   * Cambia la contraseña desde Ajustes validando primero la contraseña actual.
+   */
+  async changePasswordAsync(currentPassword, newPassword) {
+    const current = this.getCurrentUser();
+    if (!current) return { ok: false, error: 'Debes iniciar sesión.' };
+    const nextPw = String(newPassword || '');
+    if (nextPw.length < 6) {
+      return { ok: false, error: 'La nueva contraseña debe tener al menos 6 caracteres.' };
+    }
+
     const accounts = this.getAccounts();
-    const cleanUser = String(username || '').trim().toLowerCase().replace(/^@/, '');
-    const cleanEmail = String(email || '').trim().toLowerCase();
-    const cleanPhone = String(phone || '').trim();
+    const idx = accounts.findIndex(u => u.id === current.id);
+    if (idx === -1) return { ok: false, error: 'Cuenta no encontrada.' };
+
+    const user = accounts[idx];
+    const hasExistingPassword = Boolean(user.passwordHash || user.password);
+    if (hasExistingPassword) {
+      const check = await CryptoAuth.verifyAccountPassword(currentPassword, user);
+      if (!check.valid) {
+        return { ok: false, error: 'La contraseña actual no coincide.' };
+      }
+    }
+
+    user.passwordHash = await CryptoAuth.hashSecret(nextPw);
+    delete user.password;
+    user.updatedAt = new Date().toISOString();
+    this.saveAccounts(accounts, true, [user.id]);
+    await this.pushMergedStateToCloud();
+    return { ok: true, user };
+  }
+
+  /**
+   * Genera o renueva el código personal de recuperación de la cuenta actual.
+   */
+  async regenerateRecoveryCodeAsync(currentPassword) {
+    const current = this.getCurrentUser();
+    if (!current) return { ok: false, error: 'Debes iniciar sesión.' };
+
+    const accounts = this.getAccounts();
+    const idx = accounts.findIndex(u => u.id === current.id);
+    if (idx === -1) return { ok: false, error: 'Cuenta no encontrada.' };
+
+    const user = accounts[idx];
+    const hasExistingPassword = Boolean(user.passwordHash || user.password);
+    if (hasExistingPassword) {
+      const check = await CryptoAuth.verifyAccountPassword(currentPassword, user);
+      if (!check.valid) {
+        return { ok: false, error: 'Contraseña actual incorrecta.' };
+      }
+    }
+
+    const recoveryCode = CryptoAuth.generateRecoveryCode();
+    user.recoveryCodeHash = await CryptoAuth.hashSecret(CryptoAuth.normalizeRecoveryCode(recoveryCode));
+    user.updatedAt = new Date().toISOString();
+    this.saveAccounts(accounts, true, [user.id]);
+    await this.pushMergedStateToCloud();
+    return { ok: true, recoveryCode };
+  }
+
+  async registerAsync(payload) {
+    await this.syncNowWithCloud();
+    const accounts = this.getAccounts();
+    const name = String(payload?.name || '').trim();
+    const cleanUser = String(payload?.username || '').trim().toLowerCase().replace(/^@/, '');
+    const cleanEmail = String(payload?.email || '').trim().toLowerCase();
+    const cleanPhone = String(payload?.phone || '').trim().replace(/\s+/g, '');
+    const password = String(payload?.password || '');
 
     if (!name || !password || (!cleanUser && !cleanEmail && !cleanPhone)) {
       return { ok: false, error: 'Completa tu nombre, contraseña y al menos un método de acceso.' };
+    }
+    if (password.length < 6) {
+      return { ok: false, error: 'Tu contraseña debe tener al menos 6 caracteres.' };
     }
 
     const exists = accounts.some(u =>
       (cleanUser && u.username?.toLowerCase() === cleanUser) ||
       (cleanEmail && u.email?.toLowerCase() === cleanEmail) ||
-      (cleanPhone && u.phone === cleanPhone)
+      (cleanPhone && u.phone && u.phone.replace(/\s+/g, '') === cleanPhone)
     );
     if (exists) {
-      return { ok: false, error: 'Ese correo, teléfono o @usuario ya está registrado. Usa "Iniciar Sesión".' };
+      return { ok: false, error: 'Ese correo, teléfono o @usuario ya está registrado. Usa "Iniciar sesión".' };
     }
+
+    const recoveryCode = CryptoAuth.generateRecoveryCode();
+    const [passwordHash, recoveryCodeHash] = await Promise.all([
+      CryptoAuth.hashSecret(password),
+      CryptoAuth.hashSecret(CryptoAuth.normalizeRecoveryCode(recoveryCode))
+    ]);
 
     const newUser = {
       id: Utils.generateId('usr'),
-      name: name.trim(),
+      name,
       username: cleanUser || `user_${Date.now().toString().slice(-4)}`,
       email: cleanEmail,
       phone: cleanPhone,
-      password,
+      passwordHash,
+      recoveryCodeHash,
       avatar: 'assets/ruma_icon_512.png',
       frameId: 'frame-axolotl',
       bannerColor: '#7C3AED',
       bio: '✨ Nuevo en ruma',
       showcaseIds: [],
       isPremium: false,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
     };
 
     accounts.push(newUser);
-    this.saveAccounts(accounts);
-    localStorage.setItem(CONFIG.storageKeys.currentUserId, newUser.id);
+    this.saveAccounts(accounts, true, [newUser.id]);
+    safeSetStorage(CONFIG.storageKeys.currentUserId, newUser.id);
     this.currentInterface = 'hub';
     this.checkPendingInviteFromUrl();
     this.notify();
-    return { ok: true, user: newUser };
+    await this.pushMergedStateToCloud();
+    return { ok: true, user: newUser, recoveryCode };
   }
 
   loginWithGoogle({ email, name, picture }) {
@@ -423,12 +631,8 @@ class RumaStore {
     const displayName = String(name || 'Usuario de Google').trim();
     const accounts = this.getAccounts();
 
-    // Buscar cuenta existente por correo o vincular la primera cuenta demo si aún no tiene cuenta Google
+    // Coincidencia estricta por correo (sin reutilizar ni sobrescribir cuentas demo)
     let user = accounts.find(u => cleanEmail && u.email && u.email.toLowerCase() === cleanEmail);
-
-    if (!user && accounts.length > 0 && accounts[0].id === 'usr_kevin' && accounts[0].email === 'kevin@ruma.app') {
-      user = accounts[0];
-    }
 
     if (user) {
       user.name = displayName || user.name;
@@ -438,44 +642,56 @@ class RumaStore {
         user.username = cleanEmail ? cleanEmail.split('@')[0].replace(/[^a-z0-9_]/gi, '').toLowerCase() : `user_${Date.now().toString().slice(-4)}`;
       }
       user.authProvider = 'google';
-      this.saveAccounts(accounts);
+      user.updatedAt = new Date().toISOString();
+      this.saveAccounts(accounts, true, [user.id]);
 
       // Actualizar nombre y foto del miembro en sus grupos
-      const groups = this.getGroups().map(g => ({
-        ...g,
-        members: (g.members || []).map(m => m.id === user.id ? {
-          ...m,
-          name: user.name,
-          username: user.username,
-          avatar: user.avatar
-        } : m)
-      }));
-      this.saveGroups(groups);
+      const touchedGroupIds = [];
+      const groups = this.getGroups().map(g => {
+        const hasMember = (g.members || []).some(m => m.id === user.id);
+        if (!hasMember) return g;
+        touchedGroupIds.push(g.id);
+        return {
+          ...g,
+          updatedAt: new Date().toISOString(),
+          members: (g.members || []).map(m => m.id === user.id ? {
+            ...m,
+            name: user.name,
+            username: user.username,
+            avatar: user.avatar
+          } : m)
+        };
+      });
+      if (touchedGroupIds.length) this.saveGroups(groups, true, touchedGroupIds);
     } else {
       const baseUsername = cleanEmail
         ? cleanEmail.split('@')[0].replace(/[^a-z0-9_]/gi, '').toLowerCase()
         : displayName.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 12);
+      const uniqueUsername = accounts.some(u => u.username?.toLowerCase() === baseUsername)
+        ? `${baseUsername || 'user'}_${Date.now().toString().slice(-4)}`
+        : (baseUsername || `user_${Date.now().toString().slice(-4)}`);
 
       user = {
         id: Utils.generateId('usr'),
         name: displayName,
-        username: baseUsername || `user_${Date.now().toString().slice(-4)}`,
+        username: uniqueUsername,
         email: cleanEmail,
         phone: '',
-        password: '',
         avatar: picture || 'assets/ruma_icon_512.png',
         frameId: 'frame-axolotl',
         bannerColor: '#7C3AED',
-        bio: '✨ Conectado con Google Drive',
+        bio: '✨ Conectado con Google',
         showcaseIds: [],
         isPremium: false,
-        authProvider: 'google'
+        authProvider: 'google',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
       };
       accounts.push(user);
-      this.saveAccounts(accounts);
+      this.saveAccounts(accounts, true, [user.id]);
     }
 
-    localStorage.setItem(CONFIG.storageKeys.currentUserId, user.id);
+    safeSetStorage(CONFIG.storageKeys.currentUserId, user.id);
     this.currentInterface = 'hub';
     this.notify();
     return { ok: true, user };
@@ -495,21 +711,56 @@ class RumaStore {
     const idx = accounts.findIndex(u => u.id === user.id);
     if (idx === -1) return null;
 
-    const updated = { ...accounts[idx], ...patch };
-    accounts[idx] = updated;
-    this.saveAccounts(accounts);
+    // Nunca aceptar contraseña en texto plano por este método (usar changePasswordAsync)
+    const safePatch = { ...patch };
+    delete safePatch.password;
 
-    const groups = this.getGroups().map(g => ({
-      ...g,
-      members: (g.members || []).map(m => m.id === updated.id ? {
-        ...m,
-        name: updated.name,
-        username: updated.username,
-        avatar: updated.avatar,
-        frameId: updated.frameId
-      } : m)
-    }));
-    this.saveGroups(groups);
+    // Validar unicidad de @usuario, correo y teléfono frente a otras cuentas
+    const nextUsername = safePatch.username !== undefined ? String(safePatch.username).trim().toLowerCase().replace(/^@+/, '') : null;
+    const nextEmail = safePatch.email !== undefined ? String(safePatch.email).trim().toLowerCase() : null;
+    const nextPhone = safePatch.phone !== undefined ? String(safePatch.phone).trim().replace(/\s+/g, '') : null;
+
+    if (nextUsername !== null) {
+      if (nextUsername && accounts.some(u => u.id !== user.id && u.username?.toLowerCase() === nextUsername)) {
+        return { ok: false, error: 'Ese @usuario ya está en uso por otra cuenta.' };
+      }
+      safePatch.username = nextUsername;
+    }
+    if (nextEmail !== null) {
+      if (nextEmail && accounts.some(u => u.id !== user.id && u.email?.toLowerCase() === nextEmail)) {
+        return { ok: false, error: 'Ese correo electrónico ya está registrado en otra cuenta.' };
+      }
+      safePatch.email = nextEmail;
+    }
+    if (nextPhone !== null) {
+      if (nextPhone && accounts.some(u => u.id !== user.id && u.phone && u.phone.replace(/\s+/g, '') === nextPhone)) {
+        return { ok: false, error: 'Ese número de teléfono ya está registrado en otra cuenta.' };
+      }
+      safePatch.phone = nextPhone;
+    }
+
+    const updated = { ...accounts[idx], ...safePatch, updatedAt: new Date().toISOString() };
+    accounts[idx] = updated;
+    this.saveAccounts(accounts, true, [updated.id]);
+
+    const touchedGroupIds = [];
+    const groups = this.getGroups().map(g => {
+      const hasMember = (g.members || []).some(m => m.id === updated.id);
+      if (!hasMember) return g;
+      touchedGroupIds.push(g.id);
+      return {
+        ...g,
+        updatedAt: new Date().toISOString(),
+        members: (g.members || []).map(m => m.id === updated.id ? {
+          ...m,
+          name: updated.name,
+          username: updated.username,
+          avatar: updated.avatar,
+          frameId: updated.frameId
+        } : m)
+      };
+    });
+    if (touchedGroupIds.length) this.saveGroups(groups, true, touchedGroupIds);
     this.notify();
     return updated;
   }
@@ -556,17 +807,24 @@ class RumaStore {
     }
   }
 
-  saveGroups(groups, syncCloud = true) {
+  saveGroups(groups, syncCloud = true, explicitDirtyIds = null) {
     const nowIso = new Date().toISOString();
     const activeId = localStorage.getItem(CONFIG.storageKeys.activeGroupId);
-    if (Array.isArray(groups)) {
-      groups.forEach(g => {
-        if (!g.updatedAt || g.id === activeId) {
-          g.updatedAt = nowIso;
-        }
-      });
-    }
     const keep = Array.isArray(groups) ? groups.slice() : [];
+    const dirtySet = new Set(Array.isArray(explicitDirtyIds) ? explicitDirtyIds.filter(Boolean) : []);
+
+    keep.forEach(g => {
+      if (!g || !g.id) return;
+      const prevSnap = this._syncedGroupSnapshots.get(g.id);
+      const currSnap = JSON.stringify(g);
+      if (dirtySet.has(g.id) || prevSnap !== currSnap) {
+        g.updatedAt = nowIso;
+        this.dirtyGroupIds.add(g.id);
+      } else if (!g.updatedAt || g.id === activeId) {
+        if (!g.updatedAt) g.updatedAt = nowIso;
+      }
+    });
+
     this.getGroupsRaw().filter(g => g.deleted && !keep.some(k => k.id === g.id)).forEach(t => keep.push(t));
     safeSetStorage(CONFIG.storageKeys.groups, JSON.stringify(keep));
     if (syncCloud) this.scheduleCloudPush();
@@ -840,9 +1098,26 @@ class RumaStore {
     if (!user || group.creatorId !== user.id) {
       return { ok: false, error: 'Solo el creador del grupo puede eliminarlo.' };
     }
+
+    // Liberar archivos locales de recuerdos y adjuntos del chat en IndexedDB
+    const localIdsToClean = [];
+    (group.memories || []).forEach(mem => {
+      (mem.files || []).forEach(f => { if (f?.id) localIdsToClean.push(f.id); });
+    });
+    (group.messages || []).forEach(msg => {
+      if (msg?.media?.id) {
+        localIdsToClean.push(msg.media.id);
+        CloudSync.deleteChatMedia(group.id, msg.media.id).catch(() => {});
+      }
+    });
+    if (localIdsToClean.length) {
+      MediaStorage.deleteMediaBatch(localIdsToClean).catch(() => {});
+    }
+
     const tomb = { id: group.id, deleted: true, creatorId: group.creatorId, members: [], updatedAt: new Date().toISOString() };
     const rest = this.getGroupsRaw().filter(g => g.id !== groupId);
     rest.push(tomb);
+    this.dirtyGroupIds.add(groupId);
     safeSetStorage(CONFIG.storageKeys.groups, JSON.stringify(rest));
     if (localStorage.getItem(CONFIG.storageKeys.activeGroupId) === groupId) {
       localStorage.removeItem(CONFIG.storageKeys.activeGroupId);
@@ -1030,8 +1305,13 @@ class RumaStore {
     const allGroups = this.getGroups();
     const group = allGroups.find(g => g.id === this.getActiveGroup()?.id);
     if (!group) return;
+    const target = (group.memories || []).find(m => m.id === memoryId);
+    if (target?.files?.length) {
+      const ids = target.files.map(f => f?.id).filter(Boolean);
+      if (ids.length) MediaStorage.deleteMediaBatch(ids).catch(() => {});
+    }
     group.memories = (group.memories || []).filter(m => m.id !== memoryId);
-    this.saveGroups(allGroups);
+    this.saveGroups(allGroups, true, [group.id]);
     this.notify();
   }
 
@@ -2173,9 +2453,30 @@ class RumaStore {
     const allGroups = this.getGroups();
     const group = allGroups.find(g => g.id === this.getActiveGroup()?.id);
     const cleanText = String(text || '').trim();
-    if (!group || !user || (!cleanText && !media && !quote)) return;
-    group.messages = group.messages || [];
-    group.messages.push({
+    if (!group || !user || (!cleanText && !media && !quote)) return null;
+
+    let storedMedia = media || null;
+    let uploadTask = null;
+
+    // Sacar adjuntos Base64 pesados del JSON del grupo y de localStorage -> IndexedDB + /chat_media/
+    if (storedMedia && typeof storedMedia.url === 'string' && storedMedia.url.startsWith('data:')) {
+      const mediaId = storedMedia.id || Utils.generateId('cmed');
+      const rawDataUrl = storedMedia.url;
+      const meta = {
+        id: mediaId,
+        type: storedMedia.type || 'image',
+        name: storedMedia.name || '',
+        duration: storedMedia.duration || ''
+      };
+      storedMedia = meta;
+      uploadTask = CloudSync.uploadChatMedia(group.id, mediaId, {
+        ...meta,
+        dataUrl: rawDataUrl,
+        createdAt: Date.now()
+      });
+    }
+
+    const msg = {
       id: Utils.generateId('msg'),
       senderId: user.id,
       senderName: user.name,
@@ -2183,10 +2484,22 @@ class RumaStore {
       text: cleanText,
       timestamp: new Date().toISOString(),
       quote,
-      media: media || null
-    });
-    this.saveGroups(allGroups);
+      media: storedMedia
+    };
+
+    group.messages = group.messages || [];
+    group.messages.push(msg);
+    this.saveGroups(allGroups, true, [group.id]);
     this.notify();
+    return { msg, uploadTask };
+  }
+
+  async sendChatMessageAsync(payload) {
+    const res = this.sendChatMessage(payload);
+    if (res?.uploadTask) {
+      await res.uploadTask;
+    }
+    return res?.msg || null;
   }
 
   canDeleteChatMessage(group, msg, user = null) {
@@ -2206,8 +2519,14 @@ class RumaStore {
     if (!this.canDeleteChatMessage(group, msg, user)) {
       return { ok: false, error: 'Solo el autor del mensaje o el líder del grupo pueden eliminarlo.' };
     }
+
+    if (msg.media?.id) {
+      CloudSync.deleteChatMedia(group.id, msg.media.id).catch(() => {});
+    }
+
+    group.deletedMessages = { ...(group.deletedMessages || {}), [messageId]: new Date().toISOString() };
     group.messages = (group.messages || []).filter(m => m.id !== messageId);
-    this.saveGroups(allGroups);
+    this.saveGroups(allGroups, true, [group.id]);
     this.notify();
     return { ok: true };
   }
@@ -2227,7 +2546,7 @@ class RumaStore {
     else list.push(user.id);
     if (list.length === 0) delete msg.reactions[emoji];
     else msg.reactions[emoji] = list;
-    this.saveGroups(allGroups);
+    this.saveGroups(allGroups, true, [group.id]);
     this.notify();
     return true;
   }

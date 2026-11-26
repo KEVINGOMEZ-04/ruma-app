@@ -3,6 +3,7 @@ import { store } from '../core/store.js';
 import { Utils } from '../core/utils.js';
 import { UI } from '../components/ui.js';
 import { MusicService } from '../services/music-service.js';
+import { CloudSync } from '../services/cloud-sync.js';
 
 const svg = (inner, size = 18) =>
   `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${inner}</svg>`;
@@ -106,21 +107,33 @@ function renderQuoteHtml(msg) {
     </div>`;
 }
 
-function renderMediaHtml(msg) {
-  const m = msg.media;
-  if (!m || !m.url) return '';
-  if (m.type === 'image') {
-    return `<img src="${Utils.sanitize(m.url)}" alt="Foto adjunta" class="rch-media-img" data-zoom-img="${Utils.sanitize(m.url)}">`;
+function buildResolvedMediaHtml(type, url, duration = '') {
+  if (!url) return '';
+  if (type === 'image') {
+    return `<img src="${Utils.sanitize(url)}" alt="Foto adjunta" class="rch-media-img" data-zoom-img="${Utils.sanitize(url)}">`;
   }
-  if (m.type === 'video') {
-    return `<video src="${Utils.sanitize(m.url)}" controls playsinline webkit-playsinline preload="metadata" class="rch-media-vid"></video>`;
+  if (type === 'video') {
+    return `<video src="${Utils.sanitize(url)}" controls playsinline webkit-playsinline preload="metadata" class="rch-media-vid"></video>`;
   }
-  if (m.type === 'audio') {
+  if (type === 'audio') {
     return `
       <div class="rch-media-aud">
-        <span>🎙️ Nota de voz${m.duration ? ` · ${Utils.sanitize(m.duration)}` : ''}</span>
-        <audio src="${Utils.sanitize(m.url)}" controls preload="metadata"></audio>
+        <span>🎙️ Nota de voz${duration ? ` · ${Utils.sanitize(duration)}` : ''}</span>
+        <audio src="${Utils.sanitize(url)}" controls preload="metadata"></audio>
       </div>`;
+  }
+  return '';
+}
+
+function renderMediaHtml(msg) {
+  const m = msg.media;
+  if (!m) return '';
+  if (m.url) {
+    return buildResolvedMediaHtml(m.type, m.url, m.duration || '');
+  }
+  if (m.id) {
+    const label = m.type === 'video' ? '🎬 Cargando vídeo...' : (m.type === 'audio' ? '🎙️ Cargando audio...' : '🖼️ Cargando foto...');
+    return `<div class="rch-media-lazy" data-chat-media-id="${Utils.sanitize(m.id)}" data-chat-media-type="${Utils.sanitize(m.type || 'image')}" data-chat-media-dur="${Utils.sanitize(m.duration || '')}" style="padding:0.65rem 0.85rem;border-radius:12px;background:rgba(168,85,247,0.08);border:1px dashed rgba(168,85,247,0.28);font-size:0.78rem;color:var(--text-muted);">${label}</div>`;
   }
   return '';
 }
@@ -517,12 +530,35 @@ export function renderGroupChatView(viewport, group, user, ctx) {
     const target = viewport.querySelector(`[data-msg-id="${CSS.escape(box.getAttribute('data-jump-msg'))}"]`);
     target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }));
-  viewport.querySelectorAll('[data-zoom-img]').forEach(img => img.addEventListener('click', () => {
-    UI.openModal({
-      title: 'Foto del chat',
-      contentHtml: `<img src="${Utils.sanitize(img.getAttribute('data-zoom-img'))}" style="width:100%;max-height:70dvh;object-fit:contain;border-radius:12px;">`
+  const bindZoom = (img) => {
+    img.addEventListener('click', () => {
+      UI.openModal({
+        title: 'Foto del chat',
+        contentHtml: `<img src="${Utils.sanitize(img.getAttribute('data-zoom-img'))}" style="width:100%;max-height:70dvh;object-fit:contain;border-radius:12px;">`
+      });
     });
-  }));
+  };
+  viewport.querySelectorAll('[data-zoom-img]').forEach(bindZoom);
+
+  // Hidratar adjuntos multimedia descargados fuera del JSON del grupo (IndexedDB -> /chat_media/)
+  viewport.querySelectorAll('[data-chat-media-id]').forEach(async (slot) => {
+    const mediaId = slot.getAttribute('data-chat-media-id');
+    const mediaType = slot.getAttribute('data-chat-media-type') || 'image';
+    const mediaDur = slot.getAttribute('data-chat-media-dur') || '';
+    const dataUrl = await CloudSync.fetchChatMedia(group.id, mediaId);
+    if (!slot.isConnected) return;
+    if (!dataUrl) {
+      slot.textContent = '⚠️ Adjunto no disponible';
+      return;
+    }
+    const tmp = document.createElement('div');
+    tmp.innerHTML = buildResolvedMediaHtml(mediaType, dataUrl, mediaDur);
+    const rendered = tmp.firstElementChild;
+    if (rendered) {
+      slot.replaceWith(rendered);
+      if (rendered.matches('[data-zoom-img]')) bindZoom(rendered);
+    }
+  });
 
   viewport.querySelector('#rch-form')?.addEventListener('submit', (e) => {
     e.preventDefault();

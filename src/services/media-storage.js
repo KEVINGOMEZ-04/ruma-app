@@ -146,6 +146,58 @@ export const MediaStorage = {
   },
 
   /**
+   * Elimina múltiples archivos locales en paralelo ignorando fallos puntuales.
+   */
+  async deleteMediaBatch(ids = []) {
+    const clean = (ids || []).filter(Boolean);
+    if (!clean.length) return;
+    await Promise.allSettled(clean.map(id => this.deleteMedia(id)));
+  },
+
+  /**
+   * Guarda un adjunto de chat (dataUrl o blob) en IndexedDB para no saturar localStorage.
+   */
+  async saveChatMedia(id, payload = {}) {
+    if (!id || !payload.dataUrl) return null;
+    try {
+      const db = await openDB();
+      const record = {
+        id,
+        dataUrl: payload.dataUrl,
+        type: payload.type || 'image',
+        name: payload.name || '',
+        duration: payload.duration || '',
+        groupId: payload.groupId || '',
+        isChatMedia: true,
+        createdAt: payload.createdAt || Date.now()
+      };
+      return await new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_NAME, 'readwrite');
+        const store = tx.objectStore(STORE_NAME);
+        const req = store.put(record);
+        req.onsuccess = () => resolve(record);
+        req.onerror = (e) => reject(e.target.error);
+      });
+    } catch (err) {
+      console.warn('No se pudo cachear adjunto del chat en IndexedDB:', err);
+      return null;
+    }
+  },
+
+  /**
+   * Recupera un adjunto de chat cacheado localmente en IndexedDB.
+   */
+  async getChatMedia(id) {
+    if (!id) return null;
+    try {
+      const item = await this.getMedia(id);
+      return item && item.dataUrl ? item : null;
+    } catch (_) {
+      return null;
+    }
+  },
+
+  /**
    * Extrae un fotograma del video en el segundo 0.5 para usarlo como póster de portada (compatible con iOS Safari)
    */
   generateVideoThumbnail(videoFile) {

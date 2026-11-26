@@ -3,6 +3,7 @@
  */
 
 import { Utils } from '../core/utils.js';
+import { CryptoAuth } from '../core/crypto.js';
 
 let activeModalCleanup = null;
 let activeEscHandler = null;
@@ -117,6 +118,7 @@ export const UI = {
    * Muestra el modal elegante de mejora a ruma Plus cuando se alcanza un límite del Plan Gratis
    */
   showUpgradeModal(reasonText, onUpgradeConfirm) {
+    const allowSelfUpgrade = CryptoAuth.isBetaSelfUpgradeAllowed();
     this.openModal({
       title: '✨ Desbloquea ruma Plus (Grupo Premium)',
       contentHtml: `
@@ -136,7 +138,9 @@ export const UI = {
           </div>
           <div style="display:flex;gap:0.75rem;justify-content:center;flex-wrap:wrap;">
             <button type="button" class="btn btn-secondary" id="btn-upgrade-cancel">Ahora no</button>
-            <button type="button" class="btn btn-premium" id="btn-upgrade-activate">✨ Mejorar Grupo a Premium</button>
+            <button type="button" class="btn btn-premium" id="btn-upgrade-activate">
+              ${allowSelfUpgrade ? '✨ Mejorar Grupo a Premium (Dev)' : '✨ ruma Plus · Próximamente'}
+            </button>
           </div>
         </div>
       `,
@@ -144,7 +148,11 @@ export const UI = {
         document.getElementById('btn-upgrade-cancel')?.addEventListener('click', () => this.closeModal());
         document.getElementById('btn-upgrade-activate')?.addEventListener('click', () => {
           this.closeModal();
-          if (typeof onUpgradeConfirm === 'function') onUpgradeConfirm();
+          if (allowSelfUpgrade) {
+            if (typeof onUpgradeConfirm === 'function') onUpgradeConfirm();
+          } else {
+            this.showToast('ruma Plus estará disponible próximamente en el lanzamiento oficial 💜', 'info');
+          }
         });
       }
     });

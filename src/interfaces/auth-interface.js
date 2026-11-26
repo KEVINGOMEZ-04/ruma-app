@@ -4,8 +4,35 @@
 
 import { store } from '../core/store.js';
 import { Utils } from '../core/utils.js';
-import { GoogleAuth } from '../services/google-auth.js';
 import { UI } from '../components/ui.js';
+
+function showRecoveryCodeModal(recoveryCode, heading = 'Guarda tu código de recuperación') {
+  if (!recoveryCode) return;
+  UI.openModal({
+    title: `🔐 ${heading}`,
+    contentHtml: `
+      <div style="display:flex;flex-direction:column;gap:0.9rem;">
+        <p style="font-size:0.88rem;color:var(--text-secondary);line-height:1.5;margin:0;">
+          Este código personal es la única forma de restablecer tu contraseña si la olvidas. <strong>Guárdalo en un lugar seguro</strong> (solo se muestra una vez).
+        </p>
+        <div style="padding:0.9rem 1rem;border-radius:14px;background:var(--surface-secondary);border:1px solid var(--border-subtle);text-align:center;font-family:var(--font-mono, monospace);font-size:1.25rem;font-weight:800;letter-spacing:0.08em;color:var(--primary);user-select:all;">
+          ${Utils.sanitize(recoveryCode)}
+        </div>
+        <div style="display:flex;gap:0.65rem;justify-content:flex-end;flex-wrap:wrap;">
+          <button type="button" class="btn btn-secondary" id="btn-copy-recovery-code">📋 Copiar código</button>
+          <button type="button" class="btn btn-primary" id="btn-done-recovery-code">Ya lo guardé</button>
+        </div>
+      </div>
+    `,
+    onMount: () => {
+      document.getElementById('btn-copy-recovery-code')?.addEventListener('click', async () => {
+        const ok = await Utils.copyText(recoveryCode);
+        UI.showToast(ok ? 'Código de recuperación copiado 📋' : `Tu código: ${recoveryCode}`, ok ? 'success' : 'info');
+      });
+      document.getElementById('btn-done-recovery-code')?.addEventListener('click', () => UI.closeModal());
+    }
+  });
+}
 
 export function renderAuthScreen(container) {
   container.innerHTML = `
@@ -189,7 +216,8 @@ export function renderAuthScreen(container) {
               type="password"
               id="reg-password"
               class="ruma-auth-input"
-              placeholder="Crea tu contraseña"
+              placeholder="Crea tu contraseña (mín. 6 caracteres)"
+              minlength="6"
               autocomplete="new-password"
               required
             >
@@ -208,16 +236,15 @@ export function renderAuthScreen(container) {
 
         <div id="auth-google-feedback" style="display:none;margin-top:0.85rem;padding:0.7rem 0.9rem;border-radius:14px;font-size:0.8rem;text-align:left;width:100%;"></div>
 
-        <!-- Separador: o continúa con -->
+        <!-- Acceso con Google pausado temporalmente durante pruebas beta -->
         <div class="ruma-auth-divider">
           <span class="line"></span>
-          <span class="text">o continúa con</span>
+          <span class="text">acceso con Google · próximamente</span>
           <span class="line"></span>
         </div>
 
-        <!-- Botón Cuadrado Oficial con la G multicolor de Google -->
         <div class="ruma-auth-social-row">
-          <button type="button" class="ruma-auth-google-box" id="btn-auth-google-signin" title="Continuar con Google">
+          <button type="button" class="ruma-auth-google-box" id="btn-auth-google-signin" title="Acceso con Google disponible próximamente" aria-disabled="true" style="opacity:0.5;filter:grayscale(0.25);">
             <svg width="24" height="24" viewBox="0 0 48 48" aria-hidden="true">
               <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
               <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
@@ -237,7 +264,6 @@ export function renderAuthScreen(container) {
   `;
 
   const btnGoogle = document.getElementById('btn-auth-google-signin');
-  const feedbackEl = document.getElementById('auth-google-feedback');
   const loginForm = document.getElementById('form-auth-login');
   const regForm = document.getElementById('form-auth-register');
   const tabLogin = document.getElementById('tab-auth-login');
@@ -275,20 +301,27 @@ export function renderAuthScreen(container) {
   document.getElementById('btn-auth-forgot-pass')?.addEventListener('click', () => {
     const prefill = document.getElementById('login-identifier')?.value || '';
     UI.openModal({
-      title: '🔑 Recuperar / Restablecer Contraseña',
+      title: '🔑 Recuperar Contraseña',
       contentHtml: `
-        <form id="form-reset-password">
+        <form id="form-reset-password" style="display:flex;flex-direction:column;gap:0.85rem;">
+          <p style="font-size:0.84rem;color:var(--text-secondary);line-height:1.45;margin:0;">
+            Por seguridad, necesitas tu <strong>código de recuperación personal</strong> (<code>RUMA-XXXX-XXXX</code>) para restablecer tu contraseña.
+          </p>
           <div class="form-group">
             <label class="form-label">Tu Correo, Teléfono o @Usuario</label>
-            <input type="text" id="reset-pass-id" class="form-input" placeholder="ej: kevin@ruma.app o @kevin" value="${Utils.sanitize(prefill)}" required>
+            <input type="text" id="reset-pass-id" class="form-input" placeholder="ej: @usuario o correo@ejemplo.com" value="${Utils.sanitize(prefill)}" required>
           </div>
           <div class="form-group">
-            <label class="form-label">Nueva Contraseña</label>
-            <input type="password" id="reset-pass-new" class="form-input" placeholder="Escribe tu nueva contraseña" required>
+            <label class="form-label">Código de recuperación personal</label>
+            <input type="text" id="reset-pass-code" class="form-input" placeholder="RUMA-XXXX-XXXX" autocomplete="off" style="text-transform:uppercase;letter-spacing:0.06em;" required>
           </div>
-          <div style="display:flex;justify-content:flex-end;gap:0.65rem;margin-top:1.25rem;">
+          <div class="form-group">
+            <label class="form-label">Nueva Contraseña (mín. 6 caracteres)</label>
+            <input type="password" id="reset-pass-new" class="form-input" placeholder="Escribe tu nueva contraseña" minlength="6" autocomplete="new-password" required>
+          </div>
+          <div style="display:flex;justify-content:flex-end;gap:0.65rem;margin-top:0.5rem;">
             <button type="button" class="btn btn-secondary" id="btn-cancel-reset">Cancelar</button>
-            <button type="submit" class="btn btn-primary">Actualizar Contraseña</button>
+            <button type="submit" class="btn btn-primary" id="btn-submit-reset">Actualizar Contraseña</button>
           </div>
         </form>
       `,
@@ -296,9 +329,13 @@ export function renderAuthScreen(container) {
         document.getElementById('btn-cancel-reset')?.addEventListener('click', () => UI.closeModal());
         document.getElementById('form-reset-password')?.addEventListener('submit', async (e) => {
           e.preventDefault();
+          const submitBtn = document.getElementById('btn-submit-reset');
           const identifier = document.getElementById('reset-pass-id')?.value;
+          const recoveryCode = document.getElementById('reset-pass-code')?.value;
           const newPw = document.getElementById('reset-pass-new')?.value;
-          const res = await store.resetPasswordAsync(identifier, newPw);
+          if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Verificando...'; }
+          const res = await store.resetPasswordAsync(identifier, recoveryCode, newPw);
+          if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Actualizar Contraseña'; }
           if (!res.ok) {
             UI.showToast(res.error, 'error');
             return;
@@ -308,39 +345,17 @@ export function renderAuthScreen(container) {
           const pwInp = document.getElementById('login-password');
           if (idInp) idInp.value = identifier;
           if (pwInp) pwInp.value = newPw;
-          UI.showToast(`¡Contraseña actualizada para ${res.user.name}! Ya puedes iniciar sesión ✨`, 'success');
+          UI.showToast(`¡Contraseña actualizada para ${res.user.name}! ✨`, 'success');
+          if (res.recoveryCode) {
+            showRecoveryCodeModal(res.recoveryCode, 'Tu nuevo código de recuperación');
+          }
         });
       }
     });
   });
 
-  const showErr = (msg) => {
-    if (!feedbackEl) return;
-    feedbackEl.style.display = 'block';
-    feedbackEl.style.background = 'rgba(239,68,68,0.14)';
-    feedbackEl.style.border = '1px solid rgba(239,68,68,0.4)';
-    feedbackEl.style.color = '#FCA5A5';
-    feedbackEl.textContent = msg;
-  };
-
-  btnGoogle?.addEventListener('click', async () => {
-    const cid = GoogleAuth.getClientId();
-    btnGoogle.disabled = true;
-    try {
-      const session = await GoogleAuth.requestDriveAccess(cid);
-      const res = store.loginWithGoogle({
-        email: session.email,
-        name: session.name,
-        picture: session.picture
-      });
-      if (res.ok) {
-        UI.showToast(`¡Bienvenido, ${res.user.name}! Google conectado ☁️✨`, 'success');
-      }
-    } catch (err) {
-      showErr(`⚠️ Google OAuth: ${err.message}`);
-    } finally {
-      btnGoogle.disabled = false;
-    }
+  btnGoogle?.addEventListener('click', () => {
+    UI.showToast('El acceso con Google está pausado por ahora. Usa tu correo, teléfono o @usuario ✨', 'info');
   });
 
   loginForm?.addEventListener('submit', async (e) => {
@@ -389,5 +404,8 @@ export function renderAuthScreen(container) {
       return;
     }
     UI.showToast(`¡Cuenta creada en la nube, ${res.user.name}! 🎉`, 'success');
+    if (res.recoveryCode) {
+      setTimeout(() => showRecoveryCodeModal(res.recoveryCode, 'Guarda tu código de recuperación'), 120);
+    }
   });
 }

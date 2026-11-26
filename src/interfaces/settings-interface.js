@@ -2,6 +2,7 @@
  * ruma 🌟 — Ajustes (Mi Cuenta con edición por campo, Plan y Límites con toggle Freemium/ruma Plus para pruebas)
  */
 import { store } from '../core/store.js';
+import { CryptoAuth } from '../core/crypto.js';
 import { Entitlements, PLAN_LIMITS } from '../core/entitlements.js';
 import { Utils } from '../core/utils.js';
 import { UI } from '../components/ui.js';
@@ -15,6 +16,7 @@ const ICO = {
   mail: '<rect x="3" y="5" width="18" height="14" rx="2.2"/><path d="m3 7 9 6 9-6"/>',
   phone: '<path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 2 .7 2.8a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.2a2 2 0 0 1 2.1-.5c.9.3 1.9.6 2.8.7a2 2 0 0 1 1.7 2z"/>',
   lock: '<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
+  key: '<circle cx="8" cy="15" r="4"/><path d="m10.85 12.15 8.15-8.15m0 0h-3.5m3.5 0v3.5m-4.5 1 2 2"/>',
   users: '<circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><circle cx="17" cy="9" r="2.4"/><path d="M17 14c2.5 0 4.5 2 4.5 4.5"/>',
   clapper: '<rect x="3" y="7" width="18" height="13" rx="2.2"/><path d="m3 7 3-4h4L7 7m3 0 3-4h4l-3 4"/>',
   tv: '<rect x="3" y="6" width="18" height="13" rx="2.2"/><path d="m8 2 4 4 4-4"/>',
@@ -36,6 +38,7 @@ export function renderSettingsInterface(container) {
 
   const isUserPrem = Entitlements.isUserPremium(user, allGroups);
   const isGroupPrem = refGroup ? Entitlements.isGroupPremium(refGroup) : isUserPrem;
+  const allowDevToggle = CryptoAuth.isBetaSelfUpgradeAllowed();
 
   const groupsCount = myGroups.length;
   const groupsMax = isUserPrem ? Infinity : PLAN_LIMITS.free.maxTotalGroups;
@@ -54,7 +57,8 @@ export function renderSettingsInterface(container) {
     { key: 'username', label: 'Usuario', value: `@${user.username || 'usuario'}`, icon: ICO.at, type: 'text', placeholder: 'usuario', required: true },
     { key: 'email', label: 'Correo electrónico', value: user.email || 'Sin correo', icon: ICO.mail, type: 'email', placeholder: 'tu@correo.com', required: false },
     { key: 'phone', label: 'Número de teléfono', value: user.phone || 'Sin teléfono', icon: ICO.phone, type: 'tel', placeholder: '3001234567', required: false },
-    { key: 'password', label: 'Contraseña', value: '••••••••', icon: ICO.lock, type: 'password', placeholder: 'Nueva contraseña', required: true }
+    { key: 'password', label: 'Contraseña', value: '••••••••', icon: ICO.lock, type: 'password', placeholder: 'Nueva contraseña', required: true },
+    { key: 'recovery', label: 'Código de recuperación', value: user.recoveryCodeHash ? 'Configurado · Renovar' : 'Sin configurar · Generar ahora', icon: ICO.key, type: 'text', placeholder: '', required: false }
   ];
 
   const limits = [
@@ -81,7 +85,7 @@ export function renderSettingsInterface(container) {
           <div class="rst-sec-ico">${svg(ICO.user, 22)}</div>
           <div>
             <h2>Mi Cuenta</h2>
-            <p>Actualiza la información de tu cuenta y accesos.</p>
+            <p>Actualiza tu perfil, contraseña y código de recuperación.</p>
           </div>
         </div>
 
@@ -140,9 +144,15 @@ export function renderSettingsInterface(container) {
             ? 'Tienes ruma Plus activo: puedes unirte a todos los grupos que quieras, crear 1 grupo Premium y guardar películas, series y canciones ilimitadas.'
             : 'Desbloquea todo el potencial de Ruma: más grupos, contenido ilimitado y funciones exclusivas.'}</p>
 
-          <button type="button" class="rst-plus-btn ${isUserPrem ? 'is-off' : ''}" id="rst-toggle-plus">
-            ${isUserPrem ? '🔄 Desactivar ruma Plus (Probar Plan Free)' : '👑 Obtener ruma Plus'}
-          </button>
+          ${allowDevToggle ? `
+            <button type="button" class="rst-plus-btn ${isUserPrem ? 'is-off' : ''}" id="rst-toggle-plus">
+              ${isUserPrem ? '🔄 Desactivar ruma Plus (Modo Dev)' : '👑 Activar ruma Plus (Modo Dev)'}
+            </button>
+          ` : `
+            <button type="button" class="rst-plus-btn" id="rst-plus-coming-soon" style="opacity:0.85;">
+              ${isUserPrem ? '✨ Plan ruma Plus activo' : '✨ ruma Plus · Próximamente'}
+            </button>
+          `}
         </div>
 
         <div class="rst-limits-box">
@@ -186,9 +196,18 @@ export function renderSettingsInterface(container) {
     store.setUserPremiumPlan(next);
     UI.showToast(
       next
-        ? '¡ruma Plus activado! ✨ Ya puedes probar los límites ilimitados.'
+        ? '¡ruma Plus activado (Modo Dev)! ✨'
         : 'Plan cambiado a Free (máx. 2 grupos y 5 ítems por categoría).',
       next ? 'success' : 'info'
+    );
+  });
+
+  container.querySelector('#rst-plus-coming-soon')?.addEventListener('click', () => {
+    UI.showToast(
+      isUserPrem
+        ? 'Tu cuenta ya cuenta con beneficios ruma Plus ✨'
+        : 'ruma Plus estará disponible próximamente en el lanzamiento oficial. ¡Gracias por probar la beta! 💜',
+      'info'
     );
   });
 
@@ -197,8 +216,118 @@ export function renderSettingsInterface(container) {
       const key = btn.getAttribute('data-edit-field');
       const field = accountFields.find(f => f.key === key);
       if (!field) return;
-      const rawVal = key === 'password' ? '' : (user[key] || '');
 
+      // Cambio de contraseña seguro (requiere contraseña actual + mínimo 6 caracteres)
+      if (key === 'password') {
+        const hasExistingPw = Boolean(user.passwordHash || user.password);
+        UI.openModal({
+          title: '🔒 Cambiar Contraseña',
+          contentHtml: `
+            <form id="rst-pw-form" style="display:flex;flex-direction:column;gap:.85rem;">
+              ${hasExistingPw ? `
+                <div class="form-group">
+                  <label class="form-label">Contraseña actual</label>
+                  <input type="password" id="rst-pw-cur" class="form-input" placeholder="Tu contraseña actual" autocomplete="current-password" required>
+                </div>` : ''}
+              <div class="form-group">
+                <label class="form-label">Nueva contraseña (mín. 6 caracteres)</label>
+                <input type="password" id="rst-pw-new" class="form-input" placeholder="Escribe tu nueva contraseña" minlength="6" autocomplete="new-password" required>
+              </div>
+              <div style="display:flex;justify-content:flex-end;gap:.6rem;">
+                <button type="button" class="btn btn-secondary" id="rst-pw-cancel">Cancelar</button>
+                <button type="submit" class="btn btn-primary" id="rst-pw-save">Guardar</button>
+              </div>
+            </form>`,
+          onMount: () => {
+            document.getElementById('rst-pw-cancel')?.addEventListener('click', () => UI.closeModal());
+            (document.getElementById('rst-pw-cur') || document.getElementById('rst-pw-new'))?.focus();
+            document.getElementById('rst-pw-form')?.addEventListener('submit', async (e) => {
+              e.preventDefault();
+              const cur = document.getElementById('rst-pw-cur')?.value || '';
+              const nextPw = document.getElementById('rst-pw-new')?.value || '';
+              const saveBtn = document.getElementById('rst-pw-save');
+              if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Guardando...'; }
+              const res = await store.changePasswordAsync(cur, nextPw);
+              if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Guardar'; }
+              if (!res.ok) {
+                UI.showToast(res.error, 'error');
+                return;
+              }
+              UI.closeModal();
+              UI.showToast('Contraseña actualizada de forma segura 🔒', 'success');
+            });
+          }
+        });
+        return;
+      }
+
+      // Generación / renovación de código personal de recuperación
+      if (key === 'recovery') {
+        const hasExistingPw = Boolean(user.passwordHash || user.password);
+        UI.openModal({
+          title: '🔐 Código de recuperación',
+          contentHtml: `
+            <form id="rst-rec-form" style="display:flex;flex-direction:column;gap:.85rem;">
+              <p style="font-size:0.86rem;color:var(--text-secondary);line-height:1.45;margin:0;">
+                Este código te permite recuperar el acceso a tu cuenta si olvidas tu contraseña. Al generar uno nuevo, cualquier código anterior quedará invalidado.
+              </p>
+              ${hasExistingPw ? `
+                <div class="form-group">
+                  <label class="form-label">Confirma tu contraseña actual</label>
+                  <input type="password" id="rst-rec-pw" class="form-input" placeholder="Tu contraseña actual" autocomplete="current-password" required>
+                </div>` : ''}
+              <div style="display:flex;justify-content:flex-end;gap:.6rem;">
+                <button type="button" class="btn btn-secondary" id="rst-rec-cancel">Cancelar</button>
+                <button type="submit" class="btn btn-primary" id="rst-rec-gen">Generar código</button>
+              </div>
+            </form>`,
+          onMount: () => {
+            document.getElementById('rst-rec-cancel')?.addEventListener('click', () => UI.closeModal());
+            document.getElementById('rst-rec-pw')?.focus();
+            document.getElementById('rst-rec-form')?.addEventListener('submit', async (e) => {
+              e.preventDefault();
+              const cur = document.getElementById('rst-rec-pw')?.value || '';
+              const genBtn = document.getElementById('rst-rec-gen');
+              if (genBtn) { genBtn.disabled = true; genBtn.textContent = 'Generando...'; }
+              const res = await store.regenerateRecoveryCodeAsync(cur);
+              if (genBtn) { genBtn.disabled = false; genBtn.textContent = 'Generar código'; }
+              if (!res.ok) {
+                UI.showToast(res.error, 'error');
+                return;
+              }
+              UI.openModal({
+                title: '🔐 Tu nuevo código de recuperación',
+                contentHtml: `
+                  <div style="display:flex;flex-direction:column;gap:0.9rem;">
+                    <p style="font-size:0.86rem;color:var(--text-secondary);line-height:1.45;margin:0;">
+                      Guárdalo en un lugar seguro. Solo se mostrará esta vez.
+                    </p>
+                    <div style="padding:0.9rem 1rem;border-radius:14px;background:var(--surface-secondary);border:1px solid var(--border-subtle);text-align:center;font-family:var(--font-mono, monospace);font-size:1.25rem;font-weight:800;letter-spacing:0.08em;color:var(--primary);user-select:all;">
+                      ${Utils.sanitize(res.recoveryCode)}
+                    </div>
+                    <div style="display:flex;gap:0.65rem;justify-content:flex-end;flex-wrap:wrap;">
+                      <button type="button" class="btn btn-secondary" id="rst-rec-copy">📋 Copiar</button>
+                      <button type="button" class="btn btn-primary" id="rst-rec-done">Listo</button>
+                    </div>
+                  </div>`,
+                onMount: () => {
+                  document.getElementById('rst-rec-copy')?.addEventListener('click', async () => {
+                    const ok = await Utils.copyText(res.recoveryCode);
+                    UI.showToast(ok ? 'Código copiado 📋' : `Código: ${res.recoveryCode}`, ok ? 'success' : 'info');
+                  });
+                  document.getElementById('rst-rec-done')?.addEventListener('click', () => {
+                    UI.closeModal();
+                    renderSettingsInterface(container);
+                  });
+                }
+              });
+            });
+          }
+        });
+        return;
+      }
+
+      const rawVal = user[key] || '';
       UI.openModal({
         title: `Editar ${field.label}`,
         contentHtml: `
@@ -220,7 +349,11 @@ export function renderSettingsInterface(container) {
             let val = document.getElementById('rst-field-inp')?.value.trim() || '';
             if (key === 'username') val = val.replace(/^@+/, '').toLowerCase();
             if (field.required && !val) return;
-            store.updateCurrentUser({ [key]: val });
+            const res = store.updateCurrentUser({ [key]: val });
+            if (res && res.ok === false) {
+              UI.showToast(res.error || 'No se pudo actualizar este campo.', 'error');
+              return;
+            }
             UI.closeModal();
             UI.showToast(`${field.label} actualizado ✅`, 'success');
           });

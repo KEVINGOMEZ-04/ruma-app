@@ -3,6 +3,7 @@
  */
 
 import { store } from '../core/store.js';
+import { CryptoAuth } from '../core/crypto.js';
 import { Entitlements, PLAN_LIMITS } from '../core/entitlements.js';
 import { Utils } from '../core/utils.js';
 import { CloudSync } from '../services/cloud-sync.js';
@@ -282,6 +283,10 @@ export function renderHomeInterface(container) {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
       const groupId = btn.getAttribute('data-upgrade-group');
+      if (!CryptoAuth.isBetaSelfUpgradeAllowed()) {
+        UI.showUpgradeModal('Mejora tu grupo a ruma Plus para desbloquear películas, series, libros y canciones ilimitadas.');
+        return;
+      }
       const res = await store.upgradeGroupToPremiumAsync(groupId);
       if (res.ok) {
         UI.showToast(`¡"${res.group.name}" ahora es un Grupo ruma Plus ilimitado! ✨👑`, 'success');
@@ -315,6 +320,7 @@ export function openCreateGroupModal(defaultPlan = 'free') {
   const user = store.getCurrentUser();
   const allGroups = store.getGroups();
   const myCreatedGroup = allGroups.find(g => g.creatorId === user?.id);
+  const allowSelfUpgrade = CryptoAuth.isBetaSelfUpgradeAllowed();
 
   // Regla Freemium: Cada cuenta puede crear 1 grupo propio. Si ya lo creó, ofrecerle mejorarlo a Plus o entrar.
   if (myCreatedGroup) {
@@ -337,7 +343,7 @@ export function openCreateGroupModal(defaultPlan = 'free') {
           <div style="display:flex;justify-content:flex-end;gap:0.65rem;flex-wrap:wrap;margin-top:0.4rem;">
             <button type="button" class="btn btn-secondary" id="btn-close-limit-modal">Cerrar</button>
             ${!isAlreadyPrem ? `
-              <button type="button" class="btn btn-premium" id="btn-upgrade-existing-grp">✨ Mejorar a Grupo Plus</button>
+              <button type="button" class="btn btn-premium" id="btn-upgrade-existing-grp">${allowSelfUpgrade ? '✨ Mejorar a Grupo Plus' : '✨ ruma Plus · Próximamente'}</button>
             ` : ''}
             <button type="button" class="btn btn-primary" id="btn-go-existing-grp">Entrar a mi grupo ➔</button>
           </div>
@@ -350,6 +356,10 @@ export function openCreateGroupModal(defaultPlan = 'free') {
           store.setActiveGroup(myCreatedGroup.id);
         });
         document.getElementById('btn-upgrade-existing-grp')?.addEventListener('click', async () => {
+          if (!allowSelfUpgrade) {
+            UI.showToast('ruma Plus estará disponible próximamente en el lanzamiento oficial 💜', 'info');
+            return;
+          }
           const res = await store.upgradeGroupToPremiumAsync(myCreatedGroup.id);
           UI.closeModal();
           if (res.ok) {
@@ -361,13 +371,14 @@ export function openCreateGroupModal(defaultPlan = 'free') {
     return;
   }
 
-  const check = Entitlements.canCreateGroup(user, allGroups, defaultPlan);
+  const effectiveDefaultPlan = allowSelfUpgrade && defaultPlan === 'premium' ? 'premium' : 'free';
+  const check = Entitlements.canCreateGroup(user, allGroups, effectiveDefaultPlan);
   if (!check.allowed) {
     UI.showToast(check.reason, 'info');
     return;
   }
 
-  let selectedPlan = defaultPlan === 'premium' ? 'premium' : 'free';
+  let selectedPlan = effectiveDefaultPlan;
 
   UI.openModal({
     title: '✨ Crear nuevo grupo',
@@ -392,8 +403,8 @@ export function openCreateGroupModal(defaultPlan = 'free') {
                 Hasta 5 películas, 5 series y 5 canciones · Recuerdos en Drive · Cupo total: 2 grupos (1 creado + 1 unido).
               </div>
             </div>
-            <div class="ruma-plan-option ${selectedPlan === 'premium' ? 'selected' : ''}" data-select-plan="premium">
-              <div class="ruma-plan-option-title">✨ Grupo Plus</div>
+            <div class="ruma-plan-option ${selectedPlan === 'premium' ? 'selected' : ''}" data-select-plan="premium" ${!allowSelfUpgrade ? 'style="opacity:0.62;"' : ''}>
+              <div class="ruma-plan-option-title">${allowSelfUpgrade ? '✨ Grupo Plus' : '✨ Grupo Plus · Próximamente'}</div>
               <div class="ruma-plan-option-desc">
                 Cine, series y música ilimitados · Te permite unirte a grupos ilimitados · Marcos y temas exclusivos.
               </div>
@@ -419,7 +430,12 @@ export function openCreateGroupModal(defaultPlan = 'free') {
       const planCards = document.querySelectorAll('[data-select-plan]');
       planCards.forEach(card => {
         card.addEventListener('click', () => {
-          selectedPlan = card.getAttribute('data-select-plan');
+          const nextPlan = card.getAttribute('data-select-plan');
+          if (nextPlan === 'premium' && !allowSelfUpgrade) {
+            UI.showToast('Grupo Plus estará disponible próximamente. Por ahora puedes crear tu Grupo Gratis 🌱', 'info');
+            return;
+          }
+          selectedPlan = nextPlan;
           planCards.forEach(c => c.classList.toggle('selected', c === card));
         });
       });
