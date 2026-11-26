@@ -1,9 +1,10 @@
-// Vista modular de Series del Grupo (Banner, 3 métricas por usuario, Chips, Buscador + Orden, CTA TMDb, Tarjetas con progreso y menú "⋯")
+// Vista modular de Series del Grupo (Banner, 3 métricas por usuario, Chips, Buscador + Orden, CTA TMDb, Tarjetas con progreso, +1 capítulo rápido y menú "⋯")
 import { store } from '../core/store.js';
 import { Entitlements } from '../core/entitlements.js';
 import { Utils } from '../core/utils.js';
 import { UI } from '../components/ui.js';
 import { hydrateMediaFromTmdb, getAverage } from '../components/media-widgets.js';
+import { fireConfetti } from '../core/confetti.js';
 
 const svg = (inner, size = 20) =>
   `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${inner}</svg>`;
@@ -22,7 +23,8 @@ function totalEpisodes(s) {
 }
 
 function watchedKeys(s, uid) {
-  return Object.keys(s.userProgress?.[uid]?.watchedEpisodes || {}).filter(k => !k.startsWith('0_'));
+  const map = s.userProgress?.[uid]?.watchedEpisodes || {};
+  return Object.keys(map).filter(k => map[k] && !k.startsWith('0_'));
 }
 
 // Estado personal del usuario en la serie: 'Viendo' | 'Por ver' | 'Completada'
@@ -33,9 +35,25 @@ export function userSeriesStatus(s, uid) {
   if (up?.status === 'Completada') return 'Completada';
   if (total > 0 && watched >= total) return 'Completada';
   if (watched > 0) return 'Viendo';
-  if (up?.status) return up.status;
-  if (!up && s.status) return s.status;
+  if (up?.status === 'Viendo' || up?.status === 'Por ver') return up.status;
   return 'Por ver';
+}
+
+function nextEpisodeForUser(s, uid) {
+  const seasons = (s.seasons && s.seasons.length)
+    ? s.seasons
+    : (s.totalEpisodes ? [{ seasonNumber: 1, episodeCount: s.totalEpisodes }] : []);
+  if (!seasons.length) return null;
+  const map = s.userProgress?.[uid]?.watchedEpisodes || {};
+  for (const season of seasons) {
+    const count = season.episodeCount || 0;
+    for (let ep = 1; ep <= count; ep++) {
+      if (!map[`${season.seasonNumber}_${ep}`]) {
+        return { season: season.seasonNumber, episode: ep };
+      }
+    }
+  }
+  return null;
 }
 
 function badgeMeta(st) {
@@ -84,7 +102,9 @@ export function renderGroupSeriesView(viewport, group, user, ctx) {
   }
 
   const rate = s => Number(getAverage(s) ?? s.tmdbRating ?? 0);
-  if (seriesUiState.sort === 'rating') list.sort((a, b) => rate(b) - rate(a));
+  const stOrder = { Viendo: 0, 'Por ver': 1, Completada: 2 };
+  if (seriesUiState.sort === 'watching') list.sort((a, b) => (stOrder[statusOf.get(a.id)] ?? 9) - (stOrder[statusOf.get(b.id)] ?? 9));
+  else if (seriesUiState.sort === 'rating') list.sort((a, b) => rate(b) - rate(a));
   else if (seriesUiState.sort === 'year') list.sort((a, b) => (parseInt(b.year || b.years, 10) || 0) - (parseInt(a.year || a.years, 10) || 0));
   else if (seriesUiState.sort === 'title') list.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
 
@@ -149,6 +169,11 @@ export function renderGroupSeriesView(viewport, group, user, ctx) {
             const seasonsN = (s.seasons || []).length;
             const meta = [s.years || s.year, seasonsN ? `${seasonsN} temp.` : '', totalEpisodes(s) ? `${totalEpisodes(s)} capítulos` : ''].filter(Boolean).join(' • ');
             const pr = progressInfo(s, user.id, st);
+            const nextEp = !isLocked ? nextEpisodeForUser(s, user.id) : null;
+            const activeMembers = (group.members || []).filter(m => {
+              const mst = userSeriesStatus(s, m.id);
+              return mst === 'Viendo' || mst === 'Completada';
+            });
             const id = Utils.sanitize(s.id);
             return `
               <article class="rg-card rmv-card rms-card ${isLocked ? 'is-locked' : ''}">
@@ -164,6 +189,7 @@ export function renderGroupSeriesView(viewport, group, user, ctx) {
                     ${isLocked
                       ? `<span class="rms-badge is-locked">🔒 Plan Free</span>`
                       : `<span class="rms-badge ${bm.cls}">${bm.icon} ${bm.label}</span>`}
+                    ${!isLocked && activeMembers.length > 0 ? `<span class="rms-group-pill" title="Miembros viendo o que completaron">👥 ${activeMembers.length}</span>` : ''}
                   </div>
                   ${isLocked ? `
                     <div class="rmv-watched-some" style="color:var(--error);">🔒 Excede el límite de 5 series del Plan Free</div>
@@ -178,7 +204,7 @@ export function renderGroupSeriesView(viewport, group, user, ctx) {
                       <button type="button" class="rms-btn is-locked" data-locked-series>🔒 Bloqueada · Activar ruma Plus</button>
                     ` : `
                       <button type="button" class="rms-btn rms-btn-main" data-sr-open="${id}">▶ Capítulos<span class="rms-mar"> &amp; Maratón</span></button>
-                      <button type="button" class="rms-btn" data-sr-rate="${id}">✏ Reseña</button>
+                      ${nextEp ? `<button type="button" class="rms-btn rms-btn-next" data-sr-quick-ep="${id}" data-s="${nextEp.season}" data-e="${nextEp.episode}" title="Marcar T${nextEp.season}·E${nextEp.episode} como visto">✓ T${nextEp.season}·E${nextEp.episode}</button>` : ''}
                       <button type="button" class="rms-btn" data-sr-comm="${id}">💬 ${(s.comments || []).length}</button>
                     `}
                   </div>
@@ -209,6 +235,7 @@ export function renderGroupSeriesView(viewport, group, user, ctx) {
   viewport.querySelector('#rms-sort-btn')?.addEventListener('click', () => {
     const sorts = [
       ['recent', '🕒 Más recientes primero'],
+      ['watching', '📺 En curso primero'],
       ['rating', '⭐ Mejor calificadas'],
       ['year', '📅 Año (nuevas primero)'],
       ['title', '🔤 Orden alfabético (A-Z)']
@@ -239,13 +266,23 @@ export function renderGroupSeriesView(viewport, group, user, ctx) {
     const s = find(el.getAttribute('data-sr-open'));
     if (s) openSeriesDetail(s);
   }));
+  viewport.querySelectorAll('[data-sr-quick-ep]').forEach(el => el.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const s = find(el.getAttribute('data-sr-quick-ep'));
+    const sNum = Number(el.getAttribute('data-s'));
+    const eNum = Number(el.getAttribute('data-e'));
+    if (!s || !sNum || !eNum) return;
+    const res = store.toggleEpisodeWatched(s.id, sNum, eNum);
+    if (res?.isFullyCompleted) {
+      fireConfetti({ particleCount: 110, spread: 80, origin: { y: 0.65 } });
+      UI.showToast(`🏆 ¡Completaste "${s.title}"!`, 'success');
+    } else {
+      UI.showToast(`✓ Marcado T${sNum}·E${eNum} de "${s.title}"`, 'success');
+    }
+  }));
   viewport.querySelectorAll('[data-locked-series]').forEach(el => el.addEventListener('click', (e) => {
     e.stopPropagation();
     UI.showUpgradeModal('En el Plan Free el límite es de 5 series por grupo. Las más recientes quedaron bloqueadas; activa ruma Plus para desbloquearlas.', () => store.upgradeGroupToPremium(group.id));
-  }));
-  viewport.querySelectorAll('[data-sr-rate]').forEach(el => el.addEventListener('click', () => {
-    const s = find(el.getAttribute('data-sr-rate'));
-    if (s) openReviewModal('series', s, user);
   }));
   viewport.querySelectorAll('[data-sr-comm]').forEach(el => el.addEventListener('click', () => {
     const s = find(el.getAttribute('data-sr-comm'));
@@ -268,7 +305,7 @@ export function renderGroupSeriesView(viewport, group, user, ctx) {
           <button type="button" class="btn btn-secondary" id="sr-m-quote">↩ Citar en el chat</button>
           <div style="font-size:.75rem;color:var(--text-muted);">Añadida por <b>${Utils.sanitize(proposer)}</b></div>
           ${canDelete ? `<button type="button" class="btn" id="sr-m-del" style="background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.5);color:var(--error);">🗑️ Eliminar serie</button>` : `
-            <div style="font-size:.74rem;color:var(--text-muted);text-align:center;padding:.35rem;border-radius:.6rem;background:rgba(255,255,255,.03);">🔒 Solo quien la añadió (${Utils.sanitize(proposer)}) o el líder del grupo pueden eliminarla.</div>`}
+            <div style="font-size:.74rem;color:var(--text-muted);text-align:center;padding:.35rem;border-radius:.6rem;background:var(--surface-secondary);">🔒 Solo quien la añadió (${Utils.sanitize(proposer)}) o el líder del grupo pueden eliminarla.</div>`}
         </div>`,
       onMount: () => {
         const on = (id, fn) => document.getElementById(id)?.addEventListener('click', () => { UI.closeModal(); fn(); });

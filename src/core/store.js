@@ -2057,6 +2057,19 @@ class RumaStore {
     return Boolean(up && up.status === 'Completada');
   }
 
+  _recomputeSeriesLastWatched(watchedMap) {
+    let best = null;
+    for (const k of Object.keys(watchedMap || {})) {
+      if (!watchedMap[k] || k.startsWith('0_')) continue;
+      const [s, e] = k.split('_').map(Number);
+      if (!Number.isFinite(s) || !Number.isFinite(e)) continue;
+      if (!best || s > best.season || (s === best.season && e > best.episode)) {
+        best = { season: s, episode: e };
+      }
+    }
+    return best;
+  }
+
   toggleEpisodeWatched(seriesId, seasonNum, episodeNum) {
     const user = this.getCurrentUser();
     const allGroups = this.getGroups();
@@ -2065,6 +2078,8 @@ class RumaStore {
 
     const series = (group.series || []).find(s => s.id === seriesId);
     if (!series) return null;
+
+    const wasCompletedBefore = this.isSeriesCompletedByUser(series, user.id);
 
     series.userProgress = series.userProgress || {};
     if (!series.userProgress[user.id]) {
@@ -2082,25 +2097,37 @@ class RumaStore {
     }
 
     const up = series.userProgress[user.id];
+    up.userName = user.name;
+    up.userAvatar = user.avatar;
     up.watchedEpisodes = up.watchedEpisodes || {};
     const key = `${seasonNum}_${episodeNum}`;
     const wasWatched = Boolean(up.watchedEpisodes[key]);
 
     if (wasWatched) {
       delete up.watchedEpisodes[key];
+      const latest = this._recomputeSeriesLastWatched(up.watchedEpisodes);
+      up.lastWatched = latest;
+      up.currentSeason = latest?.season || 1;
+      up.currentEpisode = latest?.episode || 1;
     } else {
       up.watchedEpisodes[key] = true;
-      up.lastWatched = { season: seasonNum, episode: episodeNum };
-      up.currentSeason = seasonNum;
-      up.currentEpisode = episodeNum;
+      if (seasonNum > 0) {
+        up.lastWatched = { season: seasonNum, episode: episodeNum };
+        up.currentSeason = seasonNum;
+        up.currentEpisode = episodeNum;
+      }
     }
 
+    const regularWatched = Object.keys(up.watchedEpisodes).filter(k => !k.startsWith('0_') && up.watchedEpisodes[k]).length;
     const isCompleted = this.isSeriesCompletedByUser(series, user.id);
-    up.status = isCompleted ? 'Completada' : (Object.keys(up.watchedEpisodes).length > 0 ? 'Viendo' : 'Por ver');
-    series.status = isCompleted ? 'Completada' : 'Viendo';
+    up.status = isCompleted ? 'Completada' : (regularWatched > 0 ? 'Viendo' : 'Por ver');
     up.updatedAt = new Date().toISOString();
 
-    this.saveGroups(allGroups);
+    if (!wasCompletedBefore && isCompleted) {
+      this.logActivity(group, user, 'series', `Completó la serie "${series.title}"`);
+    }
+
+    this.saveGroups(allGroups, true, [group.id]);
     this.notify();
     return { series, isWatched: !wasWatched, isFullyCompleted: isCompleted, progress: up };
   }
@@ -2114,6 +2141,8 @@ class RumaStore {
     const series = (group.series || []).find(s => s.id === seriesId);
     if (!series) return null;
 
+    const wasCompletedBefore = this.isSeriesCompletedByUser(series, user.id);
+
     series.userProgress = series.userProgress || {};
     if (!series.userProgress[user.id]) {
       series.userProgress[user.id] = {
@@ -2126,6 +2155,8 @@ class RumaStore {
     }
 
     const up = series.userProgress[user.id];
+    up.userName = user.name;
+    up.userAvatar = user.avatar;
     up.watchedEpisodes = up.watchedEpisodes || {};
     const seasons = series.seasons || [{ seasonNumber: targetSeason, episodeCount: targetEpisode }];
 
@@ -2152,17 +2183,74 @@ class RumaStore {
     const isFullyCompleted = (targetSeason === lastSeason.seasonNumber && targetEpisode >= (lastSeason.episodeCount || 1))
       || this.isSeriesCompletedByUser(series, user.id);
 
-    if (isFullyCompleted) {
-      up.status = 'Completada';
-      series.status = 'Completada';
-    } else {
-      up.status = 'Viendo';
-      if (series.status !== 'Completada') series.status = 'Viendo';
+    up.status = isFullyCompleted ? 'Completada' : 'Viendo';
+
+    if (!wasCompletedBefore && isFullyCompleted) {
+      this.logActivity(group, user, 'series', `Completó la serie "${series.title}"`);
     }
 
-    this.saveGroups(allGroups);
+    this.saveGroups(allGroups, true, [group.id]);
     this.notify();
     return { series, isFullyCompleted, progress: up };
+  }
+
+  toggleSeasonWatched(seriesId, seasonNum, markWatched = true, episodeCountOverride = 0) {
+    const user = this.getCurrentUser();
+    const allGroups = this.getGroups();
+    const group = allGroups.find(g => g.id === this.getActiveGroup()?.id);
+    if (!group || !user) return null;
+
+    const series = (group.series || []).find(s => s.id === seriesId);
+    if (!series) return null;
+
+    const wasCompletedBefore = this.isSeriesCompletedByUser(series, user.id);
+
+    series.userProgress = series.userProgress || {};
+    if (!series.userProgress[user.id]) {
+      series.userProgress[user.id] = {
+        userId: user.id,
+        userName: user.name,
+        userAvatar: user.avatar,
+        watchedEpisodes: {},
+        status: 'Por ver'
+      };
+    }
+
+    const up = series.userProgress[user.id];
+    up.userName = user.name;
+    up.userAvatar = user.avatar;
+    up.watchedEpisodes = up.watchedEpisodes || {};
+
+    const seasonObj = [...(series.seasons || []), ...(series.specials || [])].find(s => s.seasonNumber === seasonNum);
+    const count = Math.max(Number(episodeCountOverride || 0), Number(seasonObj?.episodeCount || 0));
+
+    if (markWatched) {
+      for (let ep = 1; ep <= count; ep++) {
+        up.watchedEpisodes[`${seasonNum}_${ep}`] = true;
+      }
+    } else {
+      for (const k of Object.keys(up.watchedEpisodes)) {
+        if (k.startsWith(`${seasonNum}_`)) delete up.watchedEpisodes[k];
+      }
+    }
+
+    const latest = this._recomputeSeriesLastWatched(up.watchedEpisodes);
+    up.lastWatched = latest;
+    up.currentSeason = latest?.season || 1;
+    up.currentEpisode = latest?.episode || 1;
+
+    const regularWatched = Object.keys(up.watchedEpisodes).filter(k => !k.startsWith('0_') && up.watchedEpisodes[k]).length;
+    const isFullyCompleted = this.isSeriesCompletedByUser(series, user.id);
+    up.status = isFullyCompleted ? 'Completada' : (regularWatched > 0 ? 'Viendo' : 'Por ver');
+    up.updatedAt = new Date().toISOString();
+
+    if (!wasCompletedBefore && isFullyCompleted) {
+      this.logActivity(group, user, 'series', `Completó la serie "${series.title}"`);
+    }
+
+    this.saveGroups(allGroups, true, [group.id]);
+    this.notify();
+    return { series, isWatched: markWatched, isFullyCompleted, progress: up };
   }
 
   cacheSeriesSeasonEpisodes(seriesId, seasonNumber, episodes) {
