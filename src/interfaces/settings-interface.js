@@ -6,6 +6,7 @@ import { CryptoAuth } from '../core/crypto.js';
 import { Entitlements, PLAN_LIMITS } from '../core/entitlements.js';
 import { Utils } from '../core/utils.js';
 import { UI } from '../components/ui.js';
+import { CONFIG } from '../core/config.js';
 
 const svg = (inner, size = 18) =>
   `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${inner}</svg>`;
@@ -22,7 +23,11 @@ const ICO = {
   tv: '<rect x="3" y="6" width="18" height="13" rx="2.2"/><path d="m8 2 4 4 4-4"/>',
   note: '<path d="M9 18V5l11-2v13"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="17.5" cy="16" r="2.5"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32 1.41 1.41M2 12h2m16 0h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>',
-  moon: '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>'
+  moon: '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>',
+  shield: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>',
+  fileText: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>',
+  trash: '<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/>',
+  external: '<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>'
 };
 
 export function renderSettingsInterface(container) {
@@ -172,6 +177,46 @@ export function renderSettingsInterface(container) {
               </div>
             `).join('')}
           </div>
+        </div>
+      </section>
+
+      <!-- Legal & Privacidad -->
+      <section class="rg-card rst-card">
+        <div class="rst-sec-head">
+          <div class="rst-sec-ico">${svg(ICO.shield, 20)}</div>
+          <div>
+            <h2>Privacidad y Términos</h2>
+            <p>Documentación oficial de ruma y opciones de protección de datos.</p>
+          </div>
+        </div>
+
+        <div class="rst-rows">
+          <a class="rst-row" href="${CONFIG.webUrls.privacy}" target="_blank" rel="noopener" style="text-decoration:none;">
+            <span class="rst-row-ico">${svg(ICO.shield, 18)}</span>
+            <span class="rst-row-txt">
+              <b>Política de Privacidad</b>
+              <small>Cómo protegemos tus datos y uso limitado de Google</small>
+            </span>
+            <span class="rst-chev">${svg(ICO.external, 14)}</span>
+          </a>
+
+          <a class="rst-row" href="${CONFIG.webUrls.terms}" target="_blank" rel="noopener" style="text-decoration:none;">
+            <span class="rst-row-ico">${svg(ICO.fileText, 18)}</span>
+            <span class="rst-row-txt">
+              <b>Términos y Condiciones</b>
+              <small>Reglas de uso del servicio y compromisos de la plataforma</small>
+            </span>
+            <span class="rst-chev">${svg(ICO.external, 14)}</span>
+          </a>
+
+          <a class="rst-row" href="${CONFIG.webUrls.deleteAccount}" target="_blank" rel="noopener" style="text-decoration:none;">
+            <span class="rst-row-ico" style="color:var(--error);background:rgba(239,68,68,0.12);border-color:rgba(239,68,68,0.25);">${svg(ICO.trash, 18)}</span>
+            <span class="rst-row-txt">
+              <b>Eliminar mi cuenta</b>
+              <small>Solicitar borrado total y purga de datos conforme a Play Store</small>
+            </span>
+            <span class="rst-chev">${svg(ICO.external, 14)}</span>
+          </a>
         </div>
       </section>
     </div>

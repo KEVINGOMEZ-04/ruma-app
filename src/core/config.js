@@ -7,6 +7,14 @@ export const CONFIG = {
   tagline: 'Descubre • Comparte • Conecta',
   version: '1.0.0',
 
+  // Sitio web oficial & Páginas legales públicas
+  webUrls: {
+    site: 'https://kevingomez-04.github.io/ruma-web/',
+    privacy: 'https://kevingomez-04.github.io/ruma-web/privacidad.html',
+    terms: 'https://kevingomez-04.github.io/ruma-web/terminos.html',
+    deleteAccount: 'https://kevingomez-04.github.io/ruma-web/eliminar-cuenta.html'
+  },
+
   // TMDb API (Películas & Series)
   tmdb: {
     apiKey: 'e9e9d8da18ae29fc430845952232787c',

@@ -5,6 +5,7 @@
 import { store } from '../core/store.js';
 import { Utils } from '../core/utils.js';
 import { UI } from '../components/ui.js';
+import { CONFIG } from '../core/config.js';
 
 function showRecoveryCodeModal(recoveryCode, heading = 'Guarda tu código de recuperación') {
   if (!recoveryCode) return;
@@ -256,8 +257,8 @@ export function renderAuthScreen(container) {
 
         <!-- Pie Legal -->
         <p class="ruma-auth-legal">
-          Al continuar, aceptas los <a href="terms.html" target="_blank" rel="noopener">Términos de uso</a> y la<br>
-          <a href="privacy.html" target="_blank" rel="noopener">Política de privacidad</a> de ruma.
+          Al continuar, aceptas los <a href="${CONFIG.webUrls.terms}" target="_blank" rel="noopener">Términos de uso</a> y la<br>
+          <a href="${CONFIG.webUrls.privacy}" target="_blank" rel="noopener">Política de privacidad</a> de ruma.
         </p>
       </div>
     </div>
