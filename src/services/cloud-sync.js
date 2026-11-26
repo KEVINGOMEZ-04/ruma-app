@@ -93,6 +93,44 @@ export const CloudSync = {
   },
 
   /**
+   * Busca un grupo en la nube de forma liviana consultando la lista shallow y el código de cada uno,
+   * sin tener que descargar todos los grupos masivos de golpe.
+   */
+  async findGroupByCode(code) {
+    if (!CONFIG.cloudSync?.enabled || !code) return null;
+    const clean = String(code).trim().toUpperCase();
+    try {
+      const res = await fetch(`${BASE_URL}/groups.json?shallow=true`, { cache: 'no-store' });
+      if (!res.ok) return null;
+      const indexMap = await res.json();
+      if (!indexMap || typeof indexMap !== 'object') return null;
+      const groupIds = Object.keys(indexMap);
+
+      const matches = await Promise.all(
+        groupIds.map(async (gid) => {
+          try {
+            const codeRes = await fetch(`${BASE_URL}/groups/${safeKey(gid)}/code.json`, { cache: 'no-store' });
+            if (!codeRes.ok) return null;
+            const remoteCode = await codeRes.json();
+            if (String(remoteCode || '').trim().toUpperCase() === clean) {
+              return gid;
+            }
+          } catch (_) {}
+          return null;
+        })
+      );
+
+      const matchedId = matches.find(Boolean);
+      if (matchedId) {
+        return await this.pullGroup(matchedId);
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  },
+
+  /**
    * Descarga el estado completo de la nube (v2 particionado o fallback automático desde v1 legacy)
    */
   async pullCloudState(force = false) {

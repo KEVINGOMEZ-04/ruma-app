@@ -1041,10 +1041,26 @@ class RumaStore {
   }
 
   async joinGroupByCodeOrQueryAsync(codeOrQuery) {
-    const cloud = await CloudSync.pullCloudState(true);
-    if (cloud) {
-      this.applyRemoteCloudState(cloud, false);
+    const clean = String(codeOrQuery || '').trim().toUpperCase();
+
+    // 1. Intentar buscar primero si el grupo específico existe en la nube por código
+    try {
+      const specificGroup = await CloudSync.findGroupByCode(clean);
+      if (specificGroup && specificGroup.id) {
+        this.applyRemoteCloudState({ groups: [specificGroup] }, false);
+      }
+    } catch (_) {}
+
+    // 2. Si aún no está en local, intentar descargar el estado global
+    if (!this.getGroups().some(g => g.code.toUpperCase() === clean || g.name.toUpperCase().includes(clean))) {
+      try {
+        const cloud = await CloudSync.pullCloudState(true);
+        if (cloud) {
+          this.applyRemoteCloudState(cloud, false);
+        }
+      } catch (_) {}
     }
+
     const res = this.joinGroupByCodeOrQuery(codeOrQuery);
     if (res.ok) {
       await this.pushMergedStateToCloud();
