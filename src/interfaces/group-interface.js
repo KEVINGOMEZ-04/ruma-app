@@ -1800,15 +1800,27 @@ function renderBooksTab(viewport, group, user) {
       setFilterState: (v) => { booksFilterState = v; },
       openReviewModal,
       openMediaCommentsModal,
-      onQuoteBook: (book) => {
-        pendingChatQuote = {
-          type: 'book',
-          itemId: book.id,
-          label: '📚 Libro',
-          title: book.title,
-          subtitle: book.author || 'Libro',
-          thumb: book.poster || 'assets/ruma_icon_512.png'
-        };
+      onQuoteBook: (book, passage = null) => {
+        if (passage && passage.text) {
+          const snippet = passage.text.length > 96 ? `${passage.text.slice(0, 95)}…` : passage.text;
+          pendingChatQuote = {
+            type: 'book',
+            itemId: book.id,
+            label: passage.page ? `🔖 Cita · Pág. ${passage.page}` : '🔖 Cita de libro',
+            title: book.title,
+            subtitle: `“${snippet}”`,
+            thumb: book.poster || 'assets/ruma_icon_512.png'
+          };
+        } else {
+          pendingChatQuote = {
+            type: 'book',
+            itemId: book.id,
+            label: '📚 Libro',
+            title: book.title,
+            subtitle: book.author || 'Libro',
+            thumb: book.poster || 'assets/ruma_icon_512.png'
+          };
+        }
         store.navigate('group', { groupTab: 'chat' });
       },
       rerender: () => renderBooksTab(liveViewport, group, user)

@@ -224,6 +224,35 @@ class RumaStore {
         };
       });
 
+      // Fusionar progreso individual, reseñas, citas y comentarios de libros entre dispositivos
+      const olderBooksMap = new Map((older.books || []).map(b => [b.id, b]));
+      const baseBooks = Array.isArray(winner.books) ? winner.books : (older.books || []);
+      const mergedBooks = baseBooks.map(wb => {
+        const ob = olderBooksMap.get(wb.id);
+        if (!ob) return wb;
+        const mergedProg = { ...(ob.userProgress || {}) };
+        Object.entries(wb.userProgress || {}).forEach(([uid, wp]) => {
+          const op = mergedProg[uid];
+          if (!op || (wp?.updatedAt || '') >= (op?.updatedAt || '')) {
+            mergedProg[uid] = wp;
+          }
+        });
+        const quotesMap = new Map();
+        (ob.quotes || []).forEach(q => { if (q?.id) quotesMap.set(q.id, q); });
+        (wb.quotes || []).forEach(q => { if (q?.id) quotesMap.set(q.id, q); });
+        const commentsMap = new Map();
+        (ob.comments || []).forEach(c => { if (c?.id) commentsMap.set(c.id, c); });
+        (wb.comments || []).forEach(c => { if (c?.id) commentsMap.set(c.id, c); });
+        return {
+          ...ob,
+          ...wb,
+          userProgress: mergedProg,
+          ratings: { ...(ob.ratings || {}), ...(wb.ratings || {}) },
+          quotes: Array.from(quotesMap.values()).sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')),
+          comments: Array.from(commentsMap.values()).sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''))
+        };
+      });
+
       map.set(ig.id, {
         ...older,
         ...winner,
@@ -231,7 +260,8 @@ class RumaStore {
         activities: Array.isArray(winner.activities) ? winner.activities : (older.activities || []),
         goals: Array.isArray(winner.goals) ? winner.goals : (older.goals || []),
         notes: Array.isArray(winner.notes) ? winner.notes : (older.notes || []),
-        books: Array.isArray(winner.books) ? winner.books : (older.books || []),
+        books: mergedBooks,
+        clubBookId: winner.clubBookId !== undefined ? winner.clubBookId : (older.clubBookId || null),
         activity: mergedActivity,
         leftMembers: mergedLeftMembers,
         deletedMessages: mergedDeletedMessages,
@@ -1482,18 +1512,39 @@ class RumaStore {
   getUserBookProgress(book, userId) {
     const uid = userId || this.getCurrentUser()?.id;
     const up = book?.userProgress?.[uid];
+    const total = Number(book?.pages || 0);
     if (up) {
+      const status = up.status || 'Por leer';
+      const currentPage = Number(up.currentPage || 0);
+      const format = ['physical', 'ebook', 'audiobook'].includes(up.format) ? up.format : 'physical';
+      let percent = up.percent !== undefined ? Number(up.percent) : (
+        status === 'Leído' ? 100 : (total > 0 ? Math.min(100, Math.round((currentPage / total) * 100)) : 0)
+      );
+      if (status === 'Leído') percent = 100;
+      percent = Math.min(100, Math.max(0, Math.round(percent || 0)));
       return {
-        status: up.status || 'Por leer',
-        currentPage: Number(up.currentPage || 0),
+        status,
+        currentPage,
+        percent,
+        format,
         finishedAt: up.finishedAt || '',
-        updatedAt: up.updatedAt || ''
+        updatedAt: up.updatedAt || '',
+        sessions: Array.isArray(up.sessions) ? up.sessions : []
       };
     }
-    return { status: book?.status || 'Por leer', currentPage: 0, finishedAt: '', updatedAt: '' };
+    const fallbackStatus = book?.status || 'Por leer';
+    return {
+      status: fallbackStatus,
+      currentPage: 0,
+      percent: fallbackStatus === 'Leído' ? 100 : 0,
+      format: 'physical',
+      finishedAt: '',
+      updatedAt: '',
+      sessions: []
+    };
   }
 
-  setUserBookProgress(bookId, { status, currentPage, totalPages, finishedAt } = {}) {
+  setUserBookProgress(bookId, { status, currentPage, totalPages, percent, format, finishedAt } = {}) {
     const user = this.getCurrentUser();
     const allGroups = this.getGroups();
     const group = allGroups.find(g => g.id === this.getActiveGroup()?.id);
@@ -1508,18 +1559,45 @@ class RumaStore {
     book.userProgress = book.userProgress || {};
     const prev = this.getUserBookProgress(book, user.id);
     const total = Number(book.pages || 0);
-    let nextPage = currentPage !== undefined ? Math.max(0, Math.round(Number(currentPage) || 0)) : prev.currentPage;
-    if (total > 0) nextPage = Math.min(total, nextPage);
+
+    const validFormats = ['physical', 'ebook', 'audiobook'];
+    const nextFormat = (format && validFormats.includes(format)) ? format : prev.format;
+
+    let nextPage = prev.currentPage;
+    let nextPercent = prev.percent;
+
+    if (percent !== undefined) {
+      nextPercent = Math.min(100, Math.max(0, Math.round(Number(percent) || 0)));
+      if (total > 0) nextPage = Math.round((nextPercent / 100) * total);
+    } else if (currentPage !== undefined) {
+      nextPage = Math.max(0, Math.round(Number(currentPage) || 0));
+      if (total > 0) {
+        nextPage = Math.min(total, nextPage);
+        nextPercent = Math.min(100, Math.round((nextPage / total) * 100));
+      }
+    } else if (total > 0 && nextPage > 0) {
+      nextPage = Math.min(total, nextPage);
+      nextPercent = Math.min(100, Math.round((nextPage / total) * 100));
+    }
 
     const validStatuses = ['Por leer', 'Leyendo', 'Leído', 'Abandonado'];
     let nextStatus = (status && validStatuses.includes(status)) ? status : prev.status;
 
-    if (status === 'Leído' && total > 0) nextPage = total;
-    else if (status === 'Por leer' && currentPage === undefined) nextPage = 0;
-    else if (currentPage !== undefined && status === undefined) {
-      if (total > 0 && nextPage >= total) nextStatus = 'Leído';
-      else if (nextPage > 0) nextStatus = 'Leyendo';
-      else nextStatus = 'Por leer';
+    if (status === 'Leído') {
+      if (total > 0) nextPage = total;
+      nextPercent = 100;
+    } else if (status === 'Por leer' && currentPage === undefined && percent === undefined) {
+      nextPage = 0;
+      nextPercent = 0;
+    } else if ((currentPage !== undefined || percent !== undefined) && status === undefined) {
+      if ((total > 0 && nextPage >= total) || nextPercent >= 100) {
+        nextStatus = 'Leído';
+        nextPercent = 100;
+      } else if (nextPage > 0 || nextPercent > 0) {
+        nextStatus = 'Leyendo';
+      } else {
+        nextStatus = 'Por leer';
+      }
     }
 
     let nextFinishedAt = prev.finishedAt || '';
@@ -1533,14 +1611,225 @@ class RumaStore {
     book.userProgress[user.id] = {
       status: nextStatus,
       currentPage: nextPage,
+      percent: nextPercent,
+      format: nextFormat,
       finishedAt: nextFinishedAt,
+      sessions: prev.sessions || [],
       userName: user.name,
       userAvatar: user.avatar || '',
       updatedAt: new Date().toISOString()
     };
-    this.saveGroups(allGroups);
+
+    if (prev.status !== 'Leído' && nextStatus === 'Leído') {
+      this._pushActivity(group, {
+        type: 'book',
+        actorId: user.id,
+        actorName: user.name,
+        actorAvatar: user.avatar,
+        title: `terminó de leer "${book.title}"`,
+        sub: book.author || 'Biblioteca del grupo'
+      });
+    }
+
+    this.saveGroups(allGroups, true, [group.id]);
     this.notify();
     return book.userProgress[user.id];
+  }
+
+  logBookReadingSession(bookId, { minutes = 0, endPage, endPercent, format } = {}) {
+    const user = this.getCurrentUser();
+    const allGroups = this.getGroups();
+    const group = allGroups.find(g => g.id === this.getActiveGroup()?.id);
+    if (!group || !user) return null;
+    const book = (group.books || []).find(b => b.id === bookId);
+    if (!book) return null;
+
+    book.userProgress = book.userProgress || {};
+    const prev = this.getUserBookProgress(book, user.id);
+    const total = Number(book.pages || 0);
+    const cleanMin = Math.max(1, Math.round(Number(minutes) || 1));
+
+    const nextFormat = ['physical', 'ebook', 'audiobook'].includes(format) ? format : prev.format;
+    let nextPage = prev.currentPage;
+    let nextPercent = prev.percent;
+
+    if (endPercent !== undefined && nextFormat === 'audiobook') {
+      nextPercent = Math.min(100, Math.max(0, Math.round(Number(endPercent) || 0)));
+      if (total > 0) nextPage = Math.round((nextPercent / 100) * total);
+    } else if (endPage !== undefined) {
+      nextPage = Math.max(0, Math.round(Number(endPage) || 0));
+      if (total > 0) {
+        nextPage = Math.min(total, nextPage);
+        nextPercent = Math.min(100, Math.round((nextPage / total) * 100));
+      }
+    } else if (endPercent !== undefined) {
+      nextPercent = Math.min(100, Math.max(0, Math.round(Number(endPercent) || 0)));
+      if (total > 0) nextPage = Math.round((nextPercent / 100) * total);
+    }
+
+    const pagesRead = Math.max(0, nextPage - prev.currentPage);
+    const isCompleted = (total > 0 && nextPage >= total) || nextPercent >= 100;
+    const nextStatus = isCompleted ? 'Leído' : 'Leyendo';
+
+    const session = {
+      id: Utils.generateId('rs'),
+      date: new Date().toISOString().slice(0, 10),
+      at: new Date().toISOString(),
+      minutes: cleanMin,
+      pagesRead,
+      startPage: prev.currentPage,
+      endPage: nextPage,
+      format: nextFormat
+    };
+
+    const sessions = [...(prev.sessions || []), session].slice(-60);
+    book.userProgress[user.id] = {
+      status: nextStatus,
+      currentPage: isCompleted && total > 0 ? total : nextPage,
+      percent: isCompleted ? 100 : nextPercent,
+      format: nextFormat,
+      finishedAt: isCompleted ? (prev.finishedAt || new Date().toISOString().slice(0, 10)) : '',
+      sessions,
+      userName: user.name,
+      userAvatar: user.avatar || '',
+      updatedAt: new Date().toISOString()
+    };
+
+    if (prev.status !== 'Leído' && isCompleted) {
+      this._pushActivity(group, {
+        type: 'book',
+        actorId: user.id,
+        actorName: user.name,
+        actorAvatar: user.avatar,
+        title: `terminó de leer "${book.title}"`,
+        sub: book.author || 'Biblioteca del grupo'
+      });
+    }
+
+    this.saveGroups(allGroups, true, [group.id]);
+    this.notify();
+    return { completed: isCompleted, session, progress: book.userProgress[user.id] };
+  }
+
+  getUserReadingStats(group, userId) {
+    const uid = userId || this.getCurrentUser()?.id;
+    const books = group?.books || [];
+    let totalMinutes = 0;
+    let totalSessions = 0;
+    let timedPages = 0;
+    let timedMinutesWithPages = 0;
+    const daySet = new Set();
+
+    books.forEach(b => {
+      const up = b?.userProgress?.[uid];
+      if (!up) return;
+      (up.sessions || []).forEach(s => {
+        const m = Number(s.minutes || 0);
+        const p = Number(s.pagesRead || 0);
+        if (m > 0) {
+          totalMinutes += m;
+          totalSessions += 1;
+        }
+        if (m > 0 && p > 0) {
+          timedPages += p;
+          timedMinutesWithPages += m;
+        }
+        if (s.date) daySet.add(s.date);
+      });
+    });
+
+    // Racha de días consecutivos leyendo (hasta hoy o ayer)
+    let streakDays = 0;
+    if (daySet.size > 0) {
+      const cursor = new Date();
+      cursor.setHours(12, 0, 0, 0);
+      const fmt = d => d.toISOString().slice(0, 10);
+      if (!daySet.has(fmt(cursor))) {
+        cursor.setDate(cursor.getDate() - 1);
+      }
+      while (daySet.has(fmt(cursor))) {
+        streakDays += 1;
+        cursor.setDate(cursor.getDate() - 1);
+      }
+    }
+
+    const avgPagesPerHour = timedMinutesWithPages >= 5 && timedPages > 0
+      ? Math.max(10, Math.min(160, Math.round((timedPages / timedMinutesWithPages) * 60)))
+      : 35;
+
+    return { totalMinutes, totalSessions, avgPagesPerHour, hasMeasuredPace: timedMinutesWithPages >= 5 && timedPages > 0, streakDays };
+  }
+
+  addBookQuote(bookId, { text, page = '', note = '' } = {}) {
+    const user = this.getCurrentUser();
+    const allGroups = this.getGroups();
+    const group = allGroups.find(g => g.id === this.getActiveGroup()?.id);
+    if (!group || !user || !String(text || '').trim()) return null;
+    const book = (group.books || []).find(b => b.id === bookId);
+    if (!book) return null;
+
+    book.quotes = Array.isArray(book.quotes) ? book.quotes : [];
+    const quote = {
+      id: Utils.generateId('qt'),
+      text: String(text).trim().slice(0, 600),
+      page: String(page || '').trim().slice(0, 20),
+      note: String(note || '').trim().slice(0, 240),
+      authorId: user.id,
+      authorName: user.name,
+      authorAvatar: user.avatar || '',
+      createdAt: new Date().toISOString()
+    };
+    book.quotes.unshift(quote);
+    this.saveGroups(allGroups, true, [group.id]);
+    this.notify();
+    return quote;
+  }
+
+  deleteBookQuote(bookId, quoteId) {
+    const user = this.getCurrentUser();
+    const allGroups = this.getGroups();
+    const group = allGroups.find(g => g.id === this.getActiveGroup()?.id);
+    if (!group || !user) return false;
+    const book = (group.books || []).find(b => b.id === bookId);
+    if (!book || !Array.isArray(book.quotes)) return false;
+    const target = book.quotes.find(q => q.id === quoteId);
+    if (!target) return false;
+    const canDel = target.authorId === user.id || Entitlements.isGroupAdmin(group, user.id);
+    if (!canDel) return false;
+
+    book.quotes = book.quotes.filter(q => q.id !== quoteId);
+    this.saveGroups(allGroups, true, [group.id]);
+    this.notify();
+    return true;
+  }
+
+  setGroupClubBook(bookId) {
+    const user = this.getCurrentUser();
+    const allGroups = this.getGroups();
+    const group = allGroups.find(g => g.id === this.getActiveGroup()?.id);
+    if (!group || !user) return null;
+
+    if (!bookId || group.clubBookId === bookId) {
+      group.clubBookId = null;
+      this.saveGroups(allGroups, true, [group.id]);
+      this.notify();
+      return null;
+    }
+
+    const book = (group.books || []).find(b => b.id === bookId);
+    if (!book) return null;
+    group.clubBookId = book.id;
+    this._pushActivity(group, {
+      type: 'book',
+      actorId: user.id,
+      actorName: user.name,
+      actorAvatar: user.avatar,
+      title: `fijó "${book.title}" como lectura actual del club`,
+      sub: book.author || 'Club de lectura'
+    });
+    this.saveGroups(allGroups, true, [group.id]);
+    this.notify();
+    return group.clubBookId;
   }
 
   cycleBookStatus(bookId) {
@@ -1673,8 +1962,12 @@ class RumaStore {
     } else if (category === 'books') {
       const bp = this.getUserBookProgress(item, user.id);
       if (bp.status === 'Leído') userProgressLabel = 'Leído';
-      else if (bp.status === 'Leyendo' && item.pages) {
+      else if (bp.status === 'Leyendo' && bp.format === 'audiobook' && bp.percent > 0) {
+        userProgressLabel = `🎧 ${bp.percent}%`;
+      } else if (bp.status === 'Leyendo' && item.pages) {
         userProgressLabel = `Pág. ${bp.currentPage}/${item.pages}`;
+      } else if (bp.status === 'Leyendo' && bp.percent > 0) {
+        userProgressLabel = `${bp.percent}%`;
       } else if (bp.status === 'Leyendo') {
         userProgressLabel = 'Leyendo';
       }
