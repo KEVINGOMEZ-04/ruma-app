@@ -3,10 +3,10 @@
  *
  * Características acopladas con LUMA:
  * 1. Búsqueda instantánea en vivo mientras el usuario escribe (nombre, artista o letra).
- * 2. Reproductor de fragmentos oficiales de 30 segundos (vía CDN de Apple) con barra global flotante.
- * 3. Controles de Anterior / Play-Pause / Siguiente / Barra de progreso interactiva.
- * 4. Enlaces directos hacia Spotify, YouTube y Apple Music.
- * 5. Obtención de letras completas desde LRCLIB.
+ * 2. Reproductor de fragmentos oficiales de 30 segundos (vía CDN de Apple) con barra global flotante responsive.
+ * 3. Controles de Anterior / Play-Pause / Siguiente / Letra / Barra de progreso táctil interactiva.
+ * 4. Auto-recuperación si un preview caducó, reproducción de playlist completa y modo aleatorio.
+ * 5. Enlaces directos hacia Spotify, YouTube y Apple Music.
  */
 
 let sharedAudio = null;
@@ -14,7 +14,17 @@ let currentPlayingId = null;
 let currentPlayingTrack = null;
 let currentUpdateCallback = null;
 let playlistTracks = [];
-let globalListeners = [];
+let globalListeners = new Set();
+let onLyricsRequest = null;
+let onPreviewRefresh = null;
+let retriedTrackIds = new Set();
+
+function fmtClock(sec) {
+  const s = Math.max(0, Math.floor(Number(sec) || 0));
+  const m = Math.floor(s / 60);
+  const rem = s % 60;
+  return `${m}:${String(rem).padStart(2, '0')}`;
+}
 
 function notifyGlobalPlayer() {
   const state = MusicService.getPlayerState();
@@ -83,12 +93,12 @@ function getSharedAudio() {
           isPlaying: false
         });
       }
-      const playable = playlistTracks.filter(t => t && t.previewUrl);
+      const playable = playlistTracks.filter(t => t && (t.previewUrl || t.title));
       if (playable.length > 1 && currentPlayingId) {
         const idx = playable.findIndex(t => t.id === currentPlayingId);
         if (idx >= 0) {
           const next = playable[(idx + 1) % playable.length];
-          MusicService.playTrack(next);
+          MusicService.playTrackOrResolve(next);
           return;
         }
       }
@@ -96,9 +106,30 @@ function getSharedAudio() {
       notifyGlobalPlayer();
     });
 
-    sharedAudio.addEventListener('error', (e) => {
-      console.warn('Error en la reproducción del fragmento oficial:', e);
+    sharedAudio.addEventListener('error', async () => {
+      const failedTrack = currentPlayingTrack;
       const prevId = currentPlayingId;
+
+      // Intento único de refrescar un previewUrl caducado desde iTunes
+      if (failedTrack && prevId && !retriedTrackIds.has(prevId) && failedTrack.title) {
+        retriedTrackIds.add(prevId);
+        try {
+          const freshList = await MusicService.searchSongs(`${failedTrack.title} ${failedTrack.artist || ''}`, 3);
+          const freshUrl = freshList.find(r => r.previewUrl)?.previewUrl;
+          if (freshUrl && freshUrl !== failedTrack.previewUrl && currentPlayingTrack?.id === prevId) {
+            failedTrack.previewUrl = freshUrl;
+            if (typeof onPreviewRefresh === 'function') {
+              try { onPreviewRefresh(prevId, freshUrl); } catch (_) {}
+            }
+            sharedAudio.src = freshUrl;
+            sharedAudio.currentTime = 0;
+            sharedAudio.play().catch(() => {});
+            notifyGlobalPlayer();
+            return;
+          }
+        } catch (_) {}
+      }
+
       currentPlayingId = null;
       if (typeof currentUpdateCallback === 'function') {
         currentUpdateCallback({
@@ -119,6 +150,7 @@ function renderFloatingPlayerBar(state) {
   let bar = document.getElementById('ruma-global-music-player');
   if (!state.track) {
     if (bar) bar.style.display = 'none';
+    document.body.classList.remove('ruma-has-player');
     return;
   }
 
@@ -127,28 +159,31 @@ function renderFloatingPlayerBar(state) {
     bar.id = 'ruma-global-music-player';
     bar.className = 'ruma-global-player';
     bar.innerHTML = `
-      <div class="ruma-gp-track">
-        <img id="ruma-gp-art" src="assets/ruma_icon_192.png" alt="art" class="ruma-gp-art">
-        <div class="ruma-gp-meta">
-          <div id="ruma-gp-title" class="ruma-gp-title">Canción</div>
-          <div id="ruma-gp-artist" class="ruma-gp-artist">Artista</div>
+      <div class="ruma-gp-top">
+        <div class="ruma-gp-track">
+          <img id="ruma-gp-art" src="assets/ruma_icon_192.png" alt="art" class="ruma-gp-art">
+          <div class="ruma-gp-meta">
+            <div id="ruma-gp-title" class="ruma-gp-title">Canción</div>
+            <div id="ruma-gp-artist" class="ruma-gp-artist">Artista</div>
+          </div>
+        </div>
+        <div class="ruma-gp-actions">
+          <button type="button" class="ruma-gp-btn" id="ruma-gp-lyrics" title="Ver letra" aria-label="Ver letra">🎤</button>
+          <button type="button" class="ruma-gp-btn" id="ruma-gp-prev" title="Anterior" aria-label="Anterior">⏮</button>
+          <button type="button" class="ruma-gp-btn ruma-gp-play" id="ruma-gp-toggle" title="Reproducir / Pausar" aria-label="Reproducir o pausar">▶</button>
+          <button type="button" class="ruma-gp-btn" id="ruma-gp-next" title="Siguiente" aria-label="Siguiente">⏭</button>
+          <button type="button" class="ruma-gp-close" id="ruma-gp-close" title="Cerrar reproductor" aria-label="Cerrar reproductor">✕</button>
         </div>
       </div>
-      <div class="ruma-gp-center">
-        <div class="ruma-gp-controls">
-          <button type="button" class="ruma-gp-btn" id="ruma-gp-prev" title="Anterior">⏮</button>
-          <button type="button" class="ruma-gp-btn ruma-gp-play" id="ruma-gp-toggle" title="Reproducir / Pausar">▶</button>
-          <button type="button" class="ruma-gp-btn" id="ruma-gp-next" title="Siguiente">⏭</button>
-        </div>
-        <div class="ruma-gp-progress-row">
-          <span id="ruma-gp-cur">0:00</span>
-          <div class="ruma-gp-bar" id="ruma-gp-bar">
+      <div class="ruma-gp-progress-row">
+        <span id="ruma-gp-cur">0:00</span>
+        <div class="ruma-gp-bar-hit" id="ruma-gp-bar" role="slider" aria-label="Progreso de reproducción">
+          <div class="ruma-gp-bar">
             <div class="ruma-gp-fill" id="ruma-gp-fill"></div>
           </div>
-          <span id="ruma-gp-dur">0:30</span>
         </div>
+        <span id="ruma-gp-dur">0:30</span>
       </div>
-      <button type="button" class="ruma-gp-close" id="ruma-gp-close" title="Cerrar reproductor">✕</button>
     `;
     document.body.appendChild(bar);
 
@@ -158,6 +193,11 @@ function renderFloatingPlayerBar(state) {
     document.getElementById('ruma-gp-prev')?.addEventListener('click', () => MusicService.playPrev());
     document.getElementById('ruma-gp-next')?.addEventListener('click', () => MusicService.playNext());
     document.getElementById('ruma-gp-close')?.addEventListener('click', () => MusicService.stopPreview());
+    document.getElementById('ruma-gp-lyrics')?.addEventListener('click', () => {
+      if (currentPlayingTrack && typeof onLyricsRequest === 'function') {
+        onLyricsRequest(currentPlayingTrack);
+      }
+    });
     document.getElementById('ruma-gp-bar')?.addEventListener('click', (e) => {
       const rect = e.currentTarget.getBoundingClientRect();
       const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
@@ -169,10 +209,14 @@ function renderFloatingPlayerBar(state) {
   }
 
   bar.style.display = 'flex';
+  document.body.classList.add('ruma-has-player');
   const art = document.getElementById('ruma-gp-art');
   const title = document.getElementById('ruma-gp-title');
   const artist = document.getElementById('ruma-gp-artist');
   const toggle = document.getElementById('ruma-gp-toggle');
+  const lyricsBtn = document.getElementById('ruma-gp-lyrics');
+  const prevBtn = document.getElementById('ruma-gp-prev');
+  const nextBtn = document.getElementById('ruma-gp-next');
   const fill = document.getElementById('ruma-gp-fill');
   const curEl = document.getElementById('ruma-gp-cur');
   const durEl = document.getElementById('ruma-gp-dur');
@@ -183,22 +227,37 @@ function renderFloatingPlayerBar(state) {
   if (title) title.textContent = state.track.title || 'Canción';
   if (artist) artist.textContent = state.track.artist || 'Artista';
   if (toggle) toggle.textContent = state.isPlaying ? '⏸' : '▶';
+  if (lyricsBtn) lyricsBtn.style.display = typeof onLyricsRequest === 'function' ? 'inline-flex' : 'none';
+  const hasQueue = playlistTracks.length > 1;
+  if (prevBtn) prevBtn.style.display = hasQueue ? 'inline-flex' : 'none';
+  if (nextBtn) nextBtn.style.display = hasQueue ? 'inline-flex' : 'none';
 
   const cur = Math.floor(state.currentTime || 0);
   const dur = Math.floor(state.duration || 30);
   const pct = dur > 0 ? Math.min(100, (state.currentTime / dur) * 100) : 0;
   if (fill) fill.style.width = `${pct}%`;
-  if (curEl) curEl.textContent = `0:${String(cur).padStart(2, '0')}`;
-  if (durEl) durEl.textContent = `0:${String(dur).padStart(2, '0')}`;
+  if (curEl) curEl.textContent = fmtClock(cur);
+  if (durEl) durEl.textContent = fmtClock(dur);
 }
 
 export const MusicService = {
   setPlaylist(tracks = []) {
-    playlistTracks = Array.isArray(tracks) ? tracks : [];
+    playlistTracks = Array.isArray(tracks) ? tracks.filter(Boolean) : [];
+    if (currentPlayingTrack) renderFloatingPlayerBar(this.getPlayerState());
+  },
+
+  setOnLyricsRequest(fn) {
+    onLyricsRequest = typeof fn === 'function' ? fn : null;
+  },
+
+  setOnPreviewRefresh(fn) {
+    onPreviewRefresh = typeof fn === 'function' ? fn : null;
   },
 
   subscribe(fn) {
-    globalListeners.push(fn);
+    if (typeof fn !== 'function') return () => {};
+    globalListeners.add(fn);
+    return () => globalListeners.delete(fn);
   },
 
   getPlayerState() {
@@ -208,7 +267,7 @@ export const MusicService = {
       track: currentPlayingTrack,
       isPlaying: Boolean(audio && !audio.paused && currentPlayingId),
       currentTime: audio ? (audio.currentTime || 0) : 0,
-      duration: audio && audio.duration ? audio.duration : 30
+      duration: audio && Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : 30
     };
   },
 
@@ -233,6 +292,7 @@ export const MusicService = {
 
         return {
           id: String(item.trackId || `${title}-${artist}`),
+          itunesId: item.trackId ? String(item.trackId) : '',
           title,
           artist,
           album: item.collectionName || 'Single',
@@ -263,8 +323,43 @@ export const MusicService = {
     return `https://music.apple.com/search?term=${encodeURIComponent(`${title} ${artist}`)}`;
   },
 
+  async playTrackOrResolve(track) {
+    if (!track) return { ok: false, error: 'Canción no disponible' };
+    if (track.previewUrl) {
+      this.playTrack(track);
+      return { ok: true, isPlaying: true, track };
+    }
+    const results = await this.searchSongs(`${track.title} ${track.artist || ''}`, 3);
+    const freshUrl = results.find(r => r.previewUrl)?.previewUrl;
+    if (freshUrl) {
+      track.previewUrl = freshUrl;
+      if (typeof onPreviewRefresh === 'function') {
+        try { onPreviewRefresh(track.id, freshUrl); } catch (_) {}
+      }
+      this.playTrack(track);
+      return { ok: true, isPlaying: true, track };
+    }
+    return { ok: false, error: 'Preview de 30s no disponible para esta canción.' };
+  },
+
+  async playPlaylist(tracks = [], { shuffle = false } = {}) {
+    const queue = Array.isArray(tracks) ? tracks.filter(Boolean).slice() : [];
+    if (queue.length === 0) return { ok: false, error: 'No hay canciones para reproducir.' };
+    if (shuffle) {
+      for (let i = queue.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [queue[i], queue[j]] = [queue[j], queue[i]];
+      }
+    }
+    this.setPlaylist(queue);
+    // Buscar la primera pista con preview o resolver la primera de la cola
+    const firstWithPreview = queue.find(t => t.previewUrl) || queue[0];
+    return this.playTrackOrResolve(firstWithPreview);
+  },
+
   playTrack(track, onUpdate = null) {
     if (!track || !track.previewUrl) return { error: 'Sin preview disponible' };
+    retriedTrackIds.delete(track.id);
     currentPlayingTrack = track;
     return this.togglePreview(track.id, track.previewUrl, onUpdate, track);
   },
@@ -276,19 +371,19 @@ export const MusicService = {
   },
 
   playNext() {
-    const playable = playlistTracks.filter(t => t && t.previewUrl);
+    const playable = playlistTracks.filter(Boolean);
     if (playable.length === 0) return;
     const idx = playable.findIndex(t => t.id === currentPlayingId);
     const next = playable[(idx + 1) % playable.length];
-    if (next) this.playTrack(next, currentUpdateCallback);
+    if (next) this.playTrackOrResolve(next);
   },
 
   playPrev() {
-    const playable = playlistTracks.filter(t => t && t.previewUrl);
+    const playable = playlistTracks.filter(Boolean);
     if (playable.length === 0) return;
     const idx = playable.findIndex(t => t.id === currentPlayingId);
     const prev = playable[(idx - 1 + playable.length) % playable.length];
-    if (prev) this.playTrack(prev, currentUpdateCallback);
+    if (prev) this.playTrackOrResolve(prev);
   },
 
   togglePreview(trackId, previewUrl, onUpdate = null, trackMeta = null) {

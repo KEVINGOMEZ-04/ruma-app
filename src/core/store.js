@@ -1494,7 +1494,7 @@ class RumaStore {
 
     group[category] = group[category] || [];
 
-    // Evitar duplicados por tmdbId en películas y series
+    // Evitar duplicados por tmdbId en películas/series y por itunesId o título+artista en canciones
     if ((category === 'movies' || category === 'series') && itemData?.tmdbId) {
       const exists = group[category].some(x => String(x.tmdbId) === String(itemData.tmdbId));
       if (exists) {
@@ -1505,6 +1505,15 @@ class RumaStore {
             ? 'Esta película ya está en la cartelera del grupo.'
             : 'Esta serie ya está en la lista del grupo.'
         };
+      }
+    } else if (category === 'songs' && itemData?.title) {
+      const norm = v => String(v || '').trim().toLowerCase();
+      const exists = group.songs.some(x =>
+        (itemData.itunesId && x.itunesId && String(x.itunesId) === String(itemData.itunesId)) ||
+        (norm(x.title) === norm(itemData.title) && norm(x.artist) === norm(itemData.artist))
+      );
+      if (exists) {
+        return { ok: false, duplicate: true, error: 'Esta canción ya está en la playlist del grupo.' };
       }
     }
 
@@ -1520,8 +1529,8 @@ class RumaStore {
       : itemData.userStatuses;
 
     const newItem = {
-      id: Utils.generateId(category.slice(0, 3)),
       ...itemData,
+      id: Utils.generateId(category.slice(0, 3)),
       ...(category === 'movies' ? { userStatuses: movieUserStatuses } : {}),
       addedBy: user.name,
       proposedBy: itemData.proposedBy || {
@@ -1542,20 +1551,20 @@ class RumaStore {
         ? ` — ${newItem.artist || newItem.author}` : '';
       this.logActivity(group, user, actType, `${label}${extra}`);
     }
-    this.saveGroups(allGroups);
+    this.saveGroups(allGroups, true, [group.id]);
     this.notify();
     return { ok: true, item: newItem };
   }
 
-  updateMediaItem(category, itemId, patch) {
+  updateMediaItem(category, itemId, patch, { silent = false } = {}) {
     const allGroups = this.getGroups();
     const group = allGroups.find(g => g.id === this.getActiveGroup()?.id);
     if (!group) return null;
     const item = (group[category] || []).find(x => x.id === itemId);
     if (!item) return null;
     Object.assign(item, patch);
-    this.saveGroups(allGroups);
-    this.notify();
+    this.saveGroups(allGroups, true, [group.id]);
+    if (!silent) this.notify();
     return item;
   }
 
@@ -2093,13 +2102,20 @@ class RumaStore {
     if (!song) return null;
 
     const val = Math.min(5, Math.max(1, Number(starScore) || 5));
-    song.ratings = song.ratings || {};
+    song.ratings = (song.ratings && typeof song.ratings === 'object') ? song.ratings : {};
+    // Conservar el voto inicial del creador en canciones guardadas antes de inicializar `ratings`
+    if (Object.keys(song.ratings).length === 0 && song.rating) {
+      const creatorId = song.proposedBy?.id || song.authorId || '';
+      if (creatorId && creatorId !== user.id) {
+        song.ratings[creatorId] = Math.min(5, Math.max(1, Number(song.rating) || 5));
+      }
+    }
     song.ratings[user.id] = val;
-    const vals = Object.values(song.ratings).map(Number);
+    const vals = Object.values(song.ratings).map(Number).filter(n => Number.isFinite(n) && n > 0);
     song.ratingCount = vals.length;
     song.rating = Number((vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(1));
 
-    this.saveGroups(allGroups);
+    this.saveGroups(allGroups, true, [group.id]);
     this.notify();
     return song;
   }

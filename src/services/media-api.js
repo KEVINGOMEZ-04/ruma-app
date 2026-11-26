@@ -401,12 +401,61 @@ export const MediaService = {
 
   async fetchLyrics(artist, title) {
     if (!artist || !title) return null;
+    const stripLrc = (txt) => String(txt || '')
+      .replace(/\[\d{1,2}:\d{2}(?:\.\d{1,3})?\]\s*/g, '')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+
+    const cleanTitle = String(title)
+      .replace(/\s*[\(\[](?:feat\.?|ft\.?|with|remaster(?:ed)?|live|acoustic|radio edit|deluxe|version|bonus|official|explicit|clean|audio|video|single)[^\)\]]*[\)\]]/gi, '')
+      .replace(/\s*[-–—]\s*(?:remaster(?:ed)?|single version|radio edit|live|acoustic|deluxe|from\s+).*$/i, '')
+      .trim();
+
+    const cleanArtist = String(artist)
+      .split(/\s*(?:&|,|feat\.?|ft\.?|x)\s*/i)[0]
+      .trim();
+
+    const extract = (data) => {
+      if (!data) return null;
+      if (data.plainLyrics && String(data.plainLyrics).trim()) return String(data.plainLyrics).trim();
+      if (data.syncedLyrics && String(data.syncedLyrics).trim()) return stripLrc(data.syncedLyrics);
+      return null;
+    };
+
+    const tryGet = async (a, t) => {
+      try {
+        const res = await fetch(`https://lrclib.net/api/get?artist_name=${encodeURIComponent(a)}&track_name=${encodeURIComponent(t)}`);
+        if (!res.ok) return null;
+        return extract(await res.json());
+      } catch (_) {
+        return null;
+      }
+    };
+
+    // 1. Coincidencia exacta
+    let lyrics = await tryGet(artist, title);
+    if (lyrics) return lyrics;
+
+    // 2. Coincidencia con título/artista limpio (sin "(feat. ...)", "(Remastered)", etc.)
+    if (cleanTitle && cleanArtist && (cleanTitle !== title || cleanArtist !== artist)) {
+      lyrics = await tryGet(cleanArtist, cleanTitle);
+      if (lyrics) return lyrics;
+    }
+
+    // 3. Búsqueda flexible en LRCLIB
     try {
-      const url = `https://lrclib.net/api/get?artist_name=${encodeURIComponent(artist)}&track_name=${encodeURIComponent(title)}`;
-      const res = await fetch(url);
+      const q = `${cleanTitle || title} ${cleanArtist || artist}`.trim();
+      const res = await fetch(`https://lrclib.net/api/search?q=${encodeURIComponent(q)}`);
       if (!res.ok) return null;
-      const data = await res.json();
-      return data.plainLyrics || data.syncedLyrics || null;
+      const list = await res.json();
+      if (!Array.isArray(list) || list.length === 0) return null;
+      const norm = s => String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      const targetT = norm(cleanTitle || title);
+      const targetA = norm(cleanArtist || artist);
+      const best = list.find(item => (item.plainLyrics || item.syncedLyrics) && norm(item.trackName).includes(targetT) && norm(item.artistName).includes(targetA))
+        || list.find(item => (item.plainLyrics || item.syncedLyrics) && norm(item.trackName).includes(targetT))
+        || list.find(item => item.plainLyrics || item.syncedLyrics);
+      return extract(best);
     } catch (_) {
       return null;
     }

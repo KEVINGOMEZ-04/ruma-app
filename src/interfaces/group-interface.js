@@ -117,8 +117,13 @@ export function renderGroupInterface(container) {
   const isAdmin = Entitlements.isGroupAdmin(group, user.id);
   const tab = store.currentGroupTab || 'home';
 
-  // Sincronizar playlist global con las canciones del grupo activo
-  MusicService.setPlaylist(group.songs || []);
+  // Sincronizar playlist global solo con canciones desbloqueadas del grupo activo
+  const lockedSongIds = Entitlements.getLockedMediaIds(group, 'songs');
+  MusicService.setPlaylist((group.songs || []).filter(s => !lockedSongIds.has(s.id)));
+  MusicService.setOnLyricsRequest((track) => openLyricsModal(track));
+  MusicService.setOnPreviewRefresh((songId, freshUrl) => {
+    store.updateMediaItem('songs', songId, { previewUrl: freshUrl }, { silent: true });
+  });
 
   const SECTION_TITLES = { memories: 'Recuerdos', movies: 'Películas', series: 'Series', music: 'Música', books: 'Libros', goals_notes: 'Objetivos', chat: 'Chat del grupo' };
   const isHome = tab === 'home';
@@ -1933,29 +1938,129 @@ function openMediaCommentsModal(category, item) {
 // ============================================================================
 // 4. PESTAÑA MÚSICA (Playlist Colaborativa LUMA + Estadísticas + Filtros + Letras + Reproductor Global)
 // ============================================================================
+function openLyricsModal(song) {
+  if (!song) return;
+  let fontSize = 0.9;
+  let loadedText = '';
+
+  UI.openModal({
+    title: `🎤 ${song.title || 'Canción'} — ${song.artist || ''}`,
+    contentHtml: `
+      <div class="rmu-lyrics-wrap">
+        <div class="rmu-lyrics-bar" id="lyrics-toolbar" style="display:none;">
+          <div style="display:flex;gap:0.35rem;">
+            <button type="button" class="btn btn-secondary btn-sm" id="lyrics-font-down" title="Texto más pequeño">A−</button>
+            <button type="button" class="btn btn-secondary btn-sm" id="lyrics-font-up" title="Texto más grande">A+</button>
+          </div>
+          <button type="button" class="btn btn-secondary btn-sm" id="lyrics-copy-btn">📋 Copiar letra</button>
+        </div>
+        <div id="lyrics-modal-box" style="padding:0.75rem 0.25rem;color:var(--primary);font-weight:600;">
+          Buscando letra oficial...
+        </div>
+      </div>
+    `,
+    onMount: async () => {
+      const box = document.getElementById('lyrics-modal-box');
+      const bar = document.getElementById('lyrics-toolbar');
+      const lyrics = await MediaService.fetchLyrics(song.artist, song.title);
+      if (!box) return;
+      if (lyrics) {
+        loadedText = lyrics;
+        if (bar) bar.style.display = 'flex';
+        box.innerHTML = `<pre id="lyrics-pre" style="white-space:pre-wrap;font-family:var(--font-sans);font-size:${fontSize}rem;line-height:1.7;color:var(--text-primary);margin:0;">${Utils.sanitize(lyrics)}</pre>`;
+        const pre = document.getElementById('lyrics-pre');
+        document.getElementById('lyrics-font-down')?.addEventListener('click', () => {
+          fontSize = Math.max(0.76, Number((fontSize - 0.08).toFixed(2)));
+          if (pre) pre.style.fontSize = `${fontSize}rem`;
+        });
+        document.getElementById('lyrics-font-up')?.addEventListener('click', () => {
+          fontSize = Math.min(1.22, Number((fontSize + 0.08).toFixed(2)));
+          if (pre) pre.style.fontSize = `${fontSize}rem`;
+        });
+        document.getElementById('lyrics-copy-btn')?.addEventListener('click', async () => {
+          try {
+            await navigator.clipboard.writeText(loadedText);
+            UI.showToast('Letra copiada al portapapeles 📋', 'success');
+          } catch (_) {
+            UI.showToast('No se pudo copiar automáticamente.', 'info');
+          }
+        });
+      } else {
+        box.innerHTML = `
+          <div style="text-align:center;padding:1.1rem 0.5rem;">
+            <p style="color:var(--text-secondary);margin-bottom:0.85rem;">No encontramos la letra en LRCLIB para este tema.</p>
+            <a href="https://genius.com/search?q=${encodeURIComponent(`${song.title || ''} ${song.artist || ''}`)}" target="_blank" rel="noopener" class="btn btn-primary btn-sm">Buscar Letra en Genius ↗</a>
+          </div>`;
+      }
+    }
+  });
+}
+
+function openEditSongModal(group, song) {
+  if (!group || !song) return;
+  const memories = group.memories || [];
+  const linkedSet = new Set(song.linkedMemories || []);
+
+  UI.openModal({
+    title: `✏️ Editar · ${song.title}`,
+    contentHtml: `
+      <form id="form-edit-song" style="display:flex;flex-direction:column;gap:0.9rem;">
+        <div style="display:flex;align-items:center;gap:0.7rem;padding:0.55rem 0.7rem;border-radius:var(--radius-md);background:var(--surface-secondary);border:1px solid var(--border);">
+          <img src="${Utils.sanitize(song.artwork || 'assets/ruma_icon_512.png')}" alt="" style="width:44px;height:44px;border-radius:8px;object-fit:cover;flex-shrink:0;">
+          <div style="min-width:0;">
+            <div style="font-weight:800;font-size:0.92rem;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${Utils.sanitize(song.title)}</div>
+            <div style="font-size:0.78rem;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${Utils.sanitize(song.artist || '')}</div>
+          </div>
+        </div>
+
+        <div class="form-group" style="margin:0;">
+          <label class="form-label" for="edit-song-note">Dedicatoria o reseña para el grupo</label>
+          <input type="text" id="edit-song-note" class="form-input" value="${Utils.sanitize(song.note || '')}" placeholder="Ej: La canción de nuestro viaje a la montaña 💫">
+        </div>
+
+        ${memories.length > 0 ? `
+          <div class="form-group" style="margin:0;">
+            <label class="form-label">🎴 Recuerdos vinculados</label>
+            <div style="display:flex;gap:0.45rem;flex-wrap:wrap;max-height:130px;overflow-y:auto;padding:0.5rem;background:var(--surface-secondary);border:1px solid var(--border);border-radius:var(--radius-sm);">
+              ${memories.map(m => `
+                <label style="display:inline-flex;align-items:center;gap:0.35rem;font-size:0.78rem;cursor:pointer;background:var(--surface);border:1px solid var(--border);padding:0.28rem 0.58rem;border-radius:var(--radius-xs);color:var(--text-primary);">
+                  <input type="checkbox" name="edit_song_linked_memory" value="${Utils.sanitize(m.id)}" ${linkedSet.has(m.id) ? 'checked' : ''}>
+                  <span>📸 ${Utils.sanitize(m.title)}</span>
+                </label>
+              `).join('')}
+            </div>
+          </div>
+        ` : ''}
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.55rem;">
+          <button type="button" class="btn btn-secondary btn-sm" id="btn-cancel-edit-song" style="justify-content:center;">Cancelar</button>
+          <button type="submit" class="btn btn-primary btn-sm" style="justify-content:center;">Guardar cambios</button>
+        </div>
+      </form>
+    `,
+    onMount: (modalEl) => {
+      document.getElementById('btn-cancel-edit-song')?.addEventListener('click', () => UI.closeModal());
+      document.getElementById('form-edit-song')?.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const note = document.getElementById('edit-song-note')?.value.trim() || '';
+        const checkedMems = Array.from(modalEl.querySelectorAll('input[name="edit_song_linked_memory"]:checked')).map(cb => cb.value);
+        store.updateMediaItem('songs', song.id, { note, linkedMemories: checkedMems });
+        UI.closeModal();
+        UI.showToast('Canción actualizada 🎵', 'success');
+      });
+    }
+  });
+}
+
 function renderMusicTab(viewport, group, user) {
   withGroupTab('music', viewport, (mod, liveViewport) => {
     mod.renderGroupMusicView(liveViewport, group, user, {
       getFilterState: () => musicFilterState,
       setFilterState: (v) => { musicFilterState = v; },
       openAddSongModal,
+      openEditSongModal,
       openMediaCommentsModal,
-      openLyricsModal: (song) => {
-        UI.openModal({
-          title: `🎤 Letra: ${song.title} — ${song.artist}`,
-          contentHtml: `<div id="lyrics-modal-box" style="padding:1rem;color:var(--brand-lilac);">Buscando letra oficial...</div>`,
-          onMount: async () => {
-            const box = document.getElementById('lyrics-modal-box');
-            const lyrics = await MediaService.fetchLyrics(song.artist, song.title);
-            if (!box) return;
-            if (lyrics) {
-              box.innerHTML = `<pre style="white-space:pre-wrap;font-family:var(--font-sans);font-size:0.88rem;line-height:1.65;color:var(--text-secondary);">${Utils.sanitize(lyrics)}</pre>`;
-            } else {
-              box.innerHTML = `<div style="text-align:center;padding:1rem;"><p style="color:var(--text-secondary);margin-bottom:0.85rem;">No se encontró la letra para este tema.</p><a href="https://genius.com/search?q=${encodeURIComponent(song.title + ' ' + song.artist)}" target="_blank" rel="noopener" class="btn btn-primary btn-sm">Buscar Letra en Genius ↗</a></div>`;
-            }
-          }
-        });
-      },
+      openLyricsModal,
       onQuoteSong: (song) => {
         pendingChatQuote = {
           type: 'song',
@@ -1974,41 +2079,54 @@ function renderMusicTab(viewport, group, user) {
 
 function openAddSongModal(group) {
   let debounceTimer = null;
+  let searchSeq = 0;
+  let selectedRating = 5;
+  let unsubModalPreview = null;
   const memories = group.memories || [];
+  const normKey = (t, a) => `${String(t || '').trim().toLowerCase()}__${String(a || '').trim().toLowerCase()}`;
+  const existingKeys = new Set();
+  const existingItunes = new Set();
+  (group.songs || []).forEach(s => {
+    if (s.itunesId) existingItunes.add(String(s.itunesId));
+    existingKeys.add(normKey(s.title, s.artist));
+  });
 
   UI.openModal({
-    title: '🎵 Buscar Canción o Letra (Playlist Colaborativa)',
+    title: '🎵 Añadir Canción a la Playlist',
     size: 'lg',
+    onClose: () => {
+      clearTimeout(debounceTimer);
+      if (unsubModalPreview) { unsubModalPreview(); unsubModalPreview = null; }
+    },
     contentHtml: `
       <div>
-        <div style="margin-bottom:0.85rem;">
-          <input type="text" id="song-search-inp" class="form-input" placeholder="Escribe el nombre de la canción, artista o parte de la letra..." autofocus>
-          <div style="font-size:0.75rem;color:var(--text-secondary);margin-top:0.35rem;">
+        <div style="margin-bottom:0.8rem;">
+          <input type="text" id="song-search-inp" class="form-input" placeholder="Busca por nombre de canción, artista o letra..." autofocus>
+          <div style="font-size:0.75rem;color:var(--text-secondary);margin-top:0.3rem;">
             ⚡ Búsqueda en vivo en iTunes con preview oficial de 30s.
           </div>
         </div>
 
-        <div style="display:grid;grid-template-columns:2fr 1fr;gap:0.75rem;margin-bottom:0.85rem;">
+        <div class="rmu-add-meta-grid">
           <div>
-            <label class="form-label">Dedicatoria o Reseña para el Grupo</label>
-            <input type="text" id="song-note-inp" class="form-input" placeholder="Ej: La canción de nuestro viaje a la montaña 💫">
+            <label class="form-label" for="song-note-inp">Dedicatoria o reseña (opcional)</label>
+            <input type="text" id="song-note-inp" class="form-input" placeholder="Ej: La canción de nuestro viaje 💫">
           </div>
           <div>
-            <label class="form-label">Calificación (1-5★)</label>
-            <select id="song-rating-inp" class="form-select">
-              <option value="5">★★★★★ (5.0)</option>
-              <option value="4">★★★★☆ (4.0)</option>
-              <option value="3">★★★☆☆ (3.0)</option>
-            </select>
+            <label class="form-label">Tu calificación</label>
+            <div class="rmu-pick-stars" id="song-rating-stars" role="radiogroup" aria-label="Calificación de 1 a 5 estrellas">
+              ${[1, 2, 3, 4, 5].map(n => `<button type="button" class="rmu-pick-star active" data-pick-star="${n}" aria-label="${n} estrellas">★</button>`).join('')}
+              <span id="song-rating-lbl">5.0</span>
+            </div>
           </div>
         </div>
 
         ${memories.length > 0 ? `
           <div class="form-group">
             <label class="form-label">🎴 Vincular a Recuerdos del Grupo (Opcional)</label>
-            <div style="display:flex;gap:0.5rem;flex-wrap:wrap;max-height:85px;overflow-y:auto;padding:0.4rem;background:var(--bg-elevated);border-radius:var(--radius-sm);">
+            <div style="display:flex;gap:0.45rem;flex-wrap:wrap;max-height:85px;overflow-y:auto;padding:0.45rem;background:var(--surface-secondary);border:1px solid var(--border);border-radius:var(--radius-sm);">
               ${memories.map(m => `
-                <label style="display:inline-flex;align-items:center;gap:0.35rem;font-size:0.78rem;cursor:pointer;background:var(--surface);border:1px solid var(--border);padding:0.25rem 0.55rem;border-radius:var(--radius-xs);">
+                <label style="display:inline-flex;align-items:center;gap:0.35rem;font-size:0.78rem;cursor:pointer;background:var(--surface);border:1px solid var(--border);padding:0.25rem 0.55rem;border-radius:var(--radius-xs);color:var(--text-primary);">
                   <input type="checkbox" name="song_linked_memory" value="${Utils.sanitize(m.id)}">
                   <span>📸 ${Utils.sanitize(m.title)}</span>
                 </label>
@@ -2017,8 +2135,8 @@ function openAddSongModal(group) {
           </div>
         ` : ''}
 
-        <div id="song-search-results" style="display:flex;flex-direction:column;gap:0.55rem;max-height:280px;overflow-y:auto;padding-right:0.25rem;">
-          <div style="text-align:center;padding:1.5rem;color:var(--text-secondary);font-size:0.85rem;">
+        <div id="song-search-results" style="display:flex;flex-direction:column;gap:0.55rem;max-height:290px;overflow-y:auto;padding-right:0.2rem;">
+          <div style="text-align:center;padding:1.4rem;color:var(--text-secondary);font-size:0.85rem;">
             Empieza a escribir para buscar en vivo...
           </div>
         </div>
@@ -2027,64 +2145,104 @@ function openAddSongModal(group) {
     onMount: (modalEl) => {
       const inp = document.getElementById('song-search-inp');
       const resultsEl = document.getElementById('song-search-results');
+      let currentList = [];
+
+      const paintStars = () => {
+        modalEl.querySelectorAll('[data-pick-star]').forEach(b => {
+          b.classList.toggle('active', Number(b.getAttribute('data-pick-star')) <= selectedRating);
+        });
+        const lbl = document.getElementById('song-rating-lbl');
+        if (lbl) lbl.textContent = `${selectedRating}.0`;
+      };
+      modalEl.querySelectorAll('[data-pick-star]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          selectedRating = Number(btn.getAttribute('data-pick-star')) || 5;
+          paintStars();
+        });
+      });
+
+      const syncModalPreviewBtns = (playerState) => {
+        if (!resultsEl || !document.body.contains(resultsEl)) return;
+        const activeId = playerState?.isPlaying ? playerState.trackId : null;
+        resultsEl.querySelectorAll('[data-modal-preview]').forEach(btn => {
+          const item = currentList[Number(btn.getAttribute('data-modal-preview'))];
+          const isNow = Boolean(item && activeId && item.id === activeId);
+          btn.textContent = isNow ? '⏸ 30s' : '▶ 30s';
+        });
+      };
+      unsubModalPreview = MusicService.subscribe(syncModalPreviewBtns);
 
       const executeSearch = async () => {
+        const mySeq = ++searchSeq;
         const q = inp?.value.trim();
         if (!q || !resultsEl) {
-          if (resultsEl) resultsEl.innerHTML = `<div style="text-align:center;padding:1.5rem;color:var(--text-secondary);font-size:0.85rem;">Empieza a escribir para buscar en vivo...</div>`;
+          currentList = [];
+          if (resultsEl) resultsEl.innerHTML = `<div style="text-align:center;padding:1.4rem;color:var(--text-secondary);font-size:0.85rem;">Empieza a escribir para buscar en vivo...</div>`;
           return;
         }
 
-        resultsEl.innerHTML = `<div style="color:var(--brand-lilac);font-size:0.85rem;padding:0.75rem;">Buscando coincidencias en catálogo y letras...</div>`;
+        resultsEl.innerHTML = `<div style="color:var(--primary);font-size:0.85rem;padding:0.75rem;">Buscando coincidencias en iTunes...</div>`;
         const list = await MusicService.searchSongs(q, 10);
+        if (mySeq !== searchSeq || !document.body.contains(resultsEl)) return;
+        currentList = list;
 
         if (list.length === 0) {
-          resultsEl.innerHTML = `<div style="color:var(--text-muted);font-size:0.85rem;padding:1rem;text-align:center;">No encontramos canciones con esa letra o nombre.</div>`;
+          resultsEl.innerHTML = `<div style="color:var(--text-muted);font-size:0.85rem;padding:1rem;text-align:center;">No encontramos canciones con esa búsqueda.</div>`;
           return;
         }
 
-        resultsEl.innerHTML = list.map((s, i) => `
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:0.65rem;padding:0.65rem;background:var(--bg-elevated);border-radius:var(--radius-sm);border:1px solid var(--border-subtle);">
-            <div style="display:flex;align-items:center;gap:0.75rem;min-width:0;flex:1;">
-              <img src="${Utils.sanitize(s.artwork)}" alt="art" style="width:46px;height:46px;border-radius:8px;object-fit:cover;flex-shrink:0;">
-              <div style="min-width:0;">
-                <div style="font-weight:700;font-size:0.9rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${Utils.sanitize(s.title)}</div>
-                <div style="font-size:0.78rem;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${Utils.sanitize(s.artist)} · ${Utils.sanitize(s.album || '')}</div>
+        const activeId = MusicService.getCurrentPlayingId();
+        resultsEl.innerHTML = list.map((s, i) => {
+          const alreadyIn = (s.itunesId && existingItunes.has(String(s.itunesId))) || existingKeys.has(normKey(s.title, s.artist));
+          const isPlayingNow = activeId && activeId === s.id;
+          return `
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:0.6rem;padding:0.6rem;background:var(--surface-secondary);border-radius:var(--radius-sm);border:1px solid var(--border);">
+              <div style="display:flex;align-items:center;gap:0.65rem;min-width:0;flex:1;">
+                <img src="${Utils.sanitize(s.artwork)}" alt="art" style="width:44px;height:44px;border-radius:8px;object-fit:cover;flex-shrink:0;">
+                <div style="min-width:0;">
+                  <div style="font-weight:700;font-size:0.88rem;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${Utils.sanitize(s.title)}</div>
+                  <div style="font-size:0.76rem;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${Utils.sanitize(s.artist)}${s.album ? ` · ${Utils.sanitize(s.album)}` : ''}</div>
+                </div>
+              </div>
+              <div style="display:flex;align-items:center;gap:0.4rem;flex-shrink:0;">
+                ${s.previewUrl ? `
+                  <button type="button" class="btn btn-secondary btn-sm" data-modal-preview="${i}" title="Escuchar fragmento oficial de 30 segundos">
+                    ${isPlayingNow ? '⏸ 30s' : '▶ 30s'}
+                  </button>
+                ` : ''}
+                ${alreadyIn
+                  ? `<span class="badge badge-free" style="font-size:0.7rem;">✓ En playlist</span>`
+                  : `<button type="button" class="btn btn-primary btn-sm" data-pick-song="${i}">+ Guardar</button>`}
               </div>
             </div>
-            <div style="display:flex;align-items:center;gap:0.45rem;flex-shrink:0;">
-              ${s.previewUrl ? `
-                <button type="button" class="btn btn-secondary btn-sm" data-modal-preview="${i}" title="Escuchar fragmento oficial de 30 segundos">
-                  ▶ 30s
-                </button>
-              ` : ''}
-              <button type="button" class="btn btn-primary btn-sm" data-pick-song="${i}">+ Guardar</button>
-            </div>
-          </div>
-        `).join('');
+          `;
+        }).join('');
 
         resultsEl.querySelectorAll('[data-modal-preview]').forEach(btn => {
           btn.addEventListener('click', () => {
             const idx = Number(btn.getAttribute('data-modal-preview'));
             const item = list[idx];
             if (!item?.previewUrl) return;
-            const res = MusicService.toggleTrack(item);
-            btn.innerHTML = res.isPlaying ? '⏸ ...' : '▶ 30s';
+            MusicService.toggleTrack(item);
           });
         });
 
         resultsEl.querySelectorAll('[data-pick-song]').forEach(btn => {
           btn.addEventListener('click', () => {
             const picked = list[Number(btn.getAttribute('data-pick-song'))];
+            if (!picked) return;
             const note = document.getElementById('song-note-inp')?.value.trim() || '';
-            const starRating = Number(document.getElementById('song-rating-inp')?.value || 5);
             const checkedMems = Array.from(modalEl.querySelectorAll('input[name="song_linked_memory"]:checked')).map(cb => cb.value);
+            const currentUser = store.getCurrentUser();
+            const { id: rawItunesId, ...songMeta } = picked;
 
             const res = store.addMediaToActiveGroup('songs', {
-              ...picked,
+              ...songMeta,
+              itunesId: picked.itunesId || rawItunesId || '',
               note,
-              rating: starRating,
+              rating: selectedRating,
               ratingCount: 1,
+              ratings: currentUser ? { [currentUser.id]: selectedRating } : {},
               linkedMemories: checkedMems
             });
             UI.closeModal();

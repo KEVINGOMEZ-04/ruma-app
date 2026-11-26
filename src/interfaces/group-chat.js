@@ -506,7 +506,7 @@ export function renderGroupChatView(viewport, group, user, ctx) {
     btn.textContent = '⏳';
     const results = await MusicService.searchSongs(`${song.title} ${song.artist}`, 3);
     if (results.length > 0 && results[0].previewUrl) {
-      store.updateMediaItem('songs', song.id, { previewUrl: results[0].previewUrl });
+      store.updateMediaItem('songs', song.id, { previewUrl: results[0].previewUrl }, { silent: true });
       song.previewUrl = results[0].previewUrl;
       MusicService.playTrack(song);
       btn.textContent = '⏸';
