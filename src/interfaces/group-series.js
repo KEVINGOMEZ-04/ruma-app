@@ -268,11 +268,14 @@ export function renderGroupSeriesView(viewport, group, user, ctx) {
   }));
   viewport.querySelectorAll('[data-sr-quick-ep]').forEach(el => el.addEventListener('click', (e) => {
     e.stopPropagation();
+    if (el.disabled) return;
     const s = find(el.getAttribute('data-sr-quick-ep'));
     const sNum = Number(el.getAttribute('data-s'));
     const eNum = Number(el.getAttribute('data-e'));
     if (!s || !sNum || !eNum) return;
-    const res = store.toggleEpisodeWatched(s.id, sNum, eNum);
+    el.disabled = true;
+    const res = store.markEpisodeWatched(s.id, sNum, eNum);
+    if (res?.alreadyWatched) return;
     if (res?.isFullyCompleted) {
       fireConfetti({ particleCount: 110, spread: 80, origin: { y: 0.65 } });
       UI.showToast(`🏆 ¡Completaste "${s.title}"!`, 'success');

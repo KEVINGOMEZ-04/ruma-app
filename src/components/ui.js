@@ -15,11 +15,18 @@ export const UI = {
       stack = document.createElement('div');
       stack.className = 'ruma-toast-stack';
       stack.setAttribute('aria-live', 'polite');
+      stack.style.pointerEvents = 'none';
       document.body.appendChild(stack);
+    }
+
+    // Evitar apilamiento excesivo en móvil (al marcar varios capítulos rápido)
+    while (stack.children.length >= 1) {
+      stack.firstElementChild.remove();
     }
 
     const toast = document.createElement('div');
     toast.className = `ruma-toast toast-${type}`;
+    toast.style.pointerEvents = 'none';
     toast.textContent = message;
     stack.appendChild(toast);
 
@@ -28,7 +35,7 @@ export const UI = {
       toast.style.transform = 'translateY(8px)';
       toast.style.transition = 'all 0.25s ease';
       setTimeout(() => toast.remove(), 260);
-    }, 3200);
+    }, 2400);
   },
 
   openModal({ title, contentHtml, onMount, onClose, size = 'md' }) {

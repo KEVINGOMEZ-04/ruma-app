@@ -276,10 +276,32 @@ class RumaStore {
         };
       });
 
+      // Fusionar progreso individual y reseñas de series por usuario (evita que un sync devuelva capítulos)
+      const olderSeriesMap = new Map((older.series || []).map(s => [s.id, s]));
+      const baseSeries = Array.isArray(winner.series) ? winner.series : (older.series || []);
+      const mergedSeries = baseSeries.map(ws => {
+        const os = olderSeriesMap.get(ws.id);
+        if (!os) return ws;
+        const mergedProg = { ...(os.userProgress || {}) };
+        Object.entries(ws.userProgress || {}).forEach(([uid, wp]) => {
+          const op = mergedProg[uid];
+          if (!op || (wp?.updatedAt || '') >= (op?.updatedAt || '')) {
+            mergedProg[uid] = wp;
+          }
+        });
+        return {
+          ...os,
+          ...ws,
+          userProgress: mergedProg,
+          ratings: { ...(os.ratings || {}), ...(ws.ratings || {}) }
+        };
+      });
+
       map.set(ig.id, {
         ...older,
         ...winner,
         movies: mergedMovies,
+        series: mergedSeries,
         activities: Array.isArray(winner.activities) ? winner.activities : (older.activities || []),
         goals: Array.isArray(winner.goals) ? winner.goals : (older.goals || []),
         notes: Array.isArray(winner.notes) ? winner.notes : (older.notes || []),
@@ -342,6 +364,10 @@ class RumaStore {
   }
 
   async pushMergedStateToCloud() {
+    if (this._cloudPushInFlight) {
+      return;
+    }
+    this._cloudPushInFlight = true;
     try {
       if (this.cloudPushTimer) {
         clearTimeout(this.cloudPushTimer);
@@ -355,16 +381,14 @@ class RumaStore {
 
       if (!dirtyAccIds.length && !dirtyGrpIds.length) return;
 
-      const localAccounts = this.getAccounts();
-      const localGroups = this.getGroupsRaw();
-
       const accountsToPush = [];
       const groupsToPush = [];
 
-      // Merge granular por cuenta modificada (sin sobrescribir cuentas de otros usuarios)
+      // Merge granular por cuenta modificada (re-leyendo localStorage tras el await para no perder cambios recientes)
       if (dirtyAccIds.length > 0) {
-        const accMap = new Map(localAccounts.map(a => [a.id, a]));
         const remoteResults = await Promise.all(dirtyAccIds.map(id => CloudSync.pullAccount(id)));
+        const freshAccounts = this.getAccounts();
+        const accMap = new Map(freshAccounts.map(a => [a.id, a]));
         dirtyAccIds.forEach((id, idx) => {
           const localAcc = accMap.get(id);
           if (!localAcc) return;
@@ -378,10 +402,11 @@ class RumaStore {
         this._refreshSnapshots(accountsToPush, null);
       }
 
-      // Merge granular por grupo modificado (sin sobrescribir otros grupos)
+      // Merge granular por grupo modificado (re-leyendo localStorage tras el await para jamás revertir clics rápidos)
       if (dirtyGrpIds.length > 0) {
-        const grpMap = new Map(localGroups.map(g => [g.id, g]));
         const remoteResults = await Promise.all(dirtyGrpIds.map(id => CloudSync.pullGroup(id)));
+        const freshGroups = this.getGroupsRaw();
+        const grpMap = new Map(freshGroups.map(g => [g.id, g]));
         dirtyGrpIds.forEach((id, idx) => {
           const localGrp = grpMap.get(id);
           if (!localGrp) return;
@@ -408,7 +433,14 @@ class RumaStore {
         accountsToPush.forEach(a => this.dirtyAccountIds.add(a.id));
         groupsToPush.forEach(g => this.dirtyGroupIds.add(g.id));
       }
-    } catch (_) {}
+    } catch (_) {
+    } finally {
+      this._cloudPushInFlight = false;
+      // Si el usuario siguió haciendo cambios mientras se subía el lote anterior, programar el siguiente push
+      if (this.dirtyAccountIds.size > 0 || this.dirtyGroupIds.size > 0) {
+        this.scheduleCloudPush();
+      }
+    }
   }
 
   async syncNowWithCloud() {
@@ -2100,7 +2132,7 @@ class RumaStore {
     return best;
   }
 
-  toggleEpisodeWatched(seriesId, seasonNum, episodeNum) {
+  toggleEpisodeWatched(seriesId, seasonNum, episodeNum, { onlyMark = false } = {}) {
     const user = this.getCurrentUser();
     const allGroups = this.getGroups();
     const group = allGroups.find(g => g.id === this.getActiveGroup()?.id);
@@ -2116,7 +2148,7 @@ class RumaStore {
       series.userProgress[user.id] = {
         userId: user.id,
         userName: user.name,
-        userAvatar: user.avatar,
+        userAvatar: compactAvatar(user.avatar),
         currentSeason: seasonNum,
         currentEpisode: episodeNum,
         watchedEpisodes: {},
@@ -2128,10 +2160,21 @@ class RumaStore {
 
     const up = series.userProgress[user.id];
     up.userName = user.name;
-    up.userAvatar = user.avatar;
+    up.userAvatar = compactAvatar(user.avatar);
     up.watchedEpisodes = up.watchedEpisodes || {};
     const key = `${seasonNum}_${episodeNum}`;
     const wasWatched = Boolean(up.watchedEpisodes[key]);
+
+    // Si es un botón de avance rápido (onlyMark), nunca desmarcar por doble toque accidental
+    if (onlyMark && wasWatched) {
+      return {
+        series,
+        isWatched: true,
+        alreadyWatched: true,
+        isFullyCompleted: this.isSeriesCompletedByUser(series, user.id),
+        progress: up
+      };
+    }
 
     if (wasWatched) {
       delete up.watchedEpisodes[key];
@@ -2160,6 +2203,10 @@ class RumaStore {
     this.saveGroups(allGroups, true, [group.id]);
     this.notify();
     return { series, isWatched: !wasWatched, isFullyCompleted: isCompleted, progress: up };
+  }
+
+  markEpisodeWatched(seriesId, seasonNum, episodeNum) {
+    return this.toggleEpisodeWatched(seriesId, seasonNum, episodeNum, { onlyMark: true });
   }
 
   markEpisodesUpTo(seriesId, targetSeason, targetEpisode) {

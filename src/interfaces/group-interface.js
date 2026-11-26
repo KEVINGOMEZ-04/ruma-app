@@ -854,7 +854,7 @@ async function openMovieDetailModal(group, movie, user) {
     contentHtml: `
       <div style="display:flex;flex-direction:column;gap:1.15rem;">
         <!-- Cabecera con Backdrop y Póster -->
-        <div class="media-hero ${movie.backdrop ? 'has-backdrop' : ''}" style="${movie.backdrop ? `background-image:linear-gradient(135deg, rgba(18,7,38,0.94), rgba(35,17,71,0.80)), url('${Utils.sanitize(movie.backdrop)}');` : ''}">
+        <div class="media-hero ${movie.backdrop ? 'has-backdrop' : ''}" style="${movie.backdrop ? `--hero-bg: url('${Utils.sanitize(movie.backdrop)}');` : ''}">
           <img src="${Utils.sanitize(movie.poster || 'assets/ruma_icon_512.png')}" alt="Poster" style="width:120px;height:180px;border-radius:var(--radius-md);object-fit:cover;flex-shrink:0;box-shadow:0 10px 30px rgba(0,0,0,0.45);">
           <div style="flex:1;min-width:200px;display:flex;flex-direction:column;justify-content:space-between;gap:0.65rem;">
             <div>
@@ -1303,7 +1303,7 @@ async function renderSeriesDetailView(viewport, group, series, user) {
           </div>
         </div>
 
-        <div class="media-hero ${series.backdrop ? 'has-backdrop' : ''}" style="${series.backdrop ? `background-image:linear-gradient(135deg, rgba(18,7,38,0.94), rgba(35,17,71,0.82)), url('${Utils.sanitize(series.backdrop)}');` : ''}">
+        <div class="media-hero ${series.backdrop ? 'has-backdrop' : ''}" style="${series.backdrop ? `--hero-bg: url('${Utils.sanitize(series.backdrop)}');` : ''}">
           <img src="${Utils.sanitize(series.poster || 'assets/ruma_icon_512.png')}" alt="Poster" style="width:120px;height:176px;border-radius:var(--radius-md);object-fit:cover;flex-shrink:0;box-shadow:0 10px 30px rgba(0,0,0,0.45);">
           <div style="flex:1;min-width:200px;display:flex;flex-direction:column;justify-content:space-between;gap:0.65rem;">
             <div>
@@ -1496,10 +1496,13 @@ async function renderSeriesDetailView(viewport, group, series, user) {
     }
   });
 
-  document.getElementById('btn-mark-next-ep')?.addEventListener('click', () => {
-    if (!targetSeasonNum || !targetEpNum) return;
+  const markNextBtn = document.getElementById('btn-mark-next-ep');
+  markNextBtn?.addEventListener('click', () => {
+    if (markNextBtn.disabled || !targetSeasonNum || !targetEpNum) return;
+    markNextBtn.disabled = true;
     pendingSeriesScrollY = window.scrollY;
-    const res = store.toggleEpisodeWatched(series.id, targetSeasonNum, targetEpNum);
+    const res = store.markEpisodeWatched(series.id, targetSeasonNum, targetEpNum);
+    if (res?.alreadyWatched) return;
     if (res?.isFullyCompleted && res.isWatched) {
       fireConfetti({ particleCount: 110, spread: 80, origin: { y: 0.6 } });
       UI.showToast(`🏆 ¡Completaste toda la serie "${series.title}"! Tu reseña llevará la insignia ⭐`, 'success');
