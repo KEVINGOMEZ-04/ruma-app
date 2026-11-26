@@ -212,22 +212,77 @@ class RumaStore {
         }
       });
 
-      // Lápidas de mensajes eliminados para evitar que reaparezcan al sincronizar entre dispositivos
+      // Lápidas de mensajes eliminados y corte de vaciado (chatClearedAt) para evitar resurrección entre dispositivos
+      const mergedChatClearedAt = [older.chatClearedAt || '', winner.chatClearedAt || ''].sort().pop() || '';
       const mergedDeletedMessages = { ...(older.deletedMessages || {}), ...(winner.deletedMessages || {}) };
       const delEntries = Object.entries(mergedDeletedMessages);
-      if (delEntries.length > 250) {
+      if (delEntries.length > 500) {
         delEntries.sort((a, b) => String(b[1] || '').localeCompare(String(a[1] || '')));
         Object.keys(mergedDeletedMessages).forEach(k => delete mergedDeletedMessages[k]);
-        delEntries.slice(0, 250).forEach(([k, v]) => { mergedDeletedMessages[k] = v; });
+        delEntries.slice(0, 500).forEach(([k, v]) => { mergedDeletedMessages[k] = v; });
       }
+
+      const isMessagePurged = (m) => {
+        if (!m || !m.id) return true;
+        if (mergedDeletedMessages[m.id]) return true;
+        if (mergedChatClearedAt && (m.timestamp || '') <= mergedChatClearedAt) return true;
+        return false;
+      };
+
+      const mergeTwoMessages = (oldMsg, winMsg) => {
+        if (!oldMsg) return winMsg;
+        if (!winMsg) return oldMsg;
+        const winEdit = winMsg.editedAt || '';
+        const oldEdit = oldMsg.editedAt || '';
+        const keepOldEdit = oldEdit && (!winEdit || oldEdit > winEdit);
+        const winReactTs = winMsg.reactionsUpdatedAt || '';
+        const oldReactTs = oldMsg.reactionsUpdatedAt || '';
+        let reactions = winMsg.reactions;
+        if (oldReactTs && (!winReactTs || oldReactTs > winReactTs)) {
+          reactions = oldMsg.reactions;
+        } else if (!winReactTs && !oldReactTs && (oldMsg.reactions || winMsg.reactions)) {
+          const combined = { ...(oldMsg.reactions || {}) };
+          Object.entries(winMsg.reactions || {}).forEach(([em, list]) => {
+            const set = new Set([...(Array.isArray(combined[em]) ? combined[em] : []), ...(Array.isArray(list) ? list : [])]);
+            if (set.size > 0) combined[em] = Array.from(set);
+          });
+          reactions = combined;
+        }
+        const quote = (oldMsg.quote?.deleted || winMsg.quote?.deleted)
+          ? { ...(winMsg.quote || oldMsg.quote), title: 'Mensaje eliminado', deleted: true }
+          : (winMsg.quote !== undefined ? winMsg.quote : oldMsg.quote);
+        return {
+          ...oldMsg,
+          ...winMsg,
+          text: keepOldEdit ? oldMsg.text : winMsg.text,
+          editedAt: keepOldEdit ? oldMsg.editedAt : winMsg.editedAt,
+          reactions,
+          reactionsUpdatedAt: winReactTs >= oldReactTs ? (winReactTs || undefined) : oldReactTs,
+          quote
+        };
+      };
 
       const mergedMessagesMap = new Map();
       (older.messages || []).forEach(m => {
-        if (m && m.id && !mergedDeletedMessages[m.id]) mergedMessagesMap.set(m.id, m);
+        if (!isMessagePurged(m)) mergedMessagesMap.set(m.id, m);
       });
       (winner.messages || []).forEach(m => {
-        if (m && m.id && !mergedDeletedMessages[m.id]) mergedMessagesMap.set(m.id, m);
+        if (!isMessagePurged(m)) {
+          mergedMessagesMap.set(m.id, mergeTwoMessages(mergedMessagesMap.get(m.id), m));
+        }
       });
+
+      const mergedMessages = Array.from(mergedMessagesMap.values())
+        .map(m => {
+          if (m.quote?.type === 'message' && m.quote?.itemId && (mergedDeletedMessages[m.quote.itemId] || (mergedChatClearedAt && !mergedMessagesMap.has(m.quote.itemId)))) {
+            return { ...m, quote: { ...m.quote, title: 'Mensaje eliminado', deleted: true } };
+          }
+          return m;
+        })
+        .sort((a, b) => String(a.timestamp || '').localeCompare(String(b.timestamp || '')));
+
+      const rawPinnedId = winner.pinnedMessageId !== undefined ? winner.pinnedMessageId : (older.pinnedMessageId || null);
+      const mergedPinnedMessageId = (rawPinnedId && mergedMessagesMap.has(rawPinnedId)) ? rawPinnedId : null;
 
       const mergedActMap = new Map();
       (older.activity || []).forEach(a => mergedActMap.set(a.id, a));
@@ -338,8 +393,10 @@ class RumaStore {
         activity: mergedActivity,
         leftMembers: mergedLeftMembers,
         deletedMessages: mergedDeletedMessages,
+        chatClearedAt: mergedChatClearedAt || undefined,
+        pinnedMessageId: mergedPinnedMessageId,
         members: Array.from(mergedMembersMap.values()),
-        messages: Array.from(mergedMessagesMap.values())
+        messages: mergedMessages
       });
     });
     return Array.from(map.values());
@@ -3090,10 +3147,16 @@ class RumaStore {
   canDeleteChatMessage(group, msg, user = null) {
     const u = user || this.getCurrentUser();
     if (!group || !msg || !u) return false;
-    return group.creatorId === u.id || msg.senderId === u.id;
+    return Entitlements.isGroupAdmin(group, u.id) || msg.senderId === u.id;
   }
 
-  deleteChatMessage(messageId) {
+  canEditChatMessage(group, msg, user = null) {
+    const u = user || this.getCurrentUser();
+    if (!group || !msg || !u) return false;
+    return msg.senderId === u.id;
+  }
+
+  editChatMessage(messageId, newText) {
     const user = this.getCurrentUser();
     const allGroups = this.getGroups();
     const active = this.getActiveGroup();
@@ -3101,19 +3164,128 @@ class RumaStore {
     if (!group || !user) return { ok: false, error: 'Grupo no encontrado' };
     const msg = (group.messages || []).find(m => m.id === messageId);
     if (!msg) return { ok: false, error: 'Mensaje no encontrado' };
-    if (!this.canDeleteChatMessage(group, msg, user)) {
-      return { ok: false, error: 'Solo el autor del mensaje o el líder del grupo pueden eliminarlo.' };
+    if (!this.canEditChatMessage(group, msg, user)) {
+      return { ok: false, error: 'Solo el autor puede editar su mensaje.' };
     }
-
-    if (msg.media?.id) {
-      CloudSync.deleteChatMedia(group.id, msg.media.id).catch(() => {});
+    const cleanText = String(newText || '').trim();
+    if (!cleanText && !msg.media && !msg.quote) {
+      return { ok: false, error: 'El mensaje no puede quedar vacío.' };
     }
-
-    group.deletedMessages = { ...(group.deletedMessages || {}), [messageId]: new Date().toISOString() };
-    group.messages = (group.messages || []).filter(m => m.id !== messageId);
+    msg.text = cleanText;
+    msg.editedAt = new Date().toISOString();
     this.saveGroups(allGroups, true, [group.id]);
     this.notify();
-    return { ok: true };
+    return { ok: true, msg };
+  }
+
+  deleteChatMessage(messageId) {
+    return this.deleteChatMessagesBulk([messageId]);
+  }
+
+  deleteChatMessagesBulk(messageIds = []) {
+    const user = this.getCurrentUser();
+    const allGroups = this.getGroups();
+    const active = this.getActiveGroup();
+    const group = allGroups.find(g => g.id === active?.id);
+    if (!group || !user) return { ok: false, error: 'Grupo no encontrado', deletedCount: 0 };
+
+    const targetSet = new Set((Array.isArray(messageIds) ? messageIds : []).filter(Boolean));
+    if (targetSet.size === 0) return { ok: false, error: 'No seleccionaste mensajes.', deletedCount: 0 };
+
+    const currentMsgs = group.messages || [];
+    const matched = currentMsgs.filter(m => targetSet.has(m.id));
+    if (matched.length === 0) return { ok: false, error: 'Mensaje no encontrado.', deletedCount: 0 };
+
+    const deletable = matched.filter(m => this.canDeleteChatMessage(group, m, user));
+    if (deletable.length === 0) {
+      return {
+        ok: false,
+        error: 'Solo puedes eliminar tus propios mensajes. Solo un administrador puede borrar mensajes de otros.',
+        deletedCount: 0
+      };
+    }
+
+    const nowIso = new Date().toISOString();
+    const delIds = new Set(deletable.map(m => m.id));
+    const nextDeleted = { ...(group.deletedMessages || {}) };
+
+    deletable.forEach(msg => {
+      if (msg.media?.id) {
+        CloudSync.deleteChatMedia(group.id, msg.media.id).catch(() => {});
+      }
+      nextDeleted[msg.id] = nowIso;
+    });
+
+    group.deletedMessages = nextDeleted;
+    group.messages = currentMsgs
+      .filter(m => !delIds.has(m.id))
+      .map(m => {
+        if (m.quote?.type === 'message' && delIds.has(m.quote.itemId)) {
+          return { ...m, quote: { ...m.quote, title: 'Mensaje eliminado', deleted: true } };
+        }
+        return m;
+      });
+
+    if (group.pinnedMessageId && delIds.has(group.pinnedMessageId)) {
+      group.pinnedMessageId = null;
+    }
+
+    this.saveGroups(allGroups, true, [group.id]);
+    this.notify();
+    return { ok: true, deletedCount: deletable.length };
+  }
+
+  clearGroupChat() {
+    const user = this.getCurrentUser();
+    const allGroups = this.getGroups();
+    const active = this.getActiveGroup();
+    const group = allGroups.find(g => g.id === active?.id);
+    if (!group || !user) return { ok: false, error: 'Grupo no encontrado' };
+    if (!Entitlements.isGroupAdmin(group, user.id)) {
+      return { ok: false, error: 'Solo un administrador del grupo puede vaciar todo el chat.' };
+    }
+
+    const existing = group.messages || [];
+    const nowIso = new Date().toISOString();
+    const nextDeleted = { ...(group.deletedMessages || {}) };
+    existing.forEach(msg => {
+      if (msg.media?.id) {
+        CloudSync.deleteChatMedia(group.id, msg.media.id).catch(() => {});
+      }
+      if (msg.id) nextDeleted[msg.id] = nowIso;
+    });
+
+    group.chatClearedAt = nowIso;
+    group.deletedMessages = nextDeleted;
+    group.messages = [];
+    group.pinnedMessageId = null;
+
+    this.saveGroups(allGroups, true, [group.id]);
+    this.notify();
+    return { ok: true, clearedCount: existing.length };
+  }
+
+  togglePinChatMessage(messageId) {
+    const user = this.getCurrentUser();
+    const allGroups = this.getGroups();
+    const active = this.getActiveGroup();
+    const group = allGroups.find(g => g.id === active?.id);
+    if (!group || !user) return { ok: false, error: 'Grupo no encontrado' };
+    if (!Entitlements.isGroupAdmin(group, user.id)) {
+      return { ok: false, error: 'Solo un administrador puede fijar mensajes en el chat.' };
+    }
+    if (!messageId || group.pinnedMessageId === messageId) {
+      group.pinnedMessageId = null;
+      this.saveGroups(allGroups, true, [group.id]);
+      this.notify();
+      return { ok: true, pinned: false };
+    }
+    const exists = (group.messages || []).some(m => m.id === messageId);
+    if (!exists) return { ok: false, error: 'Mensaje no encontrado' };
+    group.pinnedMessageId = messageId;
+    this.saveGroups(allGroups, true, [group.id]);
+    this.notify();
+    return { ok: true, pinned: true };
   }
 
   toggleChatMessageReaction(messageId, emoji) {
@@ -3131,6 +3303,7 @@ class RumaStore {
     else list.push(user.id);
     if (list.length === 0) delete msg.reactions[emoji];
     else msg.reactions[emoji] = list;
+    msg.reactionsUpdatedAt = new Date().toISOString();
     this.saveGroups(allGroups, true, [group.id]);
     this.notify();
     return true;

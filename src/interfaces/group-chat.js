@@ -1,5 +1,6 @@
-// Vista modular del Chat del Grupo (burbujas alineadas, buscador en chat, reacciones, menú + en cuadrícula 2x2)
+// Vista modular del Chat del Grupo (eliminación definitiva por autor/admin, selección múltiple, edición, mensajes fijados, borrador persistente, scroll inteligente y voz con vista previa)
 import { store } from '../core/store.js';
+import { Entitlements } from '../core/entitlements.js';
 import { Utils } from '../core/utils.js';
 import { UI } from '../components/ui.js';
 import { MusicService } from '../services/music-service.js';
@@ -16,11 +17,25 @@ const ICO = {
   video: '<rect x="2.5" y="6" width="14" height="12" rx="2.2"/><path d="m16.5 10 5-3v10l-5-3z"/>',
   mic: '<rect x="9" y="2.5" width="6" height="11" rx="3"/><path d="M5 10.5a7 7 0 0 0 14 0M12 17.5V21M8.5 21h7"/>',
   search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
-  reply: '<polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/>'
+  reply: '<polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/>',
+  moreVert: '<circle cx="12" cy="5" r="1.6" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="12" cy="19" r="1.6" fill="currentColor" stroke="none"/>',
+  arrowDown: '<path d="M12 5v14"/><path d="m19 12-7 7-7-7"/>'
 };
 
 const QUICK_REACTIONS = ['❤️', '😂', '🔥', '👍', '😮', '😢'];
-const chatUiState = { searchOpen: false, searchQuery: '' };
+
+const chatUiState = {
+  searchOpen: false,
+  searchQuery: '',
+  drafts: {}, // { [groupId]: string }
+  scrollByGroup: {}, // { [groupId]: { top, atBottom } }
+  forceScrollBottom: false,
+  selectMode: false,
+  selectGroupId: null,
+  selectedIds: new Set()
+};
+
+let unsubscribeChatMusic = null;
 
 function dayLabel(iso) {
   const d = iso ? new Date(iso) : new Date();
@@ -81,23 +96,62 @@ function senderAvatarFor(msg, group) {
   return m?.avatar || msg.senderAvatar || 'assets/ruma_default_avatar.png';
 }
 
-function renderQuoteHtml(msg) {
+function senderNameFor(msg, group) {
+  const m = (group.members || []).find(x => x.id === msg.senderId);
+  return m?.name || msg.senderName || 'Miembro';
+}
+
+/** Sanitiza texto y convierte URLs http(s) válidas en enlaces clicables seguros. */
+function formatChatTextHtml(raw) {
+  const text = String(raw || '');
+  const urlRe = /https?:\/\/[^\s<>"']+/gi;
+  let out = '';
+  let lastIdx = 0;
+  let m;
+  while ((m = urlRe.exec(text)) !== null) {
+    out += Utils.sanitize(text.slice(lastIdx, m.index));
+    let url = m[0];
+    let trail = '';
+    while (url.length > 8 && /[.,!?;:)\]]$/.test(url)) {
+      trail = url.slice(-1) + trail;
+      url = url.slice(0, -1);
+    }
+    const safeUrl = Utils.sanitize(url);
+    out += `<a class="rch-link" href="${safeUrl}" target="_blank" rel="noopener noreferrer">${safeUrl}</a>${Utils.sanitize(trail)}`;
+    lastIdx = m.index + m[0].length;
+  }
+  out += Utils.sanitize(text.slice(lastIdx));
+  return out;
+}
+
+function messagePreviewText(msg) {
+  if (!msg) return '';
+  if (msg.text) return msg.text;
+  if (msg.media) {
+    return msg.media.type === 'image' ? '🖼️ Foto' : (msg.media.type === 'video' ? '🎬 Vídeo' : '🎙️ Nota de voz');
+  }
+  return msg.quote?.title || 'Mensaje';
+}
+
+function renderQuoteHtml(msg, playingTrackId) {
   const q = msg.quote;
   if (!q) return '';
   if (q.type === 'message') {
+    const isDeleted = Boolean(q.deleted);
     return `
-      <div class="rch-reply-box" data-jump-msg="${Utils.sanitize(q.itemId || '')}">
+      <div class="rch-reply-box ${isDeleted ? 'is-deleted' : ''}" ${isDeleted ? '' : `data-jump-msg="${Utils.sanitize(q.itemId || '')}"`}>
         <b>${Utils.sanitize((q.label || 'Respuesta').replace(/^💬\s*Respuesta a\s*/i, ''))}</b>
-        <span>${Utils.sanitize(q.title || '')}</span>
+        <span>${isDeleted ? '🚫 Mensaje eliminado' : Utils.sanitize(q.title || '')}</span>
       </div>`;
   }
   const isSong = q.type === 'song';
+  const isPlaying = Boolean(isSong && playingTrackId && playingTrackId === q.itemId);
   return `
     <div class="rch-quote-card" data-jump-quote-type="${Utils.sanitize(q.type || '')}" data-jump-quote-id="${Utils.sanitize(q.itemId || '')}">
       ${q.thumb ? `
         <div class="rch-qthumb-wrap">
           <img src="${Utils.sanitize(q.thumb)}" alt="" class="rch-qthumb">
-          ${isSong ? `<button type="button" class="rch-qplay" data-chat-play-song="${Utils.sanitize(q.itemId || '')}" aria-label="Reproducir canción">▶</button>` : ''}
+          ${isSong ? `<button type="button" class="rch-qplay" data-chat-play-song="${Utils.sanitize(q.itemId || '')}" aria-label="Reproducir canción">${isPlaying ? '⏸' : '▶'}</button>` : ''}
         </div>` : ''}
       <div class="rch-qinfo">
         <div class="rch-qlabel">${Utils.sanitize(q.label || '')}</div>
@@ -133,7 +187,7 @@ function renderMediaHtml(msg) {
   }
   if (m.id) {
     const label = m.type === 'video' ? '🎬 Cargando vídeo...' : (m.type === 'audio' ? '🎙️ Cargando audio...' : '🖼️ Cargando foto...');
-    return `<div class="rch-media-lazy" data-chat-media-id="${Utils.sanitize(m.id)}" data-chat-media-type="${Utils.sanitize(m.type || 'image')}" data-chat-media-dur="${Utils.sanitize(m.duration || '')}" style="padding:0.65rem 0.85rem;border-radius:12px;background:rgba(168,85,247,0.08);border:1px dashed rgba(168,85,247,0.28);font-size:0.78rem;color:var(--text-muted);">${label}</div>`;
+    return `<div class="rch-media-lazy" data-chat-media-id="${Utils.sanitize(m.id)}" data-chat-media-type="${Utils.sanitize(m.type || 'image')}" data-chat-media-dur="${Utils.sanitize(m.duration || '')}" style="padding:0.65rem 0.85rem;border-radius:12px;background:var(--primary-soft);border:1px dashed var(--border-strong);font-size:0.78rem;color:var(--text-muted);">${label}</div>`;
   }
   return '';
 }
@@ -151,18 +205,63 @@ function renderReactionsHtml(msg, userId) {
     </div>`;
 }
 
+function autoResizeTextarea(el) {
+  if (!el) return;
+  el.style.height = 'auto';
+  el.style.height = `${Math.min(110, Math.max(22, el.scrollHeight))}px`;
+}
+
 export function renderGroupChatView(viewport, group, user, ctx) {
   const { getPendingQuote, setPendingQuote, openPickItemModal, rerender } = ctx;
+
+  // Preservar estado previo del textarea si el usuario estaba escribiendo en este mismo grupo
+  const prevInp = document.getElementById('rch-text-inp');
+  const wasFocusedComposer = Boolean(prevInp && document.activeElement === prevInp);
+  const prevSelectionStart = wasFocusedComposer ? prevInp.selectionStart : null;
+  const prevSelectionEnd = wasFocusedComposer ? prevInp.selectionEnd : null;
+  if (prevInp && prevInp.dataset.groupId === group.id) {
+    chatUiState.drafts[group.id] = prevInp.value;
+  }
+
+  // Preservar scroll previo antes de reconstruir el DOM
+  const prevScrollEl = document.getElementById('rch-scroll');
+  if (prevScrollEl && prevScrollEl.dataset.groupId === group.id) {
+    const distFromBottom = prevScrollEl.scrollHeight - prevScrollEl.scrollTop - prevScrollEl.clientHeight;
+    chatUiState.scrollByGroup[group.id] = {
+      top: prevScrollEl.scrollTop,
+      atBottom: distFromBottom <= 64
+    };
+  }
+
+  // Reiniciar modo selección si cambió de grupo
+  if (chatUiState.selectGroupId !== group.id) {
+    chatUiState.selectMode = false;
+    chatUiState.selectGroupId = group.id;
+    chatUiState.selectedIds.clear();
+  }
+
+  const isAdmin = Entitlements.isGroupAdmin(group, user.id);
   const allMessages = group.messages || [];
+
+  // Limpiar IDs seleccionados que ya no existan
+  const liveMsgIds = new Set(allMessages.map(m => m.id));
+  Array.from(chatUiState.selectedIds).forEach(id => {
+    if (!liveMsgIds.has(id)) chatUiState.selectedIds.delete(id);
+  });
+
   const q = chatUiState.searchQuery.trim().toLowerCase();
   const messages = q
     ? allMessages.filter(m =>
         (m.text || '').toLowerCase().includes(q) ||
-        (m.senderName || '').toLowerCase().includes(q) ||
+        senderNameFor(m, group).toLowerCase().includes(q) ||
         (m.quote?.title || '').toLowerCase().includes(q)
       )
     : allMessages;
+
+  const pinnedMsg = group.pinnedMessageId ? allMessages.find(m => m.id === group.pinnedMessageId) : null;
   const pendingQuote = getPendingQuote();
+  const draftValue = chatUiState.drafts[group.id] || '';
+  const playingTrackId = MusicService.getCurrentPlayingId();
 
   let lastDay = '';
   const rowsHtml = messages.map(msg => {
@@ -172,24 +271,35 @@ export function renderGroupChatView(viewport, group, user, ctx) {
     const isMine = msg.senderId === user.id;
     const id = Utils.sanitize(msg.id);
     const av = Utils.sanitize(senderAvatarFor(msg, group));
+    const displayName = senderNameFor(msg, group);
+    const canDel = store.canDeleteChatMessage(group, msg, user);
+    const isSelected = chatUiState.selectMode && chatUiState.selectedIds.has(msg.id);
+    const isPinned = Boolean(group.pinnedMessageId && group.pinnedMessageId === msg.id);
 
     return `${sep}
-      <div class="rch-row ${isMine ? 'mine' : 'other'}" data-msg-id="${id}">
-        ${!isMine ? `<button type="button" class="rch-av-btn" data-chat-profile="${Utils.sanitize(msg.senderId || '')}" title="${Utils.sanitize(msg.senderName || '')}"><img class="rch-av" src="${av}" alt="${Utils.sanitize(msg.senderName || '')}"></button>` : ''}
-        <div class="rch-bubble ${isMine ? 'mine' : 'other'}">
+      <div class="rch-row ${isMine ? 'mine' : 'other'} ${chatUiState.selectMode ? 'is-select-mode' : ''} ${isSelected ? 'is-selected' : ''} ${chatUiState.selectMode && !canDel ? 'is-unselectable' : ''}" data-msg-id="${id}" ${chatUiState.selectMode && canDel ? `data-toggle-select="${id}"` : ''}>
+        ${chatUiState.selectMode ? `
+          <span class="rch-select-chk ${isSelected ? 'checked' : ''} ${canDel ? '' : 'disabled'}" aria-hidden="true">${canDel ? (isSelected ? '✓' : '') : '🔒'}</span>
+        ` : ''}
+        ${!isMine ? `<button type="button" class="rch-av-btn" data-chat-profile="${Utils.sanitize(msg.senderId || '')}" title="${Utils.sanitize(displayName)}"><img class="rch-av" src="${av}" alt="${Utils.sanitize(displayName)}"></button>` : ''}
+        <div class="rch-bubble ${isMine ? 'mine' : 'other'}" data-bubble-msg="${id}">
           <div class="rch-head">
-            <strong class="rch-sender">${isMine ? 'Tú' : Utils.sanitize(msg.senderName || 'Miembro')}</strong>
-            <div class="rch-head-acts">
-              <button type="button" class="rch-ico-act" data-reply-msg="${id}" title="Responder" aria-label="Responder">${svg(ICO.reply, 14)}</button>
-              <button type="button" class="rch-ico-act" data-more-msg="${id}" title="Reaccionar o más opciones" aria-label="Opciones del mensaje">⋯</button>
-            </div>
+            <strong class="rch-sender">${isMine ? 'Tú' : Utils.sanitize(displayName)}${isPinned ? ' <span class="rch-pin-ico" title="Mensaje fijado">📌</span>' : ''}</strong>
+            ${chatUiState.selectMode ? '' : `
+              <div class="rch-head-acts">
+                <button type="button" class="rch-ico-act" data-reply-msg="${id}" title="Responder" aria-label="Responder">${svg(ICO.reply, 14)}</button>
+                <button type="button" class="rch-ico-act" data-more-msg="${id}" title="Reaccionar o más opciones" aria-label="Opciones del mensaje">⋯</button>
+              </div>
+            `}
           </div>
-          ${renderQuoteHtml(msg)}
+          ${renderQuoteHtml(msg, playingTrackId)}
           ${renderMediaHtml(msg)}
-          ${msg.text ? `<div class="rch-text">${Utils.sanitize(msg.text)}</div>` : ''}
+          ${msg.text ? `<div class="rch-text">${formatChatTextHtml(msg.text)}</div>` : ''}
           <div class="rch-foot">
             ${renderReactionsHtml(msg, user.id)}
-            <span class="rch-time">${Utils.formatTime(msg.timestamp)}</span>
+            <span class="rch-time">
+              ${msg.editedAt ? `<span class="rch-edited">editado</span> · ` : ''}${Utils.formatTime(msg.timestamp)}
+            </span>
           </div>
         </div>
       </div>`;
@@ -209,8 +319,20 @@ export function renderGroupChatView(viewport, group, user, ctx) {
         <div class="rch-topbar-acts">
           <button type="button" class="rch-top-btn ${chatUiState.searchOpen ? 'active' : ''}" id="rch-toggle-search" title="Buscar en el chat" aria-label="Buscar mensajes">${svg(ICO.search, 16)}</button>
           <button type="button" class="rch-top-btn" id="rch-quick-link" title="Enlazar contenido del grupo" aria-label="Enlazar contenido">${svg(ICO.link, 16)}</button>
+          <button type="button" class="rch-top-btn ${chatUiState.selectMode ? 'active' : ''}" id="rch-chat-menu" title="Opciones del chat" aria-label="Opciones del chat">${svg(ICO.moreVert, 16)}</button>
         </div>
       </div>
+
+      ${pinnedMsg ? `
+        <div class="rch-pinned-bar" id="rch-pinned-jump" data-jump-msg="${Utils.sanitize(pinnedMsg.id)}">
+          <span class="rch-pinned-badge">📌</span>
+          <div class="rch-pinned-txt">
+            <b>Fijado · ${Utils.sanitize(senderNameFor(pinnedMsg, group))}</b>
+            <span>${Utils.sanitize(messagePreviewText(pinnedMsg))}</span>
+          </div>
+          ${isAdmin ? `<button type="button" class="rch-pinned-x" id="rch-unpin-btn" title="Desfijar mensaje" aria-label="Desfijar mensaje">✕</button>` : ''}
+        </div>
+      ` : ''}
 
       ${chatUiState.searchOpen ? `
         <div class="rch-searchbar">
@@ -219,68 +341,335 @@ export function renderGroupChatView(viewport, group, user, ctx) {
           ${chatUiState.searchQuery ? `<button type="button" id="rch-search-clear" aria-label="Limpiar">✕</button>` : ''}
         </div>` : ''}
 
-      <div class="rch-scroll" id="rch-scroll">
-        ${messages.length === 0 ? `
-          <div class="rg-card rm-empty" style="margin:auto 0;">
-            <b>${q ? 'Sin coincidencias' : `Aún no hay mensajes en ${Utils.sanitize(group.name)}`}</b>
-            <span>${q ? 'Prueba con otra palabra o borra el filtro.' : 'Escribe el primer mensaje o pulsa + para compartir fotos, audios o enlazar contenido del grupo.'}</span>
-          </div>` : rowsHtml}
-      </div>
-
-      <div class="rch-bottom">
-        ${pendingQuote ? `
-          <div class="rch-pending">
-            <div class="rch-pending-txt">
-              <b>${Utils.sanitize(pendingQuote.label || 'Respuesta')}</b>
-              <span>${Utils.sanitize(pendingQuote.title || '')}</span>
-            </div>
-            <button type="button" class="rch-pending-x" id="rch-clear-quote" aria-label="Cancelar respuesta">✕</button>
-          </div>` : ''}
-
-        <div class="rch-composer">
-          <div class="rch-pop" id="rch-pop" hidden>
-            <div class="rch-pop-grid">
-              <button type="button" class="rch-pop-tile" id="rch-act-link">
-                <span class="rch-pop-ico t-link">${svg(ICO.link, 20)}</span>
-                <b>Enlazar contenido</b>
-                <small>Cine, música, libros...</small>
-              </button>
-              <button type="button" class="rch-pop-tile" id="rch-act-photo">
-                <span class="rch-pop-ico t-photo">${svg(ICO.photo, 20)}</span>
-                <b>Foto</b>
-                <small>Galería o cámara</small>
-              </button>
-              <button type="button" class="rch-pop-tile" id="rch-act-video">
-                <span class="rch-pop-ico t-video">${svg(ICO.video, 20)}</span>
-                <b>Vídeo</b>
-                <small>Clip hasta 2.5 MB</small>
-              </button>
-              <button type="button" class="rch-pop-tile" id="rch-act-audio">
-                <span class="rch-pop-ico t-audio">${svg(ICO.mic, 20)}</span>
-                <b>Nota de voz</b>
-                <small>Grabar o subir audio</small>
-              </button>
-            </div>
-          </div>
-
-          <input type="file" id="rch-inp-photo" accept="image/*" hidden>
-          <input type="file" id="rch-inp-video" accept="video/*" hidden>
-          <input type="file" id="rch-inp-audio" accept="audio/*" hidden>
-
-          <form id="rch-form" class="rch-form">
-            <button type="button" class="rch-plus-btn" id="rch-plus-btn" aria-label="Adjuntar o enlazar" aria-expanded="false">${svg(ICO.plus, 20)}</button>
-            <div class="rch-pill">
-              <input type="text" id="rch-text-inp" placeholder="Escribe un mensaje..." autocomplete="off">
-            </div>
-            <button type="submit" class="rch-send-btn" aria-label="Enviar mensaje">${svg(ICO.send, 18)}</button>
-          </form>
+      <div class="rch-scroll-wrap">
+        <div class="rch-scroll" id="rch-scroll" data-group-id="${Utils.sanitize(group.id)}">
+          ${messages.length === 0 ? `
+            <div class="rg-card rm-empty" style="margin:auto 0;">
+              <b>${q ? 'Sin coincidencias' : `Aún no hay mensajes en ${Utils.sanitize(group.name)}`}</b>
+              <span>${q ? 'Prueba con otra palabra o borra el filtro.' : 'Escribe el primer mensaje o pulsa + para compartir fotos, audios o enlazar contenido del grupo.'}</span>
+            </div>` : rowsHtml}
         </div>
+        <button type="button" class="rch-scroll-bottom-btn" id="rch-scroll-bottom" hidden aria-label="Ir al último mensaje" title="Ir al último mensaje">${svg(ICO.arrowDown, 17)}</button>
       </div>
+
+      ${chatUiState.selectMode ? `
+        <div class="rch-bulk-bar">
+          <div class="rch-bulk-info">
+            <b>${chatUiState.selectedIds.size} seleccionado${chatUiState.selectedIds.size === 1 ? '' : 's'}</b>
+            <small>${isAdmin ? 'Admin: puedes borrar cualquier mensaje' : 'Solo puedes seleccionar tus mensajes'}</small>
+          </div>
+          <div class="rch-bulk-acts">
+            <button type="button" class="btn btn-secondary btn-sm" id="rch-bulk-cancel">Cancelar</button>
+            <button type="button" class="btn btn-danger btn-sm" id="rch-bulk-delete" ${chatUiState.selectedIds.size === 0 ? 'disabled' : ''}>🗑️ Eliminar (${chatUiState.selectedIds.size})</button>
+          </div>
+        </div>
+      ` : `
+        <div class="rch-bottom">
+          ${pendingQuote ? `
+            <div class="rch-pending">
+              <div class="rch-pending-txt">
+                <b>${Utils.sanitize(pendingQuote.label || 'Respuesta')}</b>
+                <span>${Utils.sanitize(pendingQuote.title || '')}</span>
+              </div>
+              <button type="button" class="rch-pending-x" id="rch-clear-quote" aria-label="Cancelar respuesta">✕</button>
+            </div>` : ''}
+
+          <div class="rch-composer">
+            <div class="rch-pop" id="rch-pop" hidden>
+              <div class="rch-pop-grid">
+                <button type="button" class="rch-pop-tile" id="rch-act-link">
+                  <span class="rch-pop-ico t-link">${svg(ICO.link, 20)}</span>
+                  <b>Enlazar contenido</b>
+                  <small>Cine, música, libros...</small>
+                </button>
+                <button type="button" class="rch-pop-tile" id="rch-act-photo">
+                  <span class="rch-pop-ico t-photo">${svg(ICO.photo, 20)}</span>
+                  <b>Foto</b>
+                  <small>Galería o cámara</small>
+                </button>
+                <button type="button" class="rch-pop-tile" id="rch-act-video">
+                  <span class="rch-pop-ico t-video">${svg(ICO.video, 20)}</span>
+                  <b>Vídeo</b>
+                  <small>Clip hasta 2.5 MB</small>
+                </button>
+                <button type="button" class="rch-pop-tile" id="rch-act-audio">
+                  <span class="rch-pop-ico t-audio">${svg(ICO.mic, 20)}</span>
+                  <b>Nota de voz</b>
+                  <small>Grabar con vista previa</small>
+                </button>
+              </div>
+            </div>
+
+            <input type="file" id="rch-inp-photo" accept="image/*" hidden>
+            <input type="file" id="rch-inp-video" accept="video/*" hidden>
+            <input type="file" id="rch-inp-audio" accept="audio/*" hidden>
+
+            <form id="rch-form" class="rch-form">
+              <button type="button" class="rch-plus-btn" id="rch-plus-btn" aria-label="Adjuntar o enlazar" aria-expanded="false">${svg(ICO.plus, 20)}</button>
+              <div class="rch-pill">
+                <textarea id="rch-text-inp" data-group-id="${Utils.sanitize(group.id)}" rows="1" placeholder="Escribe un mensaje..." autocomplete="off">${Utils.sanitize(draftValue)}</textarea>
+              </div>
+              <button type="submit" class="rch-send-btn" aria-label="Enviar mensaje">${svg(ICO.send, 18)}</button>
+            </form>
+          </div>
+        </div>
+      `}
     </div>`;
 
   const rootEl = viewport.querySelector('#rch-root');
   const scrollBox = viewport.querySelector('#rch-scroll');
-  if (scrollBox && !q) scrollBox.scrollTop = scrollBox.scrollHeight;
+  const scrollBottomBtn = viewport.querySelector('#rch-scroll-bottom');
+  const textInp = viewport.querySelector('#rch-text-inp');
+
+  // Auto-ajuste y recuperación de foco/cursor del borrador
+  if (textInp) {
+    autoResizeTextarea(textInp);
+    if (wasFocusedComposer && !chatUiState.selectMode) {
+      textInp.focus();
+      if (prevSelectionStart !== null) {
+        try { textInp.setSelectionRange(prevSelectionStart, prevSelectionEnd ?? prevSelectionStart); } catch (_) {}
+      }
+    }
+    textInp.addEventListener('input', () => {
+      chatUiState.drafts[group.id] = textInp.value;
+      autoResizeTextarea(textInp);
+    });
+    textInp.addEventListener('keydown', (e) => {
+      const isDesktop = window.matchMedia && window.matchMedia('(min-width: 768px) and (pointer: fine)').matches;
+      if (isDesktop && e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        viewport.querySelector('#rch-form')?.requestSubmit();
+      }
+    });
+  }
+
+  // Scroll inteligente: conservar posición si el usuario estaba leyendo arriba; ir al final si estaba abajo o acaba de enviar
+  const updateScrollBottomBtn = () => {
+    if (!scrollBox || !scrollBottomBtn) return;
+    const dist = scrollBox.scrollHeight - scrollBox.scrollTop - scrollBox.clientHeight;
+    scrollBottomBtn.hidden = dist <= 120;
+    chatUiState.scrollByGroup[group.id] = { top: scrollBox.scrollTop, atBottom: dist <= 64 };
+  };
+
+  if (scrollBox && !q) {
+    const saved = chatUiState.scrollByGroup[group.id];
+    if (chatUiState.forceScrollBottom || !saved || saved.atBottom) {
+      scrollBox.scrollTop = scrollBox.scrollHeight;
+      chatUiState.forceScrollBottom = false;
+    } else {
+      scrollBox.scrollTop = Math.min(saved.top, scrollBox.scrollHeight);
+    }
+    updateScrollBottomBtn();
+    scrollBox.addEventListener('scroll', updateScrollBottomBtn, { passive: true });
+  }
+
+  scrollBottomBtn?.addEventListener('click', () => {
+    if (!scrollBox) return;
+    scrollBox.scrollTo({ top: scrollBox.scrollHeight, behavior: 'smooth' });
+  });
+
+  // Helper: resaltar y saltar a un mensaje concreto
+  const jumpToMessage = (msgId) => {
+    if (!msgId) return;
+    const target = viewport.querySelector(`[data-msg-id="${CSS.escape(msgId)}"]`);
+    if (!target) {
+      UI.showToast('Ese mensaje ya no está visible en el filtro actual.', 'info');
+      return;
+    }
+    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const bubble = target.querySelector('.rch-bubble');
+    if (bubble) {
+      bubble.classList.remove('is-highlight');
+      void bubble.offsetWidth;
+      bubble.classList.add('is-highlight');
+      setTimeout(() => bubble.classList.remove('is-highlight'), 1400);
+    }
+  };
+
+  // Confirmación de eliminación definitiva (1 o varios mensajes)
+  const confirmDeleteMessages = (ids = [], label = '') => {
+    const clean = (ids || []).filter(Boolean);
+    if (!clean.length) return;
+    const plural = clean.length > 1;
+    UI.openModal({
+      title: plural ? `🗑️ Eliminar ${clean.length} mensajes` : '🗑️ Eliminar mensaje definitivamente',
+      contentHtml: `
+        <div style="display:flex;flex-direction:column;gap:0.9rem;">
+          <p style="margin:0;font-size:0.88rem;line-height:1.5;color:var(--text-secondary);">
+            ${plural
+              ? `¿Seguro que quieres eliminar definitivamente <strong>${clean.length} mensajes</strong>? Se borrarán para todos los miembros del grupo (incluyendo fotos/audios adjuntos) y no se podrán recuperar.`
+              : `¿Seguro que quieres eliminar definitivamente ${label ? `el mensaje de <strong>${Utils.sanitize(label)}</strong>` : 'este mensaje'}? Desaparecerá para todos los miembros del grupo y no se podrá recuperar.`}
+          </p>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.55rem;">
+            <button type="button" class="btn btn-secondary btn-sm" id="rch-del-cancel" style="justify-content:center;">Cancelar</button>
+            <button type="button" class="btn btn-danger btn-sm" id="rch-del-confirm" style="justify-content:center;">Eliminar definitivamente</button>
+          </div>
+        </div>`,
+      onMount: () => {
+        document.getElementById('rch-del-cancel')?.addEventListener('click', () => UI.closeModal());
+        document.getElementById('rch-del-confirm')?.addEventListener('click', () => {
+          const res = store.deleteChatMessagesBulk(clean);
+          UI.closeModal();
+          if (res.ok) {
+            chatUiState.selectMode = false;
+            chatUiState.selectedIds.clear();
+            UI.showToast(
+              res.deletedCount > 1
+                ? `${res.deletedCount} mensajes eliminados definitivamente 🗑️`
+                : 'Mensaje eliminado definitivamente 🗑️',
+              'info'
+            );
+          } else {
+            UI.showToast(res.error || 'No se pudo eliminar.', 'error');
+          }
+        });
+      }
+    });
+  };
+
+  // Modal de confirmación para vaciar todo el chat (solo administrador)
+  const confirmClearChat = () => {
+    if (!isAdmin) return;
+    UI.openModal({
+      title: '🧹 Vaciar todo el chat',
+      contentHtml: `
+        <div style="display:flex;flex-direction:column;gap:0.9rem;">
+          <p style="margin:0;font-size:0.88rem;line-height:1.5;color:var(--text-secondary);">
+            Esta acción de <strong>administrador</strong> eliminará definitivamente los <strong>${allMessages.length} mensajes</strong> y archivos adjuntos del chat para <strong>todos los miembros</strong> de <strong>${Utils.sanitize(group.name)}</strong>.
+          </p>
+          <div style="padding:0.65rem 0.8rem;border-radius:var(--radius-md);background:var(--error-soft);border:1px solid rgba(220,38,38,0.35);color:var(--error);font-size:0.8rem;font-weight:700;">
+            ⚠️ Esta acción es permanente y no se puede deshacer.
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.55rem;">
+            <button type="button" class="btn btn-secondary btn-sm" id="rch-clr-cancel" style="justify-content:center;">Cancelar</button>
+            <button type="button" class="btn btn-danger btn-sm" id="rch-clr-confirm" style="justify-content:center;">Sí, vaciar todo</button>
+          </div>
+        </div>`,
+      onMount: () => {
+        document.getElementById('rch-clr-cancel')?.addEventListener('click', () => UI.closeModal());
+        document.getElementById('rch-clr-confirm')?.addEventListener('click', () => {
+          const res = store.clearGroupChat();
+          UI.closeModal();
+          if (res.ok) {
+            chatUiState.selectMode = false;
+            chatUiState.selectedIds.clear();
+            UI.showToast('Chat vaciado definitivamente 🧹', 'info');
+          } else {
+            UI.showToast(res.error || 'No se pudo vaciar el chat.', 'error');
+          }
+        });
+      }
+    });
+  };
+
+  // Modal de edición de mensaje propio
+  const openEditMessageModal = (msg) => {
+    if (!store.canEditChatMessage(group, msg, user)) return;
+    UI.openModal({
+      title: '✏️ Editar mensaje',
+      contentHtml: `
+        <form id="rch-edit-form" style="display:flex;flex-direction:column;gap:0.85rem;">
+          <textarea id="rch-edit-inp" class="form-input" rows="4" style="resize:vertical;min-height:92px;" placeholder="Escribe tu mensaje...">${Utils.sanitize(msg.text || '')}</textarea>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.55rem;">
+            <button type="button" class="btn btn-secondary btn-sm" id="rch-edit-cancel" style="justify-content:center;">Cancelar</button>
+            <button type="submit" class="btn btn-primary btn-sm" style="justify-content:center;">Guardar cambios</button>
+          </div>
+        </form>`,
+      onMount: () => {
+        const inp = document.getElementById('rch-edit-inp');
+        if (inp) {
+          inp.focus();
+          try { inp.setSelectionRange(inp.value.length, inp.value.length); } catch (_) {}
+        }
+        document.getElementById('rch-edit-cancel')?.addEventListener('click', () => UI.closeModal());
+        document.getElementById('rch-edit-form')?.addEventListener('submit', (e) => {
+          e.preventDefault();
+          const res = store.editChatMessage(msg.id, inp?.value || '');
+          if (!res.ok) {
+            UI.showToast(res.error || 'No se pudo editar.', 'error');
+            return;
+          }
+          UI.closeModal();
+          UI.showToast('Mensaje editado ✏️', 'success');
+        });
+      }
+    });
+  };
+
+  // Menú ⋮ de la barra superior del chat (Selección múltiple + Vaciar chat solo admin)
+  viewport.querySelector('#rch-chat-menu')?.addEventListener('click', () => {
+    if (chatUiState.selectMode) {
+      chatUiState.selectMode = false;
+      chatUiState.selectedIds.clear();
+      rerender();
+      return;
+    }
+    const myDeletableCount = allMessages.filter(m => store.canDeleteChatMessage(group, m, user)).length;
+    UI.openModal({
+      title: 'Opciones del chat',
+      contentHtml: `
+        <div style="display:flex;flex-direction:column;gap:0.6rem;">
+          <button type="button" class="btn btn-secondary" id="rch-opt-select" ${myDeletableCount === 0 ? 'disabled' : ''}>
+            ☑️ ${isAdmin ? 'Seleccionar mensajes para borrar (Admin)' : 'Seleccionar mis mensajes para borrar'}
+          </button>
+          ${isAdmin ? `
+            <button type="button" class="btn btn-danger" id="rch-opt-clear" ${allMessages.length === 0 ? 'disabled' : ''}>
+              🧹 Vaciar todo el chat (${allMessages.length})
+            </button>
+            <div style="font-size:0.74rem;color:var(--text-muted);text-align:center;padding:0.4rem;border-radius:0.65rem;background:var(--surface-secondary);">
+              🛡️ Como administrador puedes eliminar mensajes de cualquier miembro o vaciar el chat definitivamente.
+            </div>
+          ` : `
+            <div style="font-size:0.74rem;color:var(--text-muted);text-align:center;padding:0.4rem;border-radius:0.65rem;background:var(--surface-secondary);">
+              Puedes eliminar definitivamente tus propios mensajes. Solo los administradores pueden eliminar los de otros.
+            </div>
+          `}
+        </div>`,
+      onMount: () => {
+        document.getElementById('rch-opt-select')?.addEventListener('click', () => {
+          UI.closeModal();
+          chatUiState.selectMode = true;
+          chatUiState.selectGroupId = group.id;
+          chatUiState.selectedIds.clear();
+          rerender();
+        });
+        document.getElementById('rch-opt-clear')?.addEventListener('click', () => {
+          UI.closeModal();
+          confirmClearChat();
+        });
+      }
+    });
+  });
+
+  // Controles de selección múltiple
+  if (chatUiState.selectMode) {
+    viewport.querySelectorAll('[data-toggle-select]').forEach(row => {
+      row.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const mid = row.getAttribute('data-toggle-select');
+        if (!mid) return;
+        if (chatUiState.selectedIds.has(mid)) chatUiState.selectedIds.delete(mid);
+        else chatUiState.selectedIds.add(mid);
+        rerender();
+      });
+    });
+    viewport.querySelector('#rch-bulk-cancel')?.addEventListener('click', () => {
+      chatUiState.selectMode = false;
+      chatUiState.selectedIds.clear();
+      rerender();
+    });
+    viewport.querySelector('#rch-bulk-delete')?.addEventListener('click', () => {
+      confirmDeleteMessages(Array.from(chatUiState.selectedIds));
+    });
+  }
+
+  // Barra de mensaje fijado
+  viewport.querySelector('#rch-unpin-btn')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const res = store.togglePinChatMessage(null);
+    if (res.ok) UI.showToast('Mensaje desfijado', 'info');
+  });
 
   // Buscador en chat
   viewport.querySelector('#rch-toggle-search')?.addEventListener('click', () => {
@@ -299,7 +688,7 @@ export function renderGroupChatView(viewport, group, user, ctx) {
       const next = viewport.querySelector('#rch-search-inp');
       if (next) {
         next.focus();
-        next.setSelectionRange(pos, pos);
+        try { next.setSelectionRange(pos, pos); } catch (_) {}
       }
     });
   }
@@ -310,12 +699,14 @@ export function renderGroupChatView(viewport, group, user, ctx) {
   });
 
   // Abrir perfil al tocar avatar
-  viewport.querySelectorAll('[data-chat-profile]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const uid = btn.getAttribute('data-chat-profile');
-      if (uid) store.navigate('profile', { inspectUserId: uid });
+  if (!chatUiState.selectMode) {
+    viewport.querySelectorAll('[data-chat-profile]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const uid = btn.getAttribute('data-chat-profile');
+        if (uid) store.navigate('profile', { inspectUserId: uid });
+      });
     });
-  });
+  }
 
   // Popover + (atado a rootEl para no acumular listeners en viewport)
   const pop = viewport.querySelector('#rch-pop');
@@ -358,7 +749,9 @@ export function renderGroupChatView(viewport, group, user, ctx) {
     if (!f) return;
     try {
       const url = await compressImageFile(f);
-      const caption = viewport.querySelector('#rch-text-inp')?.value.trim() || '';
+      const caption = (chatUiState.drafts[group.id] || '').trim();
+      chatUiState.drafts[group.id] = '';
+      chatUiState.forceScrollBottom = true;
       store.sendChatMessage({ text: caption, quote: getPendingQuote(), media: { type: 'image', url, name: f.name } });
       setPendingQuote(null);
     } catch (_) {
@@ -380,7 +773,9 @@ export function renderGroupChatView(viewport, group, user, ctx) {
     }
     try {
       const url = await readAsDataUrl(f);
-      const caption = viewport.querySelector('#rch-text-inp')?.value.trim() || '';
+      const caption = (chatUiState.drafts[group.id] || '').trim();
+      chatUiState.drafts[group.id] = '';
+      chatUiState.forceScrollBottom = true;
       store.sendChatMessage({ text: caption, quote: getPendingQuote(), media: { type: 'video', url, name: f.name } });
       setPendingQuote(null);
     } catch (_) {
@@ -389,13 +784,15 @@ export function renderGroupChatView(viewport, group, user, ctx) {
     e.target.value = '';
   });
 
-  // Nota de voz / audio
+  // Nota de voz / audio (con vista previa antes de enviar)
   const audioInp = viewport.querySelector('#rch-inp-audio');
   viewport.querySelector('#rch-act-audio')?.addEventListener('click', () => {
     togglePop(false);
     openVoiceRecorderModal({
       onSend: (audioDataUrl, durationLabel) => {
-        const caption = viewport.querySelector('#rch-text-inp')?.value.trim() || '';
+        const caption = (chatUiState.drafts[group.id] || '').trim();
+        chatUiState.drafts[group.id] = '';
+        chatUiState.forceScrollBottom = true;
         store.sendChatMessage({ text: caption, quote: getPendingQuote(), media: { type: 'audio', url: audioDataUrl, duration: durationLabel } });
         setPendingQuote(null);
       },
@@ -412,6 +809,7 @@ export function renderGroupChatView(viewport, group, user, ctx) {
     }
     try {
       const url = await readAsDataUrl(f);
+      chatUiState.forceScrollBottom = true;
       store.sendChatMessage({ text: '', quote: getPendingQuote(), media: { type: 'audio', url, name: f.name } });
       setPendingQuote(null);
     } catch (_) {
@@ -420,21 +818,14 @@ export function renderGroupChatView(viewport, group, user, ctx) {
     e.target.value = '';
   });
 
-  // Reacciones directas en burbujas
-  viewport.querySelectorAll('[data-react-msg]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      store.toggleChatMessageReaction(btn.getAttribute('data-react-msg'), btn.getAttribute('data-react-emoji'));
-    });
-  });
-
   // Responder mensaje
   const replyToMsg = (msg) => {
-    const preview = msg.text || (msg.media ? `[${msg.media.type === 'image' ? 'Foto' : msg.media.type === 'video' ? 'Vídeo' : 'Nota de voz'}]` : (msg.quote?.title || 'Mensaje'));
+    const senderLabel = senderNameFor(msg, group);
     setPendingQuote({
       type: 'message',
       itemId: msg.id,
-      label: `💬 Respuesta a ${msg.senderName}`,
-      title: preview,
+      label: `💬 Respuesta a ${senderLabel}`,
+      title: messagePreviewText(msg),
       subtitle: Utils.formatTime(msg.timestamp),
       thumb: ''
     });
@@ -442,19 +833,16 @@ export function renderGroupChatView(viewport, group, user, ctx) {
     viewport.querySelector('#rch-text-inp')?.focus();
   };
 
-  viewport.querySelectorAll('[data-reply-msg]').forEach(btn => btn.addEventListener('click', () => {
-    const m = allMessages.find(x => x.id === btn.getAttribute('data-reply-msg'));
-    if (m) replyToMsg(m);
-  }));
-
-  // Menú ⋯ de cada mensaje: Reacciones rápidas + Copiar + Responder + Eliminar
-  viewport.querySelectorAll('[data-more-msg]').forEach(btn => btn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    const m = allMessages.find(x => x.id === btn.getAttribute('data-more-msg'));
+  // Menú ⋯ / long-press de cada mensaje
+  const openMessageActionsModal = (m) => {
     if (!m) return;
     const canDelete = store.canDeleteChatMessage(group, m, user);
+    const canEdit = store.canEditChatMessage(group, m, user);
+    const isPinned = Boolean(group.pinnedMessageId && group.pinnedMessageId === m.id);
+    const displayName = senderNameFor(m, group);
+
     UI.openModal({
-      title: `Mensaje de ${m.senderName || 'Miembro'}`,
+      title: `Mensaje de ${displayName}`,
       contentHtml: `
         <div style="display:flex;flex-direction:column;gap:.75rem;">
           <div class="rch-quick-reacts">
@@ -466,8 +854,10 @@ export function renderGroupChatView(viewport, group, user, ctx) {
           <div style="display:flex;flex-direction:column;gap:.5rem;">
             <button type="button" class="btn btn-secondary" id="ch-m-reply">↩ Responder</button>
             ${m.text ? `<button type="button" class="btn btn-secondary" id="ch-m-copy">📋 Copiar texto</button>` : ''}
-            ${canDelete ? `<button type="button" class="btn btn-danger" id="ch-m-del">🗑️ Eliminar mensaje</button>` : `
-              <div style="font-size:.76rem;color:var(--text-muted);text-align:center;padding:.45rem;border-radius:.75rem;background:var(--surface-secondary);">🔒 Solo ${Utils.sanitize(m.senderName || 'el autor')} o el líder del grupo pueden eliminar este mensaje.</div>`}
+            ${canEdit ? `<button type="button" class="btn btn-secondary" id="ch-m-edit">✏️ Editar mensaje</button>` : ''}
+            ${isAdmin ? `<button type="button" class="btn btn-secondary" id="ch-m-pin">${isPinned ? '📌 Desfijar del chat' : '📌 Fijar arriba en el chat'}</button>` : ''}
+            ${canDelete ? `<button type="button" class="btn btn-danger" id="ch-m-del">🗑️ Eliminar definitivamente</button>` : `
+              <div style="font-size:.76rem;color:var(--text-muted);text-align:center;padding:.45rem;border-radius:.75rem;background:var(--surface-secondary);">🔒 Solo ${Utils.sanitize(displayName)} o un administrador pueden eliminar este mensaje.</div>`}
           </div>
         </div>`,
       onMount: () => {
@@ -483,59 +873,131 @@ export function renderGroupChatView(viewport, group, user, ctx) {
           UI.closeModal();
         });
         document.getElementById('ch-m-reply')?.addEventListener('click', () => { UI.closeModal(); replyToMsg(m); });
-        document.getElementById('ch-m-del')?.addEventListener('click', () => {
-          const res = store.deleteChatMessage(m.id);
+        document.getElementById('ch-m-edit')?.addEventListener('click', () => { UI.closeModal(); openEditMessageModal(m); });
+        document.getElementById('ch-m-pin')?.addEventListener('click', () => {
+          const res = store.togglePinChatMessage(m.id);
           UI.closeModal();
-          UI.showToast(res.ok ? 'Mensaje eliminado 🗑️' : res.error, res.ok ? 'info' : 'error');
+          if (res.ok) UI.showToast(res.pinned ? 'Mensaje fijado arriba 📌' : 'Mensaje desfijado', 'success');
+          else UI.showToast(res.error || 'No se pudo fijar.', 'error');
+        });
+        document.getElementById('ch-m-del')?.addEventListener('click', () => {
+          UI.closeModal();
+          confirmDeleteMessages([m.id], displayName);
         });
       }
     });
-  }));
+  };
 
-  // Reproducir canción citada directamente desde el chat
-  viewport.querySelectorAll('[data-chat-play-song]').forEach(btn => btn.addEventListener('click', async (e) => {
-    e.stopPropagation();
-    const songId = btn.getAttribute('data-chat-play-song');
-    const song = (group.songs || []).find(s => s.id === songId);
-    if (!song) return;
-    if (song.previewUrl) {
-      const res = MusicService.toggleTrack(song);
-      btn.textContent = res.isPlaying ? '⏸' : '▶';
-      return;
-    }
-    btn.textContent = '⏳';
-    const results = await MusicService.searchSongs(`${song.title} ${song.artist}`, 3);
-    if (results.length > 0 && results[0].previewUrl) {
-      store.updateMediaItem('songs', song.id, { previewUrl: results[0].previewUrl }, { silent: true });
-      song.previewUrl = results[0].previewUrl;
-      MusicService.playTrack(song);
-      btn.textContent = '⏸';
-    } else {
-      btn.textContent = '▶';
-      UI.showToast('Preview de 30s no disponible.', 'info');
-    }
-  }));
-
-  // Navegar a sección al tocar tarjeta citada o hacer scroll al mensaje respondido
-  viewport.querySelectorAll('[data-jump-quote-type]').forEach(box => box.addEventListener('click', () => {
-    const t = box.getAttribute('data-jump-quote-type');
-    if (t === 'memory') store.navigate('group', { groupTab: 'memories' });
-    else if (t === 'movie') store.navigate('group', { groupTab: 'movies' });
-    else if (t === 'series') store.navigate('group', { groupTab: 'series' });
-    else if (t === 'song') store.navigate('group', { groupTab: 'music' });
-    else if (t === 'book') store.navigate('group', { groupTab: 'books' });
-    else if (t === 'activity' || t === 'goal') store.navigate('group', { groupTab: 'goals_notes' });
-  }));
-  viewport.querySelectorAll('[data-jump-msg]').forEach(box => box.addEventListener('click', () => {
-    const target = viewport.querySelector(`[data-msg-id="${CSS.escape(box.getAttribute('data-jump-msg'))}"]`);
-    target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }));
-  const bindZoom = (img) => {
-    img.addEventListener('click', () => {
-      UI.openModal({
-        title: 'Foto del chat',
-        contentHtml: `<img src="${Utils.sanitize(img.getAttribute('data-zoom-img'))}" style="width:100%;max-height:70dvh;object-fit:contain;border-radius:12px;">`
+  if (!chatUiState.selectMode) {
+    // Reacciones directas en burbujas
+    viewport.querySelectorAll('[data-react-msg]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        store.toggleChatMessageReaction(btn.getAttribute('data-react-msg'), btn.getAttribute('data-react-emoji'));
       });
+    });
+
+    viewport.querySelectorAll('[data-reply-msg]').forEach(btn => btn.addEventListener('click', () => {
+      const m = allMessages.find(x => x.id === btn.getAttribute('data-reply-msg'));
+      if (m) replyToMsg(m);
+    }));
+
+    viewport.querySelectorAll('[data-more-msg]').forEach(btn => btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const m = allMessages.find(x => x.id === btn.getAttribute('data-more-msg'));
+      if (m) openMessageActionsModal(m);
+    }));
+
+    // Pulsación larga en móvil sobre cualquier burbuja para abrir reacciones y acciones
+    viewport.querySelectorAll('[data-bubble-msg]').forEach(bubble => {
+      let pressTimer = null;
+      let startX = 0;
+      let startY = 0;
+      const cancelPress = () => {
+        if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+      };
+      bubble.addEventListener('touchstart', (e) => {
+        if (e.touches.length !== 1) return;
+        if (e.target.closest('button, a, audio, video, img')) return;
+        startX = e.touches[0].clientX;
+        startY = e.touches[0].clientY;
+        const mid = bubble.getAttribute('data-bubble-msg');
+        pressTimer = setTimeout(() => {
+          pressTimer = null;
+          const m = allMessages.find(x => x.id === mid);
+          if (m) {
+            try { navigator.vibrate?.(15); } catch (_) {}
+            openMessageActionsModal(m);
+          }
+        }, 460);
+      }, { passive: true });
+      bubble.addEventListener('touchmove', (e) => {
+        if (!pressTimer || e.touches.length !== 1) return;
+        const dx = Math.abs(e.touches[0].clientX - startX);
+        const dy = Math.abs(e.touches[0].clientY - startY);
+        if (dx > 10 || dy > 10) cancelPress();
+      }, { passive: true });
+      bubble.addEventListener('touchend', cancelPress, { passive: true });
+      bubble.addEventListener('touchcancel', cancelPress, { passive: true });
+    });
+
+    // Reproducir canción citada directamente desde el chat (sincronizado con reproductor global)
+    const syncChatSongBtns = (playerState) => {
+      if (!document.body.contains(viewport)) {
+        if (unsubscribeChatMusic) { unsubscribeChatMusic(); unsubscribeChatMusic = null; }
+        return;
+      }
+      const activeId = playerState?.isPlaying ? playerState.trackId : null;
+      viewport.querySelectorAll('[data-chat-play-song]').forEach(btn => {
+        const sid = btn.getAttribute('data-chat-play-song');
+        if (btn.textContent !== '⏳') {
+          btn.textContent = (activeId && activeId === sid) ? '⏸' : '▶';
+        }
+      });
+    };
+    if (unsubscribeChatMusic) unsubscribeChatMusic();
+    unsubscribeChatMusic = MusicService.subscribe(syncChatSongBtns);
+
+    viewport.querySelectorAll('[data-chat-play-song]').forEach(btn => btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const songId = btn.getAttribute('data-chat-play-song');
+      const song = (group.songs || []).find(s => s.id === songId);
+      if (!song) return;
+      if (song.previewUrl) {
+        MusicService.toggleTrack(song);
+        return;
+      }
+      btn.textContent = '⏳';
+      const res = await MusicService.playTrackOrResolve(song);
+      if (!res.ok) {
+        btn.textContent = '▶';
+        UI.showToast(res.error || 'Preview de 30s no disponible.', 'info');
+      }
+    }));
+
+    // Navegar a sección al tocar tarjeta citada
+    viewport.querySelectorAll('[data-jump-quote-type]').forEach(box => box.addEventListener('click', () => {
+      const t = box.getAttribute('data-jump-quote-type');
+      if (t === 'memory') store.navigate('group', { groupTab: 'memories' });
+      else if (t === 'movie') store.navigate('group', { groupTab: 'movies' });
+      else if (t === 'series') store.navigate('group', { groupTab: 'series' });
+      else if (t === 'song') store.navigate('group', { groupTab: 'music' });
+      else if (t === 'book') store.navigate('group', { groupTab: 'books' });
+      else if (t === 'activity' || t === 'goal') store.navigate('group', { groupTab: 'goals_notes' });
+    }));
+
+    // Saltar y resaltar mensaje respondido o fijado
+    viewport.querySelectorAll('[data-jump-msg]').forEach(box => box.addEventListener('click', () => {
+      jumpToMessage(box.getAttribute('data-jump-msg'));
+    }));
+  } else {
+    if (unsubscribeChatMusic) { unsubscribeChatMusic(); unsubscribeChatMusic = null; }
+  }
+
+  const bindZoom = (img) => {
+    img.addEventListener('click', (e) => {
+      if (chatUiState.selectMode) return;
+      e.stopPropagation();
+      UI.openLightbox(img.getAttribute('data-zoom-img'), false);
     });
   };
   viewport.querySelectorAll('[data-zoom-img]').forEach(bindZoom);
@@ -564,8 +1026,11 @@ export function renderGroupChatView(viewport, group, user, ctx) {
     e.preventDefault();
     const inp = viewport.querySelector('#rch-text-inp');
     const text = inp?.value.trim();
-    if (!text) return;
-    store.sendChatMessage({ text, quote: getPendingQuote() });
+    const pending = getPendingQuote();
+    if (!text && !pending) return;
+    chatUiState.drafts[group.id] = '';
+    chatUiState.forceScrollBottom = true;
+    store.sendChatMessage({ text, quote: pending });
     setPendingQuote(null);
   });
 }
@@ -592,6 +1057,8 @@ function openVoiceRecorderModal({ onSend, onPickFile }) {
   let timer = null;
   let secs = 0;
   let cancelled = false;
+  let previewDataUrl = null;
+  let previewDuration = '00:00';
 
   const stopTracks = () => {
     clearInterval(timer);
@@ -605,15 +1072,22 @@ function openVoiceRecorderModal({ onSend, onPickFile }) {
   };
 
   UI.openModal({
-    title: '🎙️ Grabar nota de voz',
+    title: '🎙️ Nota de voz',
     onClose: stopTracks,
     contentHtml: `
       <div style="display:flex;flex-direction:column;align-items:center;gap:.9rem;padding:.5rem 0;">
         <div id="rch-rec-timer" style="font-family:var(--font-display);font-size:2rem;font-weight:800;color:var(--primary);">00:00</div>
-        <div id="rch-rec-status" style="font-size:.82rem;color:var(--text-secondary);">Pulsa «Grabar» para usar tu micrófono</div>
-        <div style="display:flex;gap:.6rem;flex-wrap:wrap;justify-content:center;">
+        <div id="rch-rec-status" style="font-size:.82rem;color:var(--text-secondary);text-align:center;">Pulsa «Grabar» para usar tu micrófono</div>
+        <div id="rch-rec-preview" hidden style="width:100%;display:flex;flex-direction:column;gap:.65rem;align-items:center;">
+          <audio id="rch-rec-audio" controls style="width:100%;"></audio>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:.55rem;width:100%;">
+            <button type="button" class="btn btn-secondary btn-sm" id="rch-rec-retry" style="justify-content:center;">🔄 Grabar de nuevo</button>
+            <button type="button" class="btn btn-primary btn-sm" id="rch-rec-send" style="justify-content:center;">➤ Enviar audio</button>
+          </div>
+        </div>
+        <div id="rch-rec-controls" style="display:flex;gap:.6rem;flex-wrap:wrap;justify-content:center;">
           <button type="button" class="btn btn-primary" id="rch-rec-start">🎙️ Grabar</button>
-          <button type="button" class="btn btn-danger" id="rch-rec-stop" hidden>⏹ Detener y enviar</button>
+          <button type="button" class="btn btn-danger" id="rch-rec-stop" hidden>⏹ Detener</button>
           <button type="button" class="btn btn-secondary" id="rch-rec-file">📁 Subir archivo</button>
         </div>
       </div>`,
@@ -621,10 +1095,35 @@ function openVoiceRecorderModal({ onSend, onPickFile }) {
       const startBtn = document.getElementById('rch-rec-start');
       const stopBtn = document.getElementById('rch-rec-stop');
       const fileBtn = document.getElementById('rch-rec-file');
+      const controlsEl = document.getElementById('rch-rec-controls');
+      const previewEl = document.getElementById('rch-rec-preview');
+      const audioEl = document.getElementById('rch-rec-audio');
+      const retryBtn = document.getElementById('rch-rec-retry');
+      const sendBtn = document.getElementById('rch-rec-send');
       const statusEl = document.getElementById('rch-rec-status');
       const timerEl = document.getElementById('rch-rec-timer');
 
+      const resetToIdle = () => {
+        previewDataUrl = null;
+        secs = 0;
+        if (timerEl) timerEl.textContent = '00:00';
+        if (statusEl) statusEl.textContent = 'Pulsa «Grabar» para usar tu micrófono';
+        if (previewEl) previewEl.hidden = true;
+        if (controlsEl) controlsEl.hidden = false;
+        if (startBtn) startBtn.hidden = false;
+        if (stopBtn) stopBtn.hidden = true;
+        if (fileBtn) fileBtn.hidden = false;
+      };
+
       fileBtn?.addEventListener('click', () => { UI.closeModal(); onPickFile(); });
+      retryBtn?.addEventListener('click', resetToIdle);
+      sendBtn?.addEventListener('click', () => {
+        if (!previewDataUrl) return;
+        const outUrl = previewDataUrl;
+        const outDur = previewDuration;
+        UI.closeModal();
+        onSend(outUrl, outDur);
+      });
 
       startBtn?.addEventListener('click', async () => {
         if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
@@ -634,7 +1133,9 @@ function openVoiceRecorderModal({ onSend, onPickFile }) {
         try {
           stream = await navigator.mediaDevices.getUserMedia({ audio: true });
           chunks = [];
+          secs = 0;
           cancelled = false;
+          if (timerEl) timerEl.textContent = '00:00';
           const mimeType = pickSupportedAudioMime();
           recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
           recorder.ondataavailable = (ev) => { if (ev.data && ev.data.size > 0) chunks.push(ev.data); };
@@ -648,13 +1149,17 @@ function openVoiceRecorderModal({ onSend, onPickFile }) {
             const blob = new Blob(chunks, { type: finalMime });
             if (blob.size > 1.5 * 1024 * 1024) {
               UI.showToast('El audio superó 1.5 MB. Graba un mensaje más corto.', 'error');
+              resetToIdle();
               return;
             }
-            const dataUrl = await readAsDataUrl(blob);
+            previewDataUrl = await readAsDataUrl(blob);
             const mm = String(Math.floor(secs / 60)).padStart(2, '0');
             const ss = String(secs % 60).padStart(2, '0');
-            UI.closeModal();
-            onSend(dataUrl, `${mm}:${ss}`);
+            previewDuration = `${mm}:${ss}`;
+            if (audioEl) audioEl.src = previewDataUrl;
+            if (controlsEl) controlsEl.hidden = true;
+            if (previewEl) previewEl.hidden = false;
+            if (statusEl) statusEl.textContent = 'Escucha tu nota de voz antes de enviarla';
           };
           recorder.start();
           startBtn.hidden = true;
