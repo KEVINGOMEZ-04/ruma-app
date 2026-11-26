@@ -1,6 +1,14 @@
 /**
- * ruma 🌟 — Utilidades de Formato, Compresión y Fechas para Google Drive
+ * ruma 🌟 — Utilidades de Formato, Seguridad, Portapapeles iOS, Compresión y Fechas
  */
+
+const ESC_MAP = {
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&#39;'
+};
 
 export const Utils = {
   generateId(prefix = 'ruma') {
@@ -18,9 +26,47 @@ export const Utils = {
 
   sanitize(str) {
     if (str === null || str === undefined) return '';
-    const div = document.createElement('div');
-    div.textContent = String(str);
-    return div.innerHTML;
+    return String(str).replace(/[&<>"']/g, ch => ESC_MAP[ch]);
+  },
+
+  safeUrl(url, fallback = '') {
+    if (!url || typeof url !== 'string') return fallback;
+    const trimmed = url.trim();
+    if (/^(https?:\/\/|mailto:|data:image\/|data:audio\/|data:video\/|blob:|assets\/|\.\/|\/)/i.test(trimmed)) {
+      return trimmed;
+    }
+    return fallback;
+  },
+
+  /**
+   * Copia texto al portapapeles con respaldo compatible con iPhone / Safari iOS.
+   */
+  async copyText(text) {
+    const val = String(text ?? '');
+    if (!val) return false;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(val);
+        return true;
+      }
+    } catch (_) {
+      // Fallback para Safari iOS cuando se llama tras un await o sin HTTPS
+    }
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = val;
+      ta.setAttribute('readonly', '');
+      ta.style.cssText = 'position:fixed;top:-9999px;left:-9999px;font-size:16px;opacity:0;';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      ta.setSelectionRange(0, val.length);
+      const ok = document.execCommand('copy');
+      ta.remove();
+      return Boolean(ok);
+    } catch (_) {
+      return false;
+    }
   },
 
   /**
@@ -28,8 +74,9 @@ export const Utils = {
    * Ej: "Domingo 15 de noviembre de 2026"
    */
   formatFullSpanishDate(dateInput) {
-    const d = dateInput ? new Date(dateInput.includes('T') ? dateInput : `${dateInput}T12:00:00`) : new Date();
-    if (isNaN(d.getTime())) return String(dateInput || '');
+    const raw = String(dateInput || '');
+    const d = raw ? new Date(raw.includes('T') ? raw : `${raw}T12:00:00`) : new Date();
+    if (isNaN(d.getTime())) return raw;
     const formatted = new Intl.DateTimeFormat('es-ES', {
       weekday: 'long',
       day: 'numeric',
@@ -51,8 +98,9 @@ export const Utils = {
 
   formatShortDate(dateInput) {
     if (!dateInput) return '';
-    const d = new Date(dateInput);
-    if (isNaN(d.getTime())) return String(dateInput);
+    const raw = String(dateInput);
+    const d = new Date(/^\d{4}-\d{2}-\d{2}$/.test(raw) ? `${raw}T12:00:00` : raw);
+    if (isNaN(d.getTime())) return raw;
     return new Intl.DateTimeFormat('es-ES', {
       day: 'numeric',
       month: 'short',
@@ -81,13 +129,16 @@ export const Utils = {
     }
 
     return new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const img = new Image();
-        img.onload = () => {
-          let { width, height } = img;
+      const objUrl = URL.createObjectURL(file);
+      const img = new Image();
+      const cleanup = () => URL.revokeObjectURL(objUrl);
+
+      img.onload = () => {
+        try {
+          let width = img.naturalWidth || img.width;
+          let height = img.naturalHeight || img.height;
           if (width > maxDimension || height > maxDimension) {
-            if (width > height) {
+            if (width >= height) {
               height = Math.round((height * maxDimension) / width);
               width = maxDimension;
             } else {
@@ -96,17 +147,24 @@ export const Utils = {
             }
           }
           const canvas = document.createElement('canvas');
-          canvas.width = width;
-          canvas.height = height;
+          canvas.width = Math.max(1, width);
+          canvas.height = Math.max(1, height);
           const ctx = canvas.getContext('2d');
-          ctx.drawImage(img, 0, 0, width, height);
-          resolve(canvas.toDataURL('image/jpeg', quality));
-        };
-        img.onerror = () => resolve(e.target.result || '');
-        img.src = e.target.result;
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          const out = canvas.toDataURL('image/jpeg', quality);
+          cleanup();
+          resolve(out);
+        } catch (_) {
+          cleanup();
+          resolve('');
+        }
       };
-      reader.onerror = () => resolve('');
-      reader.readAsDataURL(file);
+
+      img.onerror = () => {
+        cleanup();
+        resolve('');
+      };
+      img.src = objUrl;
     });
   }
 };

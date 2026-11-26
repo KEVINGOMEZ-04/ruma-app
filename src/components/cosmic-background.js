@@ -14,8 +14,8 @@ export class CosmicBackground {
       this.canvas.style.cssText = `
         position: fixed;
         inset: 0;
-        width: 100vw;
-        height: 100vh;
+        width: 100%;
+        height: 100%;
         pointer-events: none;
         z-index: 0;
       `;
@@ -27,6 +27,7 @@ export class CosmicBackground {
     this.nebulae = [];
     this.isRunning = false;
     this.animFrame = null;
+    this.reduceMotion = Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches);
 
     this.handleResize = this.handleResize.bind(this);
     this.handleVisibility = this.handleVisibility.bind(this);
@@ -36,7 +37,7 @@ export class CosmicBackground {
     document.addEventListener('visibilitychange', this.handleVisibility);
     this.handleResize();
     this.initElements();
-    this.start();
+    if (!this.reduceMotion) this.start();
   }
 
   isLight() {

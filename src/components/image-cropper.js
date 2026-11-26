@@ -26,13 +26,14 @@ export function openImageCropperModal(file, {
 
   UI.openModal({
     title,
+    onClose: revoke,
     contentHtml: `
       <div style="display:flex;flex-direction:column;gap:.85rem;align-items:center;">
         <div style="font-size:.8rem;color:var(--text-secondary);text-align:center;">
           Arrastra la imagen para encuadrar y usa el zoom
         </div>
-        <div id="ruma-crop-box" style="position:relative;width:100%;max-width:320px;aspect-ratio:${aspectW}/${aspectH};overflow:hidden;border-radius:${borderRadius};border:2px solid var(--primary);background:var(--surface-secondary);touch-action:none;cursor:grab;">
-          <img id="ruma-crop-img" src="${objUrl}" alt="" draggable="false" style="position:absolute;left:50%;top:50%;transform-origin:center;user-select:none;pointer-events:none;max-width:none;">
+        <div id="ruma-crop-box" style="position:relative;width:100%;max-width:320px;aspect-ratio:${aspectW}/${aspectH};overflow:hidden;border-radius:${borderRadius};border:2px solid var(--primary);background:var(--surface-secondary);touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;cursor:grab;">
+          <img id="ruma-crop-img" src="${objUrl}" alt="" draggable="false" style="position:absolute;left:50%;top:50%;transform-origin:center;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;pointer-events:none;max-width:none;">
         </div>
         <div style="width:100%;max-width:320px;display:flex;align-items:center;gap:.65rem;">
           <span style="font-size:.78rem;color:var(--text-secondary);font-weight:600;">Zoom</span>
@@ -76,7 +77,6 @@ export function openImageCropperModal(file, {
 
       img.onload = onReady;
       img.onerror = () => {
-        revoke();
         UI.closeModal();
         UI.showToast('No se pudo cargar la imagen seleccionada.', 'error');
       };
@@ -109,12 +109,8 @@ export function openImageCropperModal(file, {
         apply();
       });
 
-      const close = () => {
-        revoke();
-        UI.closeModal();
-      };
+      const close = () => UI.closeModal();
       document.getElementById('ruma-crop-cancel')?.addEventListener('click', close);
-      document.getElementById('ruma-modal-close-btn')?.addEventListener('click', revoke, { once: true });
 
       saveBtn?.addEventListener('click', () => {
         if (!loaded || !img.naturalWidth) return;

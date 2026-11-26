@@ -7,9 +7,9 @@
  * 4. Música (Métricas de duración/integrantes, filtros incluyendo por integrante y con recuerdos, reproductor flotante global con controles, letras completas LRCLIB, calificación 1-5★, recuerdos vinculados, hilo de comentarios).
  */
 
-import confetti from 'canvas-confetti';
+import { fireConfetti } from '../core/confetti.js';
 import { store } from '../core/store.js';
-import { Entitlements, PLAN_LIMITS } from '../core/entitlements.js';
+import { Entitlements } from '../core/entitlements.js';
 import { Utils } from '../core/utils.js';
 import { MediaService } from '../services/media-api.js';
 import { MusicService } from '../services/music-service.js';
@@ -55,15 +55,57 @@ let booksFilterState = 'all';
 
 import { groupHeaderHtml, bindGroupHeader } from './group-header.js';
 import { groupHomeHtml, bindGroupHome } from './group-home.js';
-import { renderGroupMemoriesView } from './group-memories.js';
-import { renderGroupMoviesView } from './group-movies.js';
-import { renderGroupSeriesView } from './group-series.js';
-import { renderGroupMusicView } from './group-music.js';
-import { renderGroupBooksView } from './group-books.js';
-import { renderGroupGoalsView, resetGoalsDetailState } from './group-goals.js';
-import { renderGroupChatView } from './group-chat.js';
+
+const groupTabCache = new Map();
+const groupTabLoaders = {
+  memories: () => import('./group-memories.js'),
+  movies: () => import('./group-movies.js'),
+  series: () => import('./group-series.js'),
+  music: () => import('./group-music.js'),
+  books: () => import('./group-books.js'),
+  goals_notes: () => import('./group-goals.js'),
+  chat: () => import('./group-chat.js')
+};
+let tabRenderSeq = 0;
+
+function resetGoalsIfLoaded() {
+  groupTabCache.get('goals_notes')?.resetGoalsDetailState?.();
+}
+
+function withGroupTab(tabKey, viewport, onReady) {
+  if (!viewport) return;
+  const cached = groupTabCache.get(tabKey);
+  if (cached) {
+    onReady(cached, viewport);
+    return;
+  }
+
+  const seq = tabRenderSeq;
+  viewport.innerHTML = `<div class="ruma-view-loading" role="status" aria-live="polite"><span class="ruma-spinner" aria-hidden="true"></span><span>Cargando sección...</span></div>`;
+
+  const loader = groupTabLoaders[tabKey];
+  if (!loader) return;
+  loader()
+    .then((mod) => {
+      groupTabCache.set(tabKey, mod);
+      if (seq !== tabRenderSeq) return;
+      const liveViewport = document.getElementById('group-tab-viewport') || viewport;
+      if (liveViewport && document.body.contains(liveViewport)) {
+        onReady(mod, liveViewport);
+      }
+    })
+    .catch((err) => {
+      console.error(`Error cargando pestaña ${tabKey}:`, err);
+      if (seq !== tabRenderSeq) return;
+      const liveViewport = document.getElementById('group-tab-viewport') || viewport;
+      if (liveViewport) {
+        liveViewport.innerHTML = `<div class="ruma-view-loading">No se pudo cargar esta sección. Intenta nuevamente.</div>`;
+      }
+    });
+}
 
 export function renderGroupInterface(container) {
+  tabRenderSeq += 1;
   const user = store.getCurrentUser();
   const group = store.getActiveGroup();
 
@@ -72,13 +114,8 @@ export function renderGroupInterface(container) {
     return;
   }
 
-  const isPrem = Entitlements.isGroupPremium(group);
   const isAdmin = Entitlements.isGroupAdmin(group, user.id);
   const tab = store.currentGroupTab || 'home';
-
-  const maxMovies = isPrem ? '∞' : PLAN_LIMITS.free.maxMoviesPerGroup;
-  const maxSeries = isPrem ? '∞' : PLAN_LIMITS.free.maxSeriesPerGroup;
-  const maxSongs = isPrem ? '∞' : PLAN_LIMITS.free.maxSongsPerGroup;
 
   // Sincronizar playlist global con las canciones del grupo activo
   MusicService.setPlaylist(group.songs || []);
@@ -86,7 +123,7 @@ export function renderGroupInterface(container) {
   const SECTION_TITLES = { memories: 'Recuerdos', movies: 'Películas', series: 'Series', music: 'Música', books: 'Libros', goals_notes: 'Objetivos', chat: 'Chat del grupo' };
   const isHome = tab === 'home';
   if (tab === 'chat') store.markChatSeen(group);
-  if (tab !== 'goals_notes') resetGoalsDetailState();
+  if (tab !== 'goals_notes') resetGoalsIfLoaded();
 
   container.innerHTML = `
     <div class="rg-wrap">
@@ -103,7 +140,7 @@ export function renderGroupInterface(container) {
     bindGroupHeader(container, group, user, {
       onTab: (nextTab) => {
         if (nextTab !== 'series') activeSeriesDetailId = null;
-        if (nextTab !== 'goals_notes') resetGoalsDetailState();
+        if (nextTab !== 'goals_notes') resetGoalsIfLoaded();
         store.navigate('group', { groupTab: nextTab });
       }
     });
@@ -112,7 +149,7 @@ export function renderGroupInterface(container) {
   }
   document.getElementById('rg-back-home')?.addEventListener('click', () => {
     activeSeriesDetailId = null;
-    resetGoalsDetailState();
+    resetGoalsIfLoaded();
     store.navigate('group', { groupTab: 'home' });
   });
 
@@ -193,24 +230,26 @@ function getHolidaysForYear(year) {
 }
 
 function renderMemoriesTab(viewport, group, user, isAdmin) {
-  renderGroupMemoriesView(viewport, group, user, isAdmin, {
-    memFilterState,
-    getHolidaysForYear,
-    openUploadMemoryModal,
-    openMemoryDetailModal,
-    openAddPlanModal,
-    onQuoteMemory: (mem) => {
-      pendingChatQuote = {
-        type: 'memory',
-        itemId: mem.id,
-        label: '📸 Recuerdo',
-        title: mem.title,
-        subtitle: mem.subfolderName || Utils.formatFullSpanishDate(mem.date),
-        thumb: mem.coverPreview || 'assets/ruma_default_avatar.png'
-      };
-      store.navigate('group', { groupTab: 'chat' });
-    },
-    rerender: () => renderMemoriesTab(viewport, group, user, isAdmin)
+  withGroupTab('memories', viewport, (mod, liveViewport) => {
+    mod.renderGroupMemoriesView(liveViewport, group, user, isAdmin, {
+      memFilterState,
+      getHolidaysForYear,
+      openUploadMemoryModal,
+      openMemoryDetailModal,
+      openAddPlanModal,
+      onQuoteMemory: (mem) => {
+        pendingChatQuote = {
+          type: 'memory',
+          itemId: mem.id,
+          label: '📸 Recuerdo',
+          title: mem.title,
+          subtitle: mem.subfolderName || Utils.formatFullSpanishDate(mem.date),
+          thumb: mem.coverPreview || 'assets/ruma_default_avatar.png'
+        };
+        store.navigate('group', { groupTab: 'chat' });
+      },
+      rerender: () => renderMemoriesTab(liveViewport, group, user, isAdmin)
+    });
   });
 }
 
@@ -269,8 +308,15 @@ function openUploadMemoryModal(group, editingMemory = null, prefillDate = null, 
   let selectedSong = editingMemory?.song || null;
   let recordedVoiceDataUrl = editingMemory?.voiceNote || null;
   let mediaRecorder = null;
+  let activeVoiceStream = null;
   let audioChunks = [];
   let isRecording = false;
+  const stopVoiceCapture = () => {
+    isRecording = false;
+    try { if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop(); } catch (_) {}
+    try { activeVoiceStream?.getTracks().forEach(t => t.stop()); } catch (_) {}
+    activeVoiceStream = null;
+  };
 
   const auraColors = [
     { hex: '#A855F7', label: 'Violeta' },
@@ -387,6 +433,7 @@ function openUploadMemoryModal(group, editingMemory = null, prefillDate = null, 
         </div>
       </form>
     `,
+    onClose: stopVoiceCapture,
     onMount: (modalEl) => {
       const titleInp = document.getElementById('mem-title');
       const dateInp = document.getElementById('mem-date');
@@ -441,25 +488,38 @@ function openUploadMemoryModal(group, editingMemory = null, prefillDate = null, 
         });
       });
 
-      // Grabadora de voz real con MediaRecorder
+      // Grabadora de voz real con MediaRecorder (compatible con iPhone/iOS Safari)
       const recordBtn = document.getElementById('btn-mem-record-voice');
       const voiceStatus = document.getElementById('mem-voice-status');
       recordBtn?.addEventListener('click', async () => {
         if (!isRecording) {
           try {
+            if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+              UI.showToast('Tu navegador no soporta grabación de audio.', 'error');
+              return;
+            }
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            mediaRecorder = new MediaRecorder(stream);
+            activeVoiceStream = stream;
+            const preferredMime = (typeof MediaRecorder.isTypeSupported === 'function')
+              ? ['audio/mp4', 'audio/mp4;codecs=mp4a.40.2', 'audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus']
+                .find(t => MediaRecorder.isTypeSupported(t)) || ''
+              : '';
+            mediaRecorder = preferredMime ? new MediaRecorder(stream, { mimeType: preferredMime }) : new MediaRecorder(stream);
             audioChunks = [];
-            mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+            mediaRecorder.ondataavailable = e => { if (e.data && e.data.size > 0) audioChunks.push(e.data); };
             mediaRecorder.onstop = () => {
-              const blob = new Blob(audioChunks, { type: 'audio/webm' });
-              const reader = new FileReader();
-              reader.onloadend = () => {
-                recordedVoiceDataUrl = reader.result;
-                if (voiceStatus) voiceStatus.textContent = '✅ Nota de voz grabada con éxito';
-              };
-              reader.readAsDataURL(blob);
+              const outMime = mediaRecorder?.mimeType || preferredMime || 'audio/mp4';
+              const blob = new Blob(audioChunks, { type: outMime });
+              if (blob.size > 0) {
+                const reader = new FileReader();
+                reader.onloadend = () => {
+                  recordedVoiceDataUrl = reader.result;
+                  if (voiceStatus) voiceStatus.textContent = '✅ Nota de voz grabada con éxito';
+                };
+                reader.readAsDataURL(blob);
+              }
               stream.getTracks().forEach(t => t.stop());
+              if (activeVoiceStream === stream) activeVoiceStream = null;
             };
             mediaRecorder.start();
             isRecording = true;
@@ -611,7 +671,7 @@ async function openMemoryDetailModal(group, mem, user) {
               ${resolvedMedia.map((item, idx) => `
                 <div style="width:120px;height:95px;border-radius:var(--radius-sm);overflow:hidden;flex-shrink:0;cursor:pointer;border:1px solid var(--border-subtle);position:relative;" data-lightbox-idx="${idx}">
                   ${item.isVideo
-                    ? `<video src="${Utils.sanitize(item.url)}" style="width:100%;height:100%;object-fit:cover;"></video><span class="badge badge-admin" style="position:absolute;bottom:4px;right:4px;">▶</span>`
+                    ? `<video src="${Utils.sanitize(item.url)}#t=0.001" muted playsinline webkit-playsinline preload="metadata" style="width:100%;height:100%;object-fit:cover;"></video><span class="badge badge-admin" style="position:absolute;bottom:4px;right:4px;">▶</span>`
                     : `<img src="${Utils.sanitize(item.url)}" alt="media" style="width:100%;height:100%;object-fit:cover;">`
                   }
                 </div>
@@ -648,6 +708,9 @@ async function openMemoryDetailModal(group, mem, user) {
         </div>
       </div>
     `,
+    onClose: () => {
+      resolvedMedia.forEach(m => MediaStorage.revokeMediaStreamUrl(m.url));
+    },
     onMount: (modalEl) => {
       document.getElementById('mem-detail-hero-img')?.addEventListener('click', () => {
         UI.openLightbox(mem.coverPreview || photos[0], false, mem.title);
@@ -716,25 +779,27 @@ async function openMemoryDetailModal(group, mem, user) {
 // 2. PESTAÑA PELÍCULAS (Cartelera Colaborativa LUMA + Ruleta + Ficha + Dónde Ver + Comentarios)
 // ============================================================================
 function renderMoviesTab(viewport, group, user) {
-  renderGroupMoviesView(viewport, group, user, {
-    getFilterState: () => movieFilterState,
-    setFilterState: (v) => { movieFilterState = v; },
-    openSearchTmdbModal,
-    openMovieDetailModal,
-    openReviewModal,
-    openMediaCommentsModal,
-    onQuoteMovie: (movie) => {
-      pendingChatQuote = {
-        type: 'movie',
-        itemId: movie.id,
-        label: '🎬 Película',
-        title: `${movie.title} (${movie.year || ''})`,
-        subtitle: `Estado: ${store.getUserMovieStatus(movie, user.id)}`,
-        thumb: movie.poster || 'assets/ruma_default_avatar.png'
-      };
-      store.navigate('group', { groupTab: 'chat' });
-    },
-    rerender: () => renderMoviesTab(viewport, group, user)
+  withGroupTab('movies', viewport, (mod, liveViewport) => {
+    mod.renderGroupMoviesView(liveViewport, group, user, {
+      getFilterState: () => movieFilterState,
+      setFilterState: (v) => { movieFilterState = v; },
+      openSearchTmdbModal,
+      openMovieDetailModal,
+      openReviewModal,
+      openMediaCommentsModal,
+      onQuoteMovie: (movie) => {
+        pendingChatQuote = {
+          type: 'movie',
+          itemId: movie.id,
+          label: '🎬 Película',
+          title: `${movie.title} (${movie.year || ''})`,
+          subtitle: `Estado: ${store.getUserMovieStatus(movie, user.id)}`,
+          thumb: movie.poster || 'assets/ruma_default_avatar.png'
+        };
+        store.navigate('group', { groupTab: 'chat' });
+      },
+      rerender: () => renderMoviesTab(liveViewport, group, user)
+    });
   });
 }
 
@@ -870,29 +935,31 @@ function renderSeriesTab(viewport, group, user) {
     activeSeriesDetailId = null;
   }
 
-  renderGroupSeriesView(viewport, group, user, {
-    getFilterState: () => seriesFilterState,
-    setFilterState: (v) => { seriesFilterState = v; },
-    openSearchTmdbModal,
-    openSeriesDetail: (ser) => {
-      activeSeriesDetailId = ser.id;
-      activeSeriesSeasonNum = ser.userProgress?.[user.id]?.currentSeason || 1;
-      renderSeriesTab(viewport, group, user);
-    },
-    openReviewModal,
-    openMediaCommentsModal,
-    onQuoteSeries: (ser) => {
-      pendingChatQuote = {
-        type: 'series',
-        itemId: ser.id,
-        label: '📺 Serie',
-        title: `${ser.title} (${ser.year || ser.years || ''})`,
-        subtitle: `Maratón en ${ser.platform || 'Streaming'}`,
-        thumb: ser.poster || 'assets/ruma_icon_512.png'
-      };
-      store.navigate('group', { groupTab: 'chat' });
-    },
-    rerender: () => renderSeriesTab(viewport, group, user)
+  withGroupTab('series', viewport, (mod, liveViewport) => {
+    mod.renderGroupSeriesView(liveViewport, group, user, {
+      getFilterState: () => seriesFilterState,
+      setFilterState: (v) => { seriesFilterState = v; },
+      openSearchTmdbModal,
+      openSeriesDetail: (ser) => {
+        activeSeriesDetailId = ser.id;
+        activeSeriesSeasonNum = ser.userProgress?.[user.id]?.currentSeason || 1;
+        renderSeriesTab(liveViewport, group, user);
+      },
+      openReviewModal,
+      openMediaCommentsModal,
+      onQuoteSeries: (ser) => {
+        pendingChatQuote = {
+          type: 'series',
+          itemId: ser.id,
+          label: '📺 Serie',
+          title: `${ser.title} (${ser.year || ser.years || ''})`,
+          subtitle: `Maratón en ${ser.platform || 'Streaming'}`,
+          thumb: ser.poster || 'assets/ruma_icon_512.png'
+        };
+        store.navigate('group', { groupTab: 'chat' });
+      },
+      rerender: () => renderSeriesTab(liveViewport, group, user)
+    });
   });
 }
 
@@ -1271,7 +1338,7 @@ async function renderSeriesDetailView(viewport, group, series, user) {
       const [sNum, epNum] = btn.getAttribute('data-toggle-ep').split('_').map(Number);
       const res = store.toggleEpisodeWatched(series.id, sNum, epNum);
       if (res?.isFullyCompleted && res.isWatched) {
-        try { confetti({ particleCount: 110, spread: 80, origin: { y: 0.6 } }); } catch (_) {}
+        fireConfetti({ particleCount: 110, spread: 80, origin: { y: 0.6 } });
         UI.showToast(`🏆 ¡Completaste toda la serie "${series.title}"! Tu reseña llevará la insignia ⭐`, 'success');
       }
     });
@@ -1282,7 +1349,7 @@ async function renderSeriesDetailView(viewport, group, series, user) {
       const [sNum, epNum] = btn.getAttribute('data-upto-ep').split('_').map(Number);
       const res = store.markEpisodesUpTo(series.id, sNum, epNum);
       if (res?.isFullyCompleted) {
-        try { confetti({ particleCount: 130, spread: 85, origin: { y: 0.6 } }); } catch (_) {}
+        fireConfetti({ particleCount: 130, spread: 85, origin: { y: 0.6 } });
         UI.showToast(`🎉 ¡Maratón completada! Terminaste "${series.title}" ⭐`, 'success');
       } else {
         UI.showToast(`Avance actualizado hasta Temporada ${sNum} · Cap. ${epNum} 🍿`, 'success');
@@ -1519,39 +1586,41 @@ function openMediaCommentsModal(category, item) {
 // 4. PESTAÑA MÚSICA (Playlist Colaborativa LUMA + Estadísticas + Filtros + Letras + Reproductor Global)
 // ============================================================================
 function renderMusicTab(viewport, group, user) {
-  renderGroupMusicView(viewport, group, user, {
-    getFilterState: () => musicFilterState,
-    setFilterState: (v) => { musicFilterState = v; },
-    openAddSongModal,
-    openMediaCommentsModal,
-    openLyricsModal: (song) => {
-      UI.openModal({
-        title: `🎤 Letra: ${song.title} — ${song.artist}`,
-        contentHtml: `<div id="lyrics-modal-box" style="padding:1rem;color:var(--brand-lilac);">Buscando letra oficial...</div>`,
-        onMount: async () => {
-          const box = document.getElementById('lyrics-modal-box');
-          const lyrics = await MediaService.fetchLyrics(song.artist, song.title);
-          if (!box) return;
-          if (lyrics) {
-            box.innerHTML = `<pre style="white-space:pre-wrap;font-family:var(--font-sans);font-size:0.88rem;line-height:1.65;color:var(--text-secondary);">${Utils.sanitize(lyrics)}</pre>`;
-          } else {
-            box.innerHTML = `<div style="text-align:center;padding:1rem;"><p style="color:var(--text-secondary);margin-bottom:0.85rem;">No se encontró la letra para este tema.</p><a href="https://genius.com/search?q=${encodeURIComponent(song.title + ' ' + song.artist)}" target="_blank" rel="noopener" class="btn btn-primary btn-sm">Buscar Letra en Genius ↗</a></div>`;
+  withGroupTab('music', viewport, (mod, liveViewport) => {
+    mod.renderGroupMusicView(liveViewport, group, user, {
+      getFilterState: () => musicFilterState,
+      setFilterState: (v) => { musicFilterState = v; },
+      openAddSongModal,
+      openMediaCommentsModal,
+      openLyricsModal: (song) => {
+        UI.openModal({
+          title: `🎤 Letra: ${song.title} — ${song.artist}`,
+          contentHtml: `<div id="lyrics-modal-box" style="padding:1rem;color:var(--brand-lilac);">Buscando letra oficial...</div>`,
+          onMount: async () => {
+            const box = document.getElementById('lyrics-modal-box');
+            const lyrics = await MediaService.fetchLyrics(song.artist, song.title);
+            if (!box) return;
+            if (lyrics) {
+              box.innerHTML = `<pre style="white-space:pre-wrap;font-family:var(--font-sans);font-size:0.88rem;line-height:1.65;color:var(--text-secondary);">${Utils.sanitize(lyrics)}</pre>`;
+            } else {
+              box.innerHTML = `<div style="text-align:center;padding:1rem;"><p style="color:var(--text-secondary);margin-bottom:0.85rem;">No se encontró la letra para este tema.</p><a href="https://genius.com/search?q=${encodeURIComponent(song.title + ' ' + song.artist)}" target="_blank" rel="noopener" class="btn btn-primary btn-sm">Buscar Letra en Genius ↗</a></div>`;
+            }
           }
-        }
-      });
-    },
-    onQuoteSong: (song) => {
-      pendingChatQuote = {
-        type: 'song',
-        itemId: song.id,
-        label: '🎵 Canción',
-        title: song.title,
-        subtitle: song.artist,
-        thumb: song.artwork || 'assets/ruma_icon_512.png'
-      };
-      store.navigate('group', { groupTab: 'chat' });
-    },
-    rerender: () => renderMusicTab(viewport, group, user)
+        });
+      },
+      onQuoteSong: (song) => {
+        pendingChatQuote = {
+          type: 'song',
+          itemId: song.id,
+          label: '🎵 Canción',
+          title: song.title,
+          subtitle: song.artist,
+          thumb: song.artwork || 'assets/ruma_icon_512.png'
+        };
+        store.navigate('group', { groupTab: 'chat' });
+      },
+      rerender: () => renderMusicTab(liveViewport, group, user)
+    });
   });
 }
 
@@ -1693,29 +1762,31 @@ function openAddSongModal(group) {
 // 5. PESTAÑA OBJETIVOS (Actividades Grupales, Responsabilidades, Metas y Notas)
 // ============================================================================
 function renderGoalsAndNotesTab(viewport, group, user) {
-  renderGroupGoalsView(viewport, group, user, {
-    onQuoteActivity: (activity, progress) => {
-      const progText = progress && progress.total > 0
-        ? `${progress.done}/${progress.total} responsabilidades · ${progress.pct}%`
-        : (activity.status || 'Planeando');
-      pendingChatQuote = {
-        type: 'activity',
-        itemId: activity.id,
-        label: `${activity.icon || '🎉'} Actividad`,
-        title: activity.title,
-        subtitle: [activity.date, progText].filter(Boolean).join(' · '),
-        thumb: group.avatar || 'assets/ruma_icon_512.png'
-      };
-      store.navigate('group', { groupTab: 'chat' });
-    },
-    rerender: () => {
-      const freshGroup = store.getActiveGroup();
-      const freshUser = store.getCurrentUser();
-      const liveViewport = document.getElementById('group-tab-viewport') || viewport;
-      if (freshGroup && freshUser && liveViewport) {
-        renderGoalsAndNotesTab(liveViewport, freshGroup, freshUser);
+  withGroupTab('goals_notes', viewport, (mod, liveViewport) => {
+    mod.renderGroupGoalsView(liveViewport, group, user, {
+      onQuoteActivity: (activity, progress) => {
+        const progText = progress && progress.total > 0
+          ? `${progress.done}/${progress.total} responsabilidades · ${progress.pct}%`
+          : (activity.status || 'Planeando');
+        pendingChatQuote = {
+          type: 'activity',
+          itemId: activity.id,
+          label: `${activity.icon || '🎉'} Actividad`,
+          title: activity.title,
+          subtitle: [activity.date, progText].filter(Boolean).join(' · '),
+          thumb: group.avatar || 'assets/ruma_icon_512.png'
+        };
+        store.navigate('group', { groupTab: 'chat' });
+      },
+      rerender: () => {
+        const freshGroup = store.getActiveGroup();
+        const freshUser = store.getCurrentUser();
+        const currentVp = document.getElementById('group-tab-viewport') || liveViewport;
+        if (freshGroup && freshUser && currentVp) {
+          renderGoalsAndNotesTab(currentVp, freshGroup, freshUser);
+        }
       }
-    }
+    });
   });
 }
 
@@ -1723,32 +1794,36 @@ function renderGoalsAndNotesTab(viewport, group, user) {
 // 6. PESTAÑA CHAT INTERNO ESTILO WHATSAPP (Con citas a Recuerdos, Películas, Series, Canciones o Mensajes)
 // ============================================================================
 function renderBooksTab(viewport, group, user) {
-  renderGroupBooksView(viewport, group, user, {
-    getFilterState: () => booksFilterState,
-    setFilterState: (v) => { booksFilterState = v; },
-    openReviewModal,
-    openMediaCommentsModal,
-    onQuoteBook: (book) => {
-      pendingChatQuote = {
-        type: 'book',
-        itemId: book.id,
-        label: '📚 Libro',
-        title: book.title,
-        subtitle: book.author || 'Libro',
-        thumb: book.poster || 'assets/ruma_icon_512.png'
-      };
-      store.navigate('group', { groupTab: 'chat' });
-    },
-    rerender: () => renderBooksTab(viewport, group, user)
+  withGroupTab('books', viewport, (mod, liveViewport) => {
+    mod.renderGroupBooksView(liveViewport, group, user, {
+      getFilterState: () => booksFilterState,
+      setFilterState: (v) => { booksFilterState = v; },
+      openReviewModal,
+      openMediaCommentsModal,
+      onQuoteBook: (book) => {
+        pendingChatQuote = {
+          type: 'book',
+          itemId: book.id,
+          label: '📚 Libro',
+          title: book.title,
+          subtitle: book.author || 'Libro',
+          thumb: book.poster || 'assets/ruma_icon_512.png'
+        };
+        store.navigate('group', { groupTab: 'chat' });
+      },
+      rerender: () => renderBooksTab(liveViewport, group, user)
+    });
   });
 }
 
 function renderChatTab(viewport, group, user) {
-  renderGroupChatView(viewport, group, user, {
-    getPendingQuote: () => pendingChatQuote,
-    setPendingQuote: (q) => { pendingChatQuote = q; },
-    openPickItemModal: openPickGroupItemToQuoteModal,
-    rerender: () => renderChatTab(viewport, group, user)
+  withGroupTab('chat', viewport, (mod, liveViewport) => {
+    mod.renderGroupChatView(liveViewport, group, user, {
+      getPendingQuote: () => pendingChatQuote,
+      setPendingQuote: (q) => { pendingChatQuote = q; },
+      openPickItemModal: openPickGroupItemToQuoteModal,
+      rerender: () => renderChatTab(liveViewport, group, user)
+    });
   });
 }
 

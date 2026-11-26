@@ -1,5 +1,6 @@
 // Vista integral rediseñada de Libros del Grupo
 // Mobile-first · Identidad Ruma · Inspirada en Goodreads / StoryGraph
+import '../styles/books.css';
 import { store } from '../core/store.js';
 import { Entitlements } from '../core/entitlements.js';
 import { Utils } from '../core/utils.js';

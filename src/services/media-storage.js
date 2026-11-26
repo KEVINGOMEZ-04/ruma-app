@@ -146,7 +146,7 @@ export const MediaStorage = {
   },
 
   /**
-   * Extrae un fotograma del video en el segundo 0.5 para usarlo como póster de portada
+   * Extrae un fotograma del video en el segundo 0.5 para usarlo como póster de portada (compatible con iOS Safari)
    */
   generateVideoThumbnail(videoFile) {
     return new Promise((resolve) => {
@@ -154,21 +154,39 @@ export const MediaStorage = {
       video.preload = 'metadata';
       video.muted = true;
       video.playsInline = true;
+      video.setAttribute('playsinline', '');
+      video.setAttribute('webkit-playsinline', '');
 
       const objUrl = URL.createObjectURL(videoFile);
-      video.src = objUrl;
+      let settled = false;
+      let timer = null;
 
-      const cleanup = () => {
+      const finish = (result) => {
+        if (settled) return;
+        settled = true;
+        if (timer) clearTimeout(timer);
         URL.revokeObjectURL(objUrl);
         video.removeAttribute('src');
-        video.load();
+        try { video.load(); } catch (_) {}
+        resolve(result);
       };
 
-      video.onloadeddata = () => {
-        video.currentTime = Math.min(0.5, (video.duration || 1) / 2);
+      const seekToPreview = () => {
+        if (settled) return;
+        try {
+          const target = Math.min(0.5, (video.duration && isFinite(video.duration)) ? video.duration / 2 : 0.2);
+          if (Math.abs(video.currentTime - target) < 0.05) {
+            captureFrame();
+          } else {
+            video.currentTime = target;
+          }
+        } catch (_) {
+          captureFrame();
+        }
       };
 
-      video.onseeked = () => {
+      const captureFrame = () => {
+        if (settled) return;
         try {
           const canvas = document.createElement('canvas');
           const maxDim = 800;
@@ -189,38 +207,40 @@ export const MediaStorage = {
           canvas.height = h;
           const ctx = canvas.getContext('2d');
           ctx.drawImage(video, 0, 0, w, h);
-          const thumb = canvas.toDataURL('image/jpeg', 0.82);
-          cleanup();
-          resolve(thumb);
+          finish(canvas.toDataURL('image/jpeg', 0.82));
         } catch (_) {
-          cleanup();
-          resolve('');
+          finish('');
         }
       };
 
-      video.onerror = () => {
-        cleanup();
-        resolve('');
-      };
+      video.onloadedmetadata = seekToPreview;
+      video.onloadeddata = seekToPreview;
+      video.onseeked = captureFrame;
+      video.onerror = () => finish('');
 
-      // Timeout de seguridad en caso de formatos no decodificables
-      setTimeout(() => {
-        cleanup();
-        resolve('');
-      }, 4000);
+      timer = setTimeout(() => finish(''), 4000);
+      video.src = objUrl;
+      try { video.load(); } catch (_) {}
     });
   },
 
   /**
-   * Genera una miniatura comprimida para imágenes gigantes de 100 MB
+   * Genera una miniatura comprimida para imágenes gigantes de 100 MB (optimizada para iPhone)
    */
   generateImageThumbnail(imageFile, maxDimension = 1200) {
     return new Promise((resolve) => {
       const img = new Image();
       const objUrl = URL.createObjectURL(imageFile);
-      img.src = objUrl;
+      let settled = false;
+      let timer = null;
 
-      const cleanup = () => URL.revokeObjectURL(objUrl);
+      const finish = (result) => {
+        if (settled) return;
+        settled = true;
+        if (timer) clearTimeout(timer);
+        URL.revokeObjectURL(objUrl);
+        resolve(result);
+      };
 
       img.onload = () => {
         try {
@@ -238,28 +258,19 @@ export const MediaStorage = {
             }
           }
 
-          canvas.width = w;
-          canvas.height = h;
+          canvas.width = Math.max(1, w);
+          canvas.height = Math.max(1, h);
           const ctx = canvas.getContext('2d');
-          ctx.drawImage(img, 0, 0, w, h);
-          const thumb = canvas.toDataURL('image/jpeg', 0.85);
-          cleanup();
-          resolve(thumb);
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          finish(canvas.toDataURL('image/jpeg', 0.84));
         } catch (_) {
-          cleanup();
-          resolve('');
+          finish('');
         }
       };
 
-      img.onerror = () => {
-        cleanup();
-        resolve('');
-      };
-
-      setTimeout(() => {
-        cleanup();
-        resolve('');
-      }, 4000);
+      img.onerror = () => finish('');
+      timer = setTimeout(() => finish(''), 4000);
+      img.src = objUrl;
     });
   }
 };

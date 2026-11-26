@@ -24,10 +24,36 @@ function notifyGlobalPlayer() {
   renderFloatingPlayerBar(state);
 }
 
+function syncMediaSession(track) {
+  if (typeof navigator === 'undefined' || !('mediaSession' in navigator) || !track) return;
+  try {
+    if (typeof MediaMetadata !== 'undefined') {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: track.title || 'Canción',
+        artist: track.artist || 'ruma',
+        album: track.album || 'ruma Music',
+        artwork: track.artwork ? [{ src: track.artwork, sizes: '512x512', type: 'image/jpeg' }] : []
+      });
+    }
+    navigator.mediaSession.setActionHandler('play', () => {
+      if (currentPlayingTrack) MusicService.toggleTrack(currentPlayingTrack);
+    });
+    navigator.mediaSession.setActionHandler('pause', () => {
+      const a = getSharedAudio();
+      if (a && !a.paused) a.pause();
+    });
+    navigator.mediaSession.setActionHandler('previoustrack', () => MusicService.playPrev());
+    navigator.mediaSession.setActionHandler('nexttrack', () => MusicService.playNext());
+  } catch (_) {}
+}
+
 function getSharedAudio() {
   if (!sharedAudio) {
     sharedAudio = new Audio();
     sharedAudio.preload = 'none';
+    sharedAudio.playsInline = true;
+    sharedAudio.setAttribute('playsinline', '');
+    sharedAudio.setAttribute('webkit-playsinline', '');
 
     sharedAudio.addEventListener('timeupdate', () => {
       if (typeof currentUpdateCallback === 'function' && sharedAudio) {
@@ -41,7 +67,10 @@ function getSharedAudio() {
       notifyGlobalPlayer();
     });
 
-    sharedAudio.addEventListener('play', () => notifyGlobalPlayer());
+    sharedAudio.addEventListener('play', () => {
+      if (currentPlayingTrack) syncMediaSession(currentPlayingTrack);
+      notifyGlobalPlayer();
+    });
     sharedAudio.addEventListener('pause', () => notifyGlobalPlayer());
 
     sharedAudio.addEventListener('ended', () => {
@@ -54,7 +83,6 @@ function getSharedAudio() {
           isPlaying: false
         });
       }
-      // Si hay una playlist activa con varias canciones con preview, pasar a la siguiente
       const playable = playlistTracks.filter(t => t && t.previewUrl);
       if (playable.length > 1 && currentPlayingId) {
         const idx = playable.findIndex(t => t.id === currentPlayingId);
@@ -125,7 +153,7 @@ function renderFloatingPlayerBar(state) {
     document.body.appendChild(bar);
 
     document.getElementById('ruma-gp-toggle')?.addEventListener('click', () => {
-      if (state.track) MusicService.toggleTrack(state.track);
+      if (currentPlayingTrack) MusicService.toggleTrack(currentPlayingTrack);
     });
     document.getElementById('ruma-gp-prev')?.addEventListener('click', () => MusicService.playPrev());
     document.getElementById('ruma-gp-next')?.addEventListener('click', () => MusicService.playNext());

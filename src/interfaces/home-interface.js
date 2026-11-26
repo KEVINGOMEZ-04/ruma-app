@@ -269,12 +269,11 @@ export function renderHomeInterface(container) {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
       const code = btn.getAttribute('data-copy-group-code');
-      try {
-        await navigator.clipboard.writeText(code);
-        UI.showToast(`📋 Código "${code}" copiado. ¡Compártelo para que se unan desde otro teléfono!`, 'success');
-      } catch (_) {
-        UI.showToast(`Código de invitación: ${code}`, 'info');
-      }
+      const ok = await Utils.copyText(code);
+      UI.showToast(
+        ok ? `📋 Código "${code}" copiado. ¡Compártelo para que se unan desde otro teléfono!` : `Código de invitación: ${code}`,
+        ok ? 'success' : 'info'
+      );
     });
   });
 
@@ -290,9 +289,10 @@ export function renderHomeInterface(container) {
     });
   });
 
-  // Entrar al grupo al tocar la tarjeta
+  // Entrar al grupo al tocar la tarjeta (evitando doble disparo del botón interno)
   container.querySelectorAll('[data-enter-group]').forEach(el => {
-    el.addEventListener('click', () => {
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
       const groupId = el.getAttribute('data-enter-group');
       const res = store.setActiveGroup(groupId);
       if (res && res.locked) {
@@ -327,10 +327,10 @@ export function openCreateGroupModal(defaultPlan = 'free') {
             En <strong>ruma</strong> cada cuenta puede ser creadora de <strong>1 grupo propio</strong> (tu grupo actual es <strong>"${Utils.sanitize(myCreatedGroup.name)}"</strong> con código <code>${Utils.sanitize(myCreatedGroup.code)}</code>).
           </p>
           ${!isAlreadyPrem ? `
-            <div style="padding:1rem;border-radius:16px;background:rgba(168,85,247,0.14);border:1px solid rgba(192,132,252,0.35);">
-              <div style="font-weight:800;color:#E9D5FF;margin-bottom:0.3rem;">✨ ¿Quieres desbloquear ruma Plus?</div>
-              <p style="font-size:0.83rem;color:#C4B5FD;line-height:1.45;">
-                Al mejorar tu grupo <strong>"${Utils.sanitize(myCreatedGroup.name)}"</strong> a <strong>Grupo Premium</strong> tendrás películas, series y música ilimitadas y podrás unirte a todos los grupos invitados que quieras.
+            <div style="padding:1rem;border-radius:16px;background:var(--primary-soft);border:1px solid var(--border-strong);">
+              <div style="font-weight:800;color:var(--primary);margin-bottom:0.3rem;">✨ ¿Quieres desbloquear ruma Plus?</div>
+              <p style="font-size:0.83rem;color:var(--text-secondary);line-height:1.45;">
+                Al mejorar tu grupo <strong>"${Utils.sanitize(myCreatedGroup.name)}"</strong> a <strong>Grupo Premium</strong> tendrás películas, series, libros y música ilimitadas y podrás unirte a todos los grupos invitados que quieras.
               </p>
             </div>
           ` : ''}

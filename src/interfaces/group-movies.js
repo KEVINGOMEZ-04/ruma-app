@@ -1,5 +1,5 @@
 // Vista modular de Películas del Grupo (Banner, 4 Métricas por usuario, Chips, Buscador + Orden, CTA TMDb, Tarjetas con estado individual y menú "⋯")
-import confetti from 'canvas-confetti';
+import { fireConfetti } from '../core/confetti.js';
 import { store } from '../core/store.js';
 import { Entitlements } from '../core/entitlements.js';
 import { Utils } from '../core/utils.js';
@@ -326,7 +326,7 @@ export function renderGroupMoviesView(viewport, group, user, ctx) {
           const candidates = allMovies.filter(m => store.getUserMovieStatus(m, user.id) === 'Por ver');
           if (!candidates.length) return;
           const picked = candidates[Math.floor(Math.random() * candidates.length)];
-          try { confetti({ particleCount: 70, spread: 65, origin: { y: 0.6 } }); } catch (_) {}
+          fireConfetti({ particleCount: 70, spread: 65, origin: { y: 0.6 } });
           UI.showToast(`🎲 ¡La ruleta eligió "${picked.title}"! 🍿`, 'success');
           openMovieDetailModal(group, picked, user);
         });

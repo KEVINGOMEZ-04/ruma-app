@@ -120,10 +120,8 @@ export function bindGroupHeader(container, group, user, { onTab } = {}) {
   container.querySelector('#rg-edit-name')?.addEventListener('click', () => openEditGroupModal(group, save));
 
   container.querySelector('#btn-group-copy-code')?.addEventListener('click', async () => {
-    try {
-      await navigator.clipboard.writeText(group.code);
-      UI.showToast(`📋 Código "${group.code}" copiado. ¡Compártelo con tu grupo!`, 'success');
-    } catch (_) { UI.showToast(`Código del grupo: ${group.code}`, 'info'); }
+    const ok = await Utils.copyText(group.code);
+    UI.showToast(ok ? `📋 Código "${group.code}" copiado. ¡Compártelo con tu grupo!` : `Código del grupo: ${group.code}`, ok ? 'success' : 'info');
   });
 
   const invite = async () => {
@@ -133,8 +131,8 @@ export function bindGroupHeader(container, group, user, { onTab } = {}) {
         await navigator.share({ title: `Únete a "${group.name}" en ruma 🌟`, text: `Usa el código ${group.code} o entra directo:`, url: inviteUrl });
         return;
       }
-      await navigator.clipboard.writeText(inviteUrl);
-      UI.showToast(`🔗 Enlace de invitación copiado (${group.code}) ✨`, 'success');
+      const ok = await Utils.copyText(inviteUrl);
+      UI.showToast(ok ? `🔗 Enlace de invitación copiado (${group.code}) ✨` : `Código para invitar: ${group.code}`, ok ? 'success' : 'info');
     } catch (_) { UI.showToast(`Código para invitar: ${group.code}`, 'info'); }
   };
   container.querySelector('#btn-group-share-invite')?.addEventListener('click', invite);

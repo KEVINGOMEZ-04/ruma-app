@@ -12,20 +12,78 @@ import './styles/layout.css';
 import './styles/auth.css';
 import './styles/home.css';
 import './styles/group.css';
-import './styles/books.css';
-import './styles/goals.css';
 
 import { store } from './core/store.js';
 import { Utils } from './core/utils.js';
 import { CloudSync } from './services/cloud-sync.js';
 import { CosmicBackground } from './components/cosmic-background.js';
-import { renderAuthScreen } from './interfaces/auth-interface.js';
-import { renderHomeInterface } from './interfaces/home-interface.js';
-import { renderGroupInterface } from './interfaces/group-interface.js';
-import { renderProfileInterface } from './interfaces/profile-interface.js';
-import { renderSettingsInterface } from './interfaces/settings-interface.js';
 
 let cosmicBg = null;
+let appRenderSeq = 0;
+
+const interfaceCache = new Map();
+const interfaceLoaders = {
+  auth: () => import('./interfaces/auth-interface.js'),
+  hub: () => import('./interfaces/home-interface.js'),
+  group: () => import('./interfaces/group-interface.js'),
+  profile: () => import('./interfaces/profile-interface.js'),
+  settings: () => import('./interfaces/settings-interface.js')
+};
+
+function mountInterface(name, exportKey, viewRoot) {
+  if (!viewRoot) return;
+  const cached = interfaceCache.get(name);
+  if (cached?.[exportKey]) {
+    cached[exportKey](viewRoot);
+    return;
+  }
+
+  const seq = appRenderSeq;
+  viewRoot.innerHTML = `<div class="ruma-view-loading" role="status" aria-live="polite"><span class="ruma-spinner" aria-hidden="true"></span><span>Cargando...</span></div>`;
+
+  const loader = interfaceLoaders[name];
+  if (!loader) return;
+  loader()
+    .then((mod) => {
+      interfaceCache.set(name, mod);
+      if (seq !== appRenderSeq) return;
+      const liveRoot = document.getElementById('ruma-view-root');
+      if (liveRoot && mod?.[exportKey]) {
+        mod[exportKey](liveRoot);
+      }
+    })
+    .catch((err) => {
+      console.error(`Error cargando vista ${name}:`, err);
+      if (seq !== appRenderSeq) return;
+      const liveRoot = document.getElementById('ruma-view-root');
+      if (liveRoot) {
+        liveRoot.innerHTML = `<div class="ruma-view-loading">No se pudo cargar esta sección. Recarga la página.</div>`;
+      }
+    });
+}
+
+// Sincronización de viewport visual para teclado virtual en iPhone / iOS Safari
+function syncVisualViewport() {
+  const vv = window.visualViewport;
+  const h = vv ? vv.height : window.innerHeight;
+  if (h && h > 180) {
+    document.documentElement.style.setProperty('--vvh', `${Math.round(h)}px`);
+  }
+  const active = document.activeElement;
+  const isEditing = !!active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable);
+  const kbOpen = !!vv && isEditing && (window.innerHeight - vv.height > 140);
+  document.documentElement.classList.toggle('ruma-kb-open', kbOpen);
+}
+
+if (typeof window !== 'undefined') {
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', syncVisualViewport);
+  }
+  window.addEventListener('orientationchange', () => setTimeout(syncVisualViewport, 120));
+  document.addEventListener('focusin', syncVisualViewport);
+  document.addEventListener('focusout', () => setTimeout(syncVisualViewport, 80));
+  syncVisualViewport();
+}
 
 function getCloudBadgeHtml(status) {
   if (status === 'online') {
@@ -98,6 +156,8 @@ function getBottomCapsuleNavHtml(iface) {
 }
 
 function renderApp() {
+  appRenderSeq += 1;
+
   if (!cosmicBg) {
     try {
       cosmicBg = new CosmicBackground();
@@ -115,7 +175,7 @@ function renderApp() {
   // 1. Si no ha iniciado sesión -> Pantalla completa de Login/Registro
   if (!user) {
     root.innerHTML = `<main class="ruma-auth-root" id="ruma-view-root"></main>`;
-    renderAuthScreen(document.getElementById('ruma-view-root'));
+    mountInterface('auth', 'renderAuthScreen', document.getElementById('ruma-view-root'));
     return;
   }
 
@@ -125,7 +185,7 @@ function renderApp() {
       <main class="ruma-auth-root" id="ruma-view-root"></main>
       ${getBottomCapsuleNavHtml(iface)}
     `;
-    renderHomeInterface(document.getElementById('ruma-view-root'));
+    mountInterface('hub', 'renderHomeInterface', document.getElementById('ruma-view-root'));
     bindCapsuleNav(root, user);
     return;
   }
@@ -157,7 +217,7 @@ function renderApp() {
       </button>
     </header>
 
-    <main class="ruma-container" id="ruma-view-root" style="padding-bottom:6.5rem;"></main>
+    <main class="ruma-container" id="ruma-view-root" style="padding-bottom:calc(6.5rem + env(safe-area-inset-bottom, 0px));"></main>
 
     ${getBottomCapsuleNavHtml(iface)}
   `;
@@ -179,9 +239,9 @@ function renderApp() {
   const viewRoot = document.getElementById('ruma-view-root');
   if (!viewRoot) return;
 
-  if (iface === 'group') renderGroupInterface(viewRoot);
-  else if (iface === 'profile') renderProfileInterface(viewRoot);
-  else if (iface === 'settings') renderSettingsInterface(viewRoot);
+  if (iface === 'group') mountInterface('group', 'renderGroupInterface', viewRoot);
+  else if (iface === 'profile') mountInterface('profile', 'renderProfileInterface', viewRoot);
+  else if (iface === 'settings') mountInterface('settings', 'renderSettingsInterface', viewRoot);
 }
 
 function bindCapsuleNav(root, user) {

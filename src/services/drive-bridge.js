@@ -219,7 +219,9 @@ export const DriveBridge = {
         if (memoryPayload.voiceNote) {
           const voiceBlob = this.dataUrlToBlob(memoryPayload.voiceNote);
           if (voiceBlob) {
-            const voiceFile = new File([voiceBlob], 'Nota_de_Voz.webm', { type: voiceBlob.type || 'audio/webm' });
+            const mime = voiceBlob.type || 'audio/mp4';
+            const ext = mime.includes('mp4') || mime.includes('aac') ? 'm4a' : (mime.includes('ogg') ? 'ogg' : 'webm');
+            const voiceFile = new File([voiceBlob], `Nota_de_Voz.${ext}`, { type: mime });
             await DriveResumableUploader.uploadMultipartFile(token, driveSubfolder.id, voiceFile).catch(() => {});
           }
         }
@@ -337,7 +339,9 @@ export const DriveBridge = {
     if (memory.voiceNote) {
       const voiceBlob = this.dataUrlToBlob(memory.voiceNote);
       if (voiceBlob) {
-        const voiceFile = new File([voiceBlob], 'Nota_de_Voz.webm', { type: voiceBlob.type || 'audio/webm' });
+        const mime = voiceBlob.type || 'audio/mp4';
+        const ext = mime.includes('mp4') || mime.includes('aac') ? 'm4a' : (mime.includes('ogg') ? 'ogg' : 'webm');
+        const voiceFile = new File([voiceBlob], `Nota_de_Voz.${ext}`, { type: mime });
         await DriveResumableUploader.uploadMultipartFile(token, driveSubfolder.id, voiceFile).catch(() => {});
       }
     }

@@ -1,7 +1,8 @@
 // Vista integral rediseñada de Objetivos del Grupo
 // 3 pestañas independientes: Metas · Actividades (principal) · Notas
 // Mobile-first · Identidad oscura violeta-magenta de Ruma
-import confetti from 'canvas-confetti';
+import '../styles/goals.css';
+import { fireConfetti } from '../core/confetti.js';
 import { store } from '../core/store.js';
 import { Utils } from '../core/utils.js';
 import { UI } from '../components/ui.js';
@@ -702,7 +703,7 @@ function renderActivityDetailView(viewport, group, user, act, ctx) {
       if (next === act.status) return;
       store.setActivityStatus(act.id, next);
       if (next === 'Completada') {
-        try { confetti({ particleCount: 55, spread: 60, origin: { y: 0.72 } }); } catch (_) {}
+        fireConfetti({ particleCount: 55, spread: 60, origin: { y: 0.72 } });
         UI.showToast('¡Actividad completada! 🎉', 'success');
       } else {
         UI.showToast(`Estado actualizado a "${next}"`, 'success');
@@ -733,7 +734,7 @@ function renderActivityDetailView(viewport, group, user, act, ctx) {
       const taskId = btn.getAttribute('data-rgl-toggle-task');
       const res = store.toggleActivityTaskCompleted(act.id, taskId);
       if (res?.allCompleted && res.completed) {
-        try { confetti({ particleCount: 60, spread: 65, origin: { y: 0.7 } }); } catch (_) {}
+        fireConfetti({ particleCount: 60, spread: 65, origin: { y: 0.7 } });
         UI.showToast('¡Todas las responsabilidades listas! 🎉✨', 'success');
       }
     });
@@ -1140,7 +1141,7 @@ function bindMainScreenEvents(viewport, group, user, ctx, rerender) {
       e.stopPropagation();
       const done = store.toggleGoalCompleted(btn.getAttribute('data-rgl-toggle-goal'));
       if (done) {
-        try { confetti({ particleCount: 55, spread: 60, origin: { y: 0.7 } }); } catch (_) {}
+        fireConfetti({ particleCount: 55, spread: 60, origin: { y: 0.7 } });
         UI.showToast('¡Meta cumplida! 🎉✨', 'success');
       }
     });
@@ -1634,7 +1635,7 @@ function openTaskOptionsSheet(group, user, act, task) {
         const res = store.toggleActivityTaskCompleted(act.id, task.id);
         UI.closeModal();
         if (res?.allCompleted && res.completed) {
-          try { confetti({ particleCount: 55, spread: 60, origin: { y: 0.7 } }); } catch (_) {}
+          fireConfetti({ particleCount: 55, spread: 60, origin: { y: 0.7 } });
           UI.showToast('¡Todas las responsabilidades listas! 🎉', 'success');
         }
       });
@@ -1828,7 +1829,7 @@ function openGoalDetailModal(goalId, user) {
             const nextPct = Number(btn.getAttribute('data-goal-pct'));
             store.updateGoalInActiveGroup(goal.id, { progress: nextPct });
             if (nextPct >= 100) {
-              try { confetti({ particleCount: 55, spread: 60, origin: { y: 0.7 } }); } catch (_) {}
+              fireConfetti({ particleCount: 55, spread: 60, origin: { y: 0.7 } });
               UI.showToast('¡Meta cumplida! 🎉✨', 'success');
             }
             renderModal();
@@ -1839,7 +1840,7 @@ function openGoalDetailModal(goalId, user) {
           btn.addEventListener('click', () => {
             const res = store.toggleGoalTask(goal.id, btn.getAttribute('data-goal-toggle-step'));
             if (res?.goalCompleted && res.completed) {
-              try { confetti({ particleCount: 55, spread: 60, origin: { y: 0.7 } }); } catch (_) {}
+              fireConfetti({ particleCount: 55, spread: 60, origin: { y: 0.7 } });
               UI.showToast('¡Meta completada al 100%! 🎉', 'success');
             }
             renderModal();
@@ -1910,7 +1911,7 @@ function openGoalOptionsSheet(goal, user) {
         const done = store.toggleGoalCompleted(goal.id);
         UI.closeModal();
         if (done) {
-          try { confetti({ particleCount: 55, spread: 60, origin: { y: 0.7 } }); } catch (_) {}
+          fireConfetti({ particleCount: 55, spread: 60, origin: { y: 0.7 } });
           UI.showToast('¡Meta cumplida! 🎉✨', 'success');
         }
       });

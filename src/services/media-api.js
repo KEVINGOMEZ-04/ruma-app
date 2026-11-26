@@ -89,9 +89,15 @@ export const MediaService = {
         const res = await fetch(url);
         if (res.ok) {
           const data = await res.json();
+          if (tmdbCache.size >= 120) {
+            const firstKey = tmdbCache.keys().next().value;
+            if (firstKey !== undefined) tmdbCache.delete(firstKey);
+          }
           tmdbCache.set(endpoint, data);
           return data;
         }
+        // Si TMDb responde 404 (no existe), no desperdiciar reintentos con claves de respaldo
+        if (res.status === 404) return null;
       } catch (err) {
         console.warn('TMDb fallback warning:', err);
       }
@@ -128,7 +134,7 @@ export const MediaService = {
     let country = priorityCountries.find(hasAny) || Object.keys(results).find(hasAny) || '';
     const countryData = country ? results[country] : null;
     const providersMap = new Map();
-    const logoUrl = path => (path ? `https://image.tmdb.org/t/p/original${path}` : '');
+    const logoUrl = path => (path ? `https://image.tmdb.org/t/p/w92${path}` : '');
 
     const add = (list, type) => {
       (list || []).forEach(p => {

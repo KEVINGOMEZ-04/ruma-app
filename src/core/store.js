@@ -42,307 +42,15 @@ const DEMO_USERS = [
   }
 ];
 
-const DEMO_GROUPS = [
-  {
-    id: 'grp_santuario_1',
-    name: 'Nuestro Refugio ✨',
-    code: 'RUMA01',
-    description: 'Recuerdos, cine, series y música compartida.',
-    plan: 'free', // 'free' | 'premium'
-    creatorId: 'usr_kevin',
-    driveFolderUrl: 'https://drive.google.com/drive/folders/1RumaDemoFolderPublicEditor',
-    accentColor: 'purple',
-    createdAt: '2026-11-01T12:00:00.000Z',
-    members: [
-      { id: 'usr_kevin', name: 'Kevin Gómez', username: 'kevin', avatar: 'assets/ruma_icon_512.png', frameId: 'frame-axolotl', role: 'admin' },
-      { id: 'usr_laura', name: 'Laura', username: 'laura', avatar: 'assets/ruma_mascot.png', frameId: 'frame-celestial', role: 'member' }
-    ],
-    memories: [
-      {
-        id: 'mem_demo_1',
-        title: 'Tarde de Mirador y Café',
-        date: '2026-11-15',
-        location: 'Mirador de Las Palmas',
-        auraColor: '#A855F7',
-        isFeatured: true,
-        subfolderName: 'Tarde de Mirador y Café - Domingo 15 de noviembre de 2026',
-        driveUrl: 'https://drive.google.com/drive/folders/1RumaDemoFolderPublicEditor',
-        description: 'Viendo el atardecer morado con la mejor compañía, tomando café caliente y escuchando nuestra playlist.',
-        authorId: 'usr_kevin',
-        authorName: 'Kevin Gómez',
-        authorAvatar: 'assets/ruma_icon_512.png',
-        coverPreview: 'https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=900&q=80',
-        photos: [
-          'https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=900&q=80',
-          'https://images.unsplash.com/photo-1511920170033-f8396924c348?auto=format&fit=crop&w=800&q=80'
-        ],
-        filesCount: 2,
-        song: {
-          id: 'sng_demo_1',
-          title: 'Sweater Weather',
-          artist: 'The Neighbourhood',
-          artwork: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&w=400&q=80',
-          previewUrl: ''
-        },
-        voiceNote: null,
-        comments: [
-          {
-            id: 'mcom_1',
-            authorId: 'usr_laura',
-            authorName: 'Laura',
-            authorAvatar: 'assets/ruma_mascot.png',
-            text: 'Uno de mis días favoritos del año 💜',
-            createdAt: '2026-11-15T19:00:00.000Z'
-          }
-        ]
-      }
-    ],
-    plans: [
-      {
-        id: 'pln_demo_1',
-        title: 'Noche de Cine & Pizza Casera',
-        date: '2026-11-28',
-        time: '20:00',
-        note: 'Ver el final de temporada de Arcane',
-        authorName: 'Kevin Gómez'
-      }
-    ],
-    movies: [
-      {
-        id: 'mov_demo_1',
-        tmdbId: 157336,
-        title: 'Interstellar',
-        year: '2014',
-        duration: '2h 49m',
-        genres: 'Aventura, Drama, Ciencia ficción',
-        tmdbRating: '8.7',
-        status: 'Vista',
-        priority: 5,
-        poster: 'https://image.tmdb.org/t/p/w500/gEU2QniE6E77NI6lCU6MxlNBvIx.jpg',
-        backdrop: 'https://image.tmdb.org/t/p/w1280/xJHokMbljvjADYdit5fK5VQsXEG.jpg',
-        synopsis: 'Un grupo de exploradores viaja a través de un agujero de gusano en el espacio en un intento de asegurar la supervivencia de la humanidad.',
-        trailerUrl: 'https://www.youtube.com/watch?v=zSWdZVtXT7E',
-        addedBy: 'Kevin Gómez',
-        proposedBy: { id: 'usr_kevin', name: 'Kevin Gómez', avatar: 'assets/ruma_icon_512.png', date: '15 Nov 2026' },
-        linkedMemories: ['mem_demo_1'],
-        ratings: {
-          usr_kevin: { score: 9.8, review: 'Obra maestra absoluta, la banda sonora es de otro planeta.' },
-          usr_laura: { score: 9.5, review: 'Lloré con la escena de los mensajes.' }
-        },
-        comments: [
-          {
-            id: 'mc_demo_1',
-            authorId: 'usr_laura',
-            authorName: 'Laura',
-            authorAvatar: 'assets/ruma_mascot.png',
-            text: 'La banda sonora de Hans Zimmer es insuperable 🎹✨',
-            time: '15 Nov',
-            reactions: { '❤️': 2, '🔥': 1 }
-          }
-        ]
-      },
-      {
-        id: 'mov_demo_2',
-        tmdbId: 122906,
-        title: 'Cuestión de Tiempo',
-        year: '2013',
-        duration: '2h 03m',
-        genres: 'Drama, Romance, Comedia',
-        tmdbRating: '7.9',
-        status: 'Favorita',
-        priority: 5,
-        poster: 'https://image.tmdb.org/t/p/w500/iR1bVfURbN7r1C46WHFbwCkVve.jpg',
-        backdrop: '',
-        synopsis: 'Tim descubre que los hombres de su familia pueden viajar en el tiempo y cambiar lo que ocurre en sus propias vidas.',
-        trailerUrl: '',
-        addedBy: 'Laura',
-        proposedBy: { id: 'usr_laura', name: 'Laura', avatar: 'assets/ruma_mascot.png', date: '12 Nov 2026' },
-        linkedMemories: [],
-        ratings: {
-          usr_kevin: { score: 9.2, review: 'Hace valorar cada día cotidiano.' },
-          usr_laura: { score: 10, review: 'Mi película favorita para ver juntos.' }
-        },
-        comments: []
-      }
-    ],
-    series: [
-      {
-        id: 'ser_demo_1',
-        tmdbId: 94605,
-        title: 'Arcane',
-        year: '2021',
-        years: '2021–2024',
-        genres: 'Animación, Sci-Fi y Fantasía, Acción',
-        platform: 'Netflix',
-        status: 'Viendo',
-        numberOfSeasons: 2,
-        totalEpisodes: 18,
-        currentSeason: 2,
-        currentEpisode: 4,
-        poster: 'https://image.tmdb.org/t/p/w500/fqldf2t8ztc9aiwn3k6mlX3tvRT.jpg',
-        backdrop: 'https://image.tmdb.org/t/p/w1280/q8eejQcg1bAqImEV8jh8RtBD4uH.jpg',
-        synopsis: 'En medio del conflicto entre las ciudades gemelas de Piltover y Zaun, dos hermanas luchan en bandos opuestos de una guerra entre tecnologías mágicas y convicciones enfrentadas.',
-        addedBy: 'Kevin Gómez',
-        proposedBy: { id: 'usr_kevin', name: 'Kevin Gómez', avatar: 'assets/ruma_icon_512.png', date: '10 Nov 2026' },
-        seasons: [
-          { seasonNumber: 1, name: 'Temporada 1', episodeCount: 9 },
-          { seasonNumber: 2, name: 'Temporada 2', episodeCount: 9 }
-        ],
-        seasonEpisodes: PRELOADED_SERIES_EPISODES['94605'],
-        userProgress: {
-          usr_kevin: {
-            userId: 'usr_kevin',
-            userName: 'Kevin Gómez',
-            userAvatar: 'assets/ruma_icon_512.png',
-            currentSeason: 2,
-            currentEpisode: 4,
-            lastWatched: { season: 2, episode: 4 },
-            status: 'Viendo',
-            watchedEpisodes: {
-              '1_1': true, '1_2': true, '1_3': true, '1_4': true, '1_5': true, '1_6': true, '1_7': true, '1_8': true, '1_9': true,
-              '2_1': true, '2_2': true, '2_3': true, '2_4': true
-            }
-          },
-          usr_laura: {
-            userId: 'usr_laura',
-            userName: 'Laura',
-            userAvatar: 'assets/ruma_mascot.png',
-            currentSeason: 2,
-            currentEpisode: 3,
-            lastWatched: { season: 2, episode: 3 },
-            status: 'Viendo',
-            watchedEpisodes: {
-              '1_1': true, '1_2': true, '1_3': true, '1_4': true, '1_5': true, '1_6': true, '1_7': true, '1_8': true, '1_9': true,
-              '2_1': true, '2_2': true, '2_3': true
-            }
-          }
-        },
-        ratings: {
-          usr_kevin: { score: 9.7, review: 'Animación impecable en cada capítulo.' },
-          usr_laura: { score: 9.4, review: 'La historia atrapa desde el episodio 1.' }
-        },
-        comments: [
-          {
-            id: 'scom_demo_1',
-            userId: 'usr_kevin',
-            userName: 'Kevin Gómez',
-            userAvatar: 'assets/ruma_icon_512.png',
-            userProgressLabel: 'T2 · Cap 4',
-            text: '¡El arte visual de la segunda temporada es una locura!',
-            date: 'Hace 2 días',
-            reactions: { '❤️': 2, '🔥': 3, '😂': 0 }
-          }
-        ]
-      }
-    ],
-    songs: [
-      {
-        id: 'sng_demo_1',
-        title: 'Sweater Weather',
-        artist: 'The Neighbourhood',
-        album: 'I Love You.',
-        artwork: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&w=400&q=80',
-        note: 'La canción que siempre ponemos en carretera 🚗💜',
-        addedBy: 'Kevin Gómez',
-        authorId: 'usr_kevin',
-        authorAvatar: 'assets/ruma_icon_512.png',
-        createdAt: '2026-11-15T14:00:00.000Z',
-        trackTimeMillis: 240000,
-        rating: 5.0,
-        ratingCount: 2,
-        ratings: { usr_kevin: 5, usr_laura: 5 },
-        linkedMemories: ['mem_demo_1'],
-        comments: [
-          {
-            id: 'sc_demo_1',
-            authorId: 'usr_laura',
-            authorName: 'Laura',
-            authorAvatar: 'assets/ruma_mascot.png',
-            text: 'Himno oficial de nuestros paseos 🎶',
-            time: '15 Nov',
-            reactions: { '❤️': 2, '🔥': 1 }
-          }
-        ],
-        spotifyUrl: 'https://open.spotify.com/search/Sweater%20Weather%20The%20Neighbourhood',
-        youtubeUrl: 'https://www.youtube.com/results?search_query=Sweater+Weather+The+Neighbourhood',
-        appleMusicUrl: 'https://music.apple.com/es/search?term=Sweater%20Weather%20The%20Neighbourhood'
-      }
-    ],
-    goals: [
-      {
-        id: 'gol_demo_1',
-        title: 'Viaje de fin de semana a la montaña',
-        category: 'Viajes',
-        progress: 70,
-        completed: false
-      }
-    ],
-    notes: [
-      {
-        id: 'not_demo_1',
-        title: 'Lista de snacks para maratón',
-        category: 'Recordatorio',
-        content: 'Palomitas dulces, chocolates y bebidas frías para el viernes.',
-        authorName: 'Laura'
-      }
-    ],
-    messages: [
-      {
-        id: 'msg_demo_1',
-        senderId: 'usr_laura',
-        senderName: 'Laura',
-        text: '¡Mira cómo quedó nuestro recuerdo del domingo!',
-        timestamp: '2026-11-15T18:20:00.000Z',
-        quote: {
-          type: 'memory',
-          itemId: 'mem_demo_1',
-          label: '📸 Recuerdo',
-          title: 'Tarde de Mirador y Café',
-          subtitle: 'Domingo 15 de noviembre de 2026',
-          thumb: 'https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=300&q=80'
-        }
-      },
-      {
-        id: 'msg_demo_2',
-        senderId: 'usr_kevin',
-        senderName: 'Kevin Gómez',
-        text: '¡Quedó brutal guardado en la carpeta de Drive! Y hoy repetimos esta peli:',
-        timestamp: '2026-11-15T18:22:00.000Z',
-        quote: {
-          type: 'movie',
-          itemId: 'mov_demo_1',
-          label: '🎬 Película',
-          title: 'Interstellar (2014)',
-          subtitle: 'Promedio grupal: ⭐ 9.7',
-          thumb: 'https://image.tmdb.org/t/p/w500/gEU2QniE6E77NI6lCU6MxlNBvIx.jpg'
-        }
-      }
-    ]
-  },
-  {
-    id: 'grp_comunidad_2',
-    name: 'Club de Cine & Amigos 🍿',
-    code: 'CINE99',
-    description: 'Debates de estrenos y series de fin de semana.',
-    plan: 'free',
-    creatorId: 'usr_laura',
-    driveFolderUrl: 'https://drive.google.com/drive/folders/1ClubCineSharedDriveFolder',
-    accentColor: 'pink',
-    createdAt: '2026-11-05T15:00:00.000Z',
-    members: [
-      { id: 'usr_laura', name: 'Laura', username: 'laura', avatar: 'assets/ruma_mascot.png', frameId: 'frame-celestial', role: 'admin' },
-      { id: 'usr_kevin', name: 'Kevin Gómez', username: 'kevin', avatar: 'assets/ruma_icon_512.png', frameId: 'frame-axolotl', role: 'member' }
-    ],
-    memories: [],
-    plans: [],
-    movies: [],
-    series: [],
-    songs: [],
-    goals: [],
-    notes: [],
-    messages: []
+function safeSetStorage(key, value) {
+  try {
+    localStorage.setItem(key, value);
+    return true;
+  } catch (err) {
+    console.warn('Error guardando en almacenamiento local (cuota iOS/Safari):', err?.name || err);
+    return false;
   }
-];
+}
 
 class RumaStore {
   constructor() {
@@ -358,10 +66,10 @@ class RumaStore {
 
   init() {
     if (!localStorage.getItem(CONFIG.storageKeys.accounts)) {
-      localStorage.setItem(CONFIG.storageKeys.accounts, JSON.stringify(DEMO_USERS));
+      safeSetStorage(CONFIG.storageKeys.accounts, JSON.stringify(DEMO_USERS));
     }
     if (!localStorage.getItem(CONFIG.storageKeys.groups)) {
-      localStorage.setItem(CONFIG.storageKeys.groups, JSON.stringify([]));
+      safeSetStorage(CONFIG.storageKeys.groups, JSON.stringify([]));
     }
     const savedTheme = localStorage.getItem(CONFIG.storageKeys.theme) || 'dark';
     this.setTheme(savedTheme, false);
@@ -487,14 +195,14 @@ class RumaStore {
       localAccounts.forEach(a => mergedMap.set(a.id, a));
       cloudData.accounts.forEach(a => mergedMap.set(a.id, { ...(mergedMap.get(a.id) || {}), ...a }));
       const mergedAccounts = Array.from(mergedMap.values());
-      localStorage.setItem(CONFIG.storageKeys.accounts, JSON.stringify(mergedAccounts));
+      safeSetStorage(CONFIG.storageKeys.accounts, JSON.stringify(mergedAccounts));
       changed = true;
     }
 
     if (Array.isArray(cloudData.groups) && cloudData.groups.length > 0) {
       const localGroups = this.getGroupsRaw();
       const mergedGroups = this.mergeCloudAndLocalGroups(localGroups, cloudData.groups);
-      localStorage.setItem(CONFIG.storageKeys.groups, JSON.stringify(mergedGroups));
+      safeSetStorage(CONFIG.storageKeys.groups, JSON.stringify(mergedGroups));
       changed = true;
     }
 
@@ -514,7 +222,7 @@ class RumaStore {
     if (this.cloudPushTimer) clearTimeout(this.cloudPushTimer);
     this.cloudPushTimer = setTimeout(() => {
       this.pushMergedStateToCloud();
-    }, 100);
+    }, 350);
   }
 
   async pushMergedStateToCloud() {
@@ -537,11 +245,11 @@ class RumaStore {
           remote.accounts.forEach(a => accMap.set(a.id, a));
           localAccounts.forEach(a => accMap.set(a.id, { ...(accMap.get(a.id) || {}), ...a }));
           finalAccounts = Array.from(accMap.values());
-          localStorage.setItem(CONFIG.storageKeys.accounts, JSON.stringify(finalAccounts));
+          safeSetStorage(CONFIG.storageKeys.accounts, JSON.stringify(finalAccounts));
         }
         if (Array.isArray(remote.groups) && remote.groups.length > 0) {
           finalGroups = this.mergeCloudAndLocalGroups(remote.groups, localGroups);
-          localStorage.setItem(CONFIG.storageKeys.groups, JSON.stringify(finalGroups));
+          safeSetStorage(CONFIG.storageKeys.groups, JSON.stringify(finalGroups));
         }
       }
 
@@ -598,7 +306,7 @@ class RumaStore {
   }
 
   saveAccounts(accounts, syncCloud = true) {
-    localStorage.setItem(CONFIG.storageKeys.accounts, JSON.stringify(accounts));
+    safeSetStorage(CONFIG.storageKeys.accounts, JSON.stringify(accounts));
     if (syncCloud) this.scheduleCloudPush();
   }
 
@@ -860,7 +568,7 @@ class RumaStore {
     }
     const keep = Array.isArray(groups) ? groups.slice() : [];
     this.getGroupsRaw().filter(g => g.deleted && !keep.some(k => k.id === g.id)).forEach(t => keep.push(t));
-    localStorage.setItem(CONFIG.storageKeys.groups, JSON.stringify(keep));
+    safeSetStorage(CONFIG.storageKeys.groups, JSON.stringify(keep));
     if (syncCloud) this.scheduleCloudPush();
   }
 
@@ -1135,7 +843,7 @@ class RumaStore {
     const tomb = { id: group.id, deleted: true, creatorId: group.creatorId, members: [], updatedAt: new Date().toISOString() };
     const rest = this.getGroupsRaw().filter(g => g.id !== groupId);
     rest.push(tomb);
-    localStorage.setItem(CONFIG.storageKeys.groups, JSON.stringify(rest));
+    safeSetStorage(CONFIG.storageKeys.groups, JSON.stringify(rest));
     if (localStorage.getItem(CONFIG.storageKeys.activeGroupId) === groupId) {
       localStorage.removeItem(CONFIG.storageKeys.activeGroupId);
     }
@@ -1612,9 +1320,14 @@ class RumaStore {
       updatedAt: new Date().toISOString()
     };
 
-    // Reseñar una película "Por ver" la marca automáticamente como vista.
-    if (category === 'movies' && (item.status || 'Por ver') === 'Por ver') {
-      item.status = 'Vista';
+    // Reseñar una película "Por ver" la marca automáticamente como vista para este usuario.
+    if (category === 'movies') {
+      item.userStatuses = item.userStatuses || {};
+      const mySt = item.userStatuses[user.id] || 'Por ver';
+      if (mySt === 'Por ver') {
+        item.userStatuses[user.id] = 'Vista';
+        item.status = 'Vista';
+      }
     }
 
     this.saveGroups(allGroups);
@@ -1751,15 +1464,14 @@ class RumaStore {
     if (!series) return false;
     const uid = userId || this.getCurrentUser()?.id;
     const up = series.userProgress?.[uid];
-    if (up && up.status === 'Completada') return true;
-
     const seasons = series.seasons || [];
-    if (seasons.length === 0) return true;
     const totalEpisodes = seasons.reduce((acc, s) => acc + (s.episodeCount || 0), 0);
-    if (totalEpisodes === 0) return true;
 
-    const watchedCount = Object.keys(up?.watchedEpisodes || {}).filter(k => !k.startsWith('0_')).length;
-    return watchedCount >= totalEpisodes;
+    if (totalEpisodes > 0) {
+      const watchedCount = Object.keys(up?.watchedEpisodes || {}).filter(k => !k.startsWith('0_')).length;
+      return watchedCount >= totalEpisodes;
+    }
+    return Boolean(up && up.status === 'Completada');
   }
 
   toggleEpisodeWatched(seriesId, seasonNum, episodeNum) {

@@ -113,7 +113,7 @@ function renderMediaHtml(msg) {
     return `<img src="${Utils.sanitize(m.url)}" alt="Foto adjunta" class="rch-media-img" data-zoom-img="${Utils.sanitize(m.url)}">`;
   }
   if (m.type === 'video') {
-    return `<video src="${Utils.sanitize(m.url)}" controls playsinline preload="metadata" class="rch-media-vid"></video>`;
+    return `<video src="${Utils.sanitize(m.url)}" controls playsinline webkit-playsinline preload="metadata" class="rch-media-vid"></video>`;
   }
   if (m.type === 'audio') {
     return `
@@ -465,8 +465,8 @@ export function renderGroupChatView(viewport, group, user, ctx) {
           });
         });
         document.getElementById('ch-m-copy')?.addEventListener('click', async () => {
-          try { await navigator.clipboard.writeText(m.text); UI.showToast('Texto copiado 📋', 'success'); }
-          catch (_) { UI.showToast('No se pudo copiar automáticamente.', 'info'); }
+          const ok = await Utils.copyText(m.text);
+          UI.showToast(ok ? 'Texto copiado 📋' : 'No se pudo copiar automáticamente.', ok ? 'success' : 'info');
           UI.closeModal();
         });
         document.getElementById('ch-m-reply')?.addEventListener('click', () => { UI.closeModal(); replyToMsg(m); });
@@ -534,20 +534,43 @@ export function renderGroupChatView(viewport, group, user, ctx) {
   });
 }
 
+function pickSupportedAudioMime() {
+  if (typeof MediaRecorder === 'undefined' || typeof MediaRecorder.isTypeSupported !== 'function') return '';
+  // Priorizar audio/mp4 para compatibilidad total entre iPhone (Safari iOS) y Android/Chrome
+  const candidates = [
+    'audio/mp4;codecs=mp4a.40.2',
+    'audio/mp4',
+    'audio/webm;codecs=opus',
+    'audio/webm',
+    'audio/ogg;codecs=opus'
+  ];
+  return candidates.find(t => {
+    try { return MediaRecorder.isTypeSupported(t); } catch (_) { return false; }
+  }) || '';
+}
+
 function openVoiceRecorderModal({ onSend, onPickFile }) {
   let recorder = null;
   let stream = null;
   let chunks = [];
   let timer = null;
   let secs = 0;
+  let cancelled = false;
 
   const stopTracks = () => {
     clearInterval(timer);
+    timer = null;
+    if (recorder && recorder.state === 'recording') {
+      cancelled = true;
+      try { recorder.stop(); } catch (_) {}
+    }
     stream?.getTracks().forEach(t => t.stop());
+    stream = null;
   };
 
   UI.openModal({
     title: '🎙️ Grabar nota de voz',
+    onClose: stopTracks,
     contentHtml: `
       <div style="display:flex;flex-direction:column;align-items:center;gap:.9rem;padding:.5rem 0;">
         <div id="rch-rec-timer" style="font-family:var(--font-display);font-size:2rem;font-weight:800;color:var(--primary);">00:00</div>
@@ -565,7 +588,7 @@ function openVoiceRecorderModal({ onSend, onPickFile }) {
       const statusEl = document.getElementById('rch-rec-status');
       const timerEl = document.getElementById('rch-rec-timer');
 
-      fileBtn?.addEventListener('click', () => { stopTracks(); UI.closeModal(); onPickFile(); });
+      fileBtn?.addEventListener('click', () => { UI.closeModal(); onPickFile(); });
 
       startBtn?.addEventListener('click', async () => {
         if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
@@ -575,11 +598,18 @@ function openVoiceRecorderModal({ onSend, onPickFile }) {
         try {
           stream = await navigator.mediaDevices.getUserMedia({ audio: true });
           chunks = [];
-          recorder = new MediaRecorder(stream);
-          recorder.ondataavailable = (ev) => { if (ev.data.size > 0) chunks.push(ev.data); };
+          cancelled = false;
+          const mimeType = pickSupportedAudioMime();
+          recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+          recorder.ondataavailable = (ev) => { if (ev.data && ev.data.size > 0) chunks.push(ev.data); };
           recorder.onstop = async () => {
-            stopTracks();
-            const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
+            clearInterval(timer);
+            timer = null;
+            stream?.getTracks().forEach(t => t.stop());
+            stream = null;
+            if (cancelled || chunks.length === 0) return;
+            const finalMime = recorder.mimeType || mimeType || 'audio/mp4';
+            const blob = new Blob(chunks, { type: finalMime });
             if (blob.size > 1.5 * 1024 * 1024) {
               UI.showToast('El audio superó 1.5 MB. Graba un mensaje más corto.', 'error');
               return;
@@ -606,10 +636,11 @@ function openVoiceRecorderModal({ onSend, onPickFile }) {
       });
 
       stopBtn?.addEventListener('click', () => {
-        if (recorder?.state === 'recording') recorder.stop();
+        if (recorder?.state === 'recording') {
+          cancelled = false;
+          recorder.stop();
+        }
       });
-
-      document.getElementById('ruma-modal-close-btn')?.addEventListener('click', stopTracks, { once: true });
     }
   });
 }
