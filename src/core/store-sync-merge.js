@@ -2,6 +2,221 @@
  * ruma 🌟 — Motor puro de fusión nube-local (Cuentas, Grupos, Medios, Chat y Tombstones)
  */
 
+// Evita incrustar copias repetidas de avatares base64 (~30-60 KB) dentro de logs, películas o reseñas.
+// La UI resuelve el avatar actualizado desde group.members / accounts por userId.
+export function compactAvatar(avatar) {
+  if (!avatar || typeof avatar !== 'string') return '';
+  if (avatar.startsWith('data:') || avatar.length > 2000) return '';
+  return avatar;
+}
+
+function compactMemoryForStorage(mem) {
+  if (!mem || typeof mem !== 'object') return mem;
+  const files = Array.isArray(mem.files) ? mem.files : [];
+  const fileDataThumbs = new Set(
+    files
+      .map(f => f?.thumbnail)
+      .filter(t => typeof t === 'string' && t.startsWith('data:'))
+  );
+
+  let compactedPhotos = [];
+  if (Array.isArray(mem.photos)) {
+    const seenPhotos = new Set();
+    compactedPhotos = mem.photos.filter(p => {
+      if (!p || typeof p !== 'string') return false;
+      if (p.startsWith('data:') && fileDataThumbs.has(p)) return false;
+      if (seenPhotos.has(p)) return false;
+      seenPhotos.add(p);
+      return true;
+    });
+  }
+
+  const firstFileThumb = files.find(f => f?.thumbnail)?.thumbnail || '';
+  const defaultCover = firstFileThumb || compactedPhotos[0] || '';
+  let coverPreview = typeof mem.coverPreview === 'string' ? mem.coverPreview : '';
+  if (coverPreview.startsWith('data:') && coverPreview === defaultCover) {
+    coverPreview = '';
+  }
+
+  const comments = Array.isArray(mem.comments)
+    ? mem.comments.map(c => (c && typeof c === 'object' ? { ...c, authorAvatar: compactAvatar(c.authorAvatar) } : c))
+    : [];
+
+  return {
+    ...mem,
+    authorAvatar: compactAvatar(mem.authorAvatar),
+    coverPreview,
+    photos: compactedPhotos,
+    comments
+  };
+}
+
+function compactMediaEntryForStorage(item) {
+  if (!item || typeof item !== 'object') return item;
+  const next = { ...item };
+
+  if (next.proposedBy && typeof next.proposedBy === 'object') {
+    next.proposedBy = {
+      ...next.proposedBy,
+      avatar: compactAvatar(next.proposedBy.avatar)
+    };
+  }
+
+  if (next.ratings && typeof next.ratings === 'object') {
+    const cleanRatings = {};
+    Object.entries(next.ratings).forEach(([uid, val]) => {
+      if (val && typeof val === 'object') {
+        cleanRatings[uid] = { ...val, userAvatar: compactAvatar(val.userAvatar) };
+      } else {
+        cleanRatings[uid] = val;
+      }
+    });
+    next.ratings = cleanRatings;
+  }
+
+  if (next.userProgress && typeof next.userProgress === 'object') {
+    const cleanProg = {};
+    Object.entries(next.userProgress).forEach(([uid, up]) => {
+      if (up && typeof up === 'object') {
+        cleanProg[uid] = { ...up, userAvatar: compactAvatar(up.userAvatar) };
+      } else {
+        cleanProg[uid] = up;
+      }
+    });
+    next.userProgress = cleanProg;
+  }
+
+  if (Array.isArray(next.comments)) {
+    next.comments = next.comments.map(c => (c && typeof c === 'object' ? {
+      ...c,
+      authorAvatar: compactAvatar(c.authorAvatar),
+      userAvatar: compactAvatar(c.userAvatar)
+    } : c));
+  }
+
+  if (Array.isArray(next.quotes)) {
+    next.quotes = next.quotes.map(q => (q && typeof q === 'object' ? {
+      ...q,
+      authorAvatar: compactAvatar(q.authorAvatar)
+    } : q));
+  }
+
+  return next;
+}
+
+/**
+ * Compacta un grupo eliminando duplicación triple de miniaturas Base64 en recuerdos
+ * y avatares Base64 incrustados en registros hijos, preservando `members[].avatar`.
+ */
+export function compactGroupForStorage(group) {
+  if (!group || typeof group !== 'object' || group.deleted) return group;
+  const next = { ...group };
+
+  if (Array.isArray(next.activity)) {
+    next.activity = next.activity.map(a => (a && typeof a === 'object' ? {
+      ...a,
+      userAvatar: compactAvatar(a.userAvatar)
+    } : a));
+  }
+
+  if (Array.isArray(next.memories)) {
+    next.memories = next.memories.map(compactMemoryForStorage);
+  }
+
+  ['movies', 'series', 'songs', 'books'].forEach(cat => {
+    if (Array.isArray(next[cat])) {
+      next[cat] = next[cat].map(compactMediaEntryForStorage);
+    }
+  });
+
+  if (Array.isArray(next.activities)) {
+    next.activities = next.activities.map(act => {
+      if (!act || typeof act !== 'object' || !Array.isArray(act.tasks)) return act;
+      return {
+        ...act,
+        tasks: act.tasks.map(t => (t && typeof t === 'object' ? {
+          ...t,
+          assigneeAvatar: compactAvatar(t.assigneeAvatar)
+        } : t))
+      };
+    });
+  }
+
+  if (Array.isArray(next.goals)) {
+    next.goals = next.goals.map(goal => {
+      if (!goal || typeof goal !== 'object' || !Array.isArray(goal.tasks)) return goal;
+      return {
+        ...goal,
+        tasks: goal.tasks.map(t => (t && typeof t === 'object' ? {
+          ...t,
+          assigneeAvatar: compactAvatar(t.assigneeAvatar)
+        } : t))
+      };
+    });
+  }
+
+  if (Array.isArray(next.notes)) {
+    next.notes = next.notes.map(n => (n && typeof n === 'object' ? {
+      ...n,
+      authorAvatar: compactAvatar(n.authorAvatar)
+    } : n));
+  }
+
+  if (Array.isArray(next.messages)) {
+    next.messages = next.messages.map(m => (m && typeof m === 'object' ? {
+      ...m,
+      senderAvatar: compactAvatar(m.senderAvatar)
+    } : m));
+  }
+
+  return next;
+}
+
+/**
+ * Restaura en memoria las referencias `coverPreview` y `photos` de cada recuerdo a partir de `files[].thumbnail`
+ * sin duplicar bytes en JSON.
+ */
+export function hydrateGroupFromStorage(group) {
+  if (!group || typeof group !== 'object' || group.deleted) return group;
+  if (Array.isArray(group.memories)) {
+    group.memories.forEach(mem => {
+      if (!mem || typeof mem !== 'object') return;
+      const fileThumbs = (mem.files || []).map(f => f?.thumbnail).filter(Boolean);
+      const basePhotos = Array.isArray(mem.photos) ? mem.photos.filter(Boolean) : [];
+      const mergedPhotos = [...basePhotos];
+      fileThumbs.forEach(t => {
+        if (!mergedPhotos.includes(t)) mergedPhotos.push(t);
+      });
+      const fallbackCover = 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?auto=format&fit=crop&w=800&q=80';
+      const cover = mem.coverPreview || fileThumbs[0] || mergedPhotos[0] || fallbackCover;
+      mem.coverPreview = cover;
+      mem.photos = mergedPhotos.length > 0 ? mergedPhotos : [cover];
+    });
+  }
+  return group;
+}
+
+/**
+ * Recorte de emergencia exclusivo para `localStorage` cuando los recuerdos superan la cuota de 5 MB de iOS Safari.
+ * IndexedDB y la memoria RAM mantienen el objeto completo con todas sus miniaturas.
+ */
+export function stripGroupThumbnailsForEmergencyLocal(group) {
+  if (!group || typeof group !== 'object' || group.deleted) return group;
+  return {
+    ...group,
+    memories: Array.isArray(group.memories) ? group.memories.map(mem => {
+      if (!mem || typeof mem !== 'object') return mem;
+      return {
+        ...mem,
+        coverPreview: (typeof mem.coverPreview === 'string' && !mem.coverPreview.startsWith('data:')) ? mem.coverPreview : '',
+        photos: Array.isArray(mem.photos) ? mem.photos.filter(p => typeof p === 'string' && !p.startsWith('data:')) : [],
+        voiceNote: (typeof mem.voiceNote === 'string' && mem.voiceNote.startsWith('data:')) ? null : mem.voiceNote,
+        files: Array.isArray(mem.files) ? mem.files.map(f => (f && typeof f === 'object' ? { ...f, thumbnail: '' } : f)) : []
+      };
+    }) : group.memories
+  };
+}
+
 export function normalizeAccountList(val) {
   if (Array.isArray(val)) return val;
   if (val && typeof val === 'object') return Object.values(val);

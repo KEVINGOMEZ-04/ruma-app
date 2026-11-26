@@ -214,54 +214,6 @@ export function renderGroupBooksView(viewport, group, user, ctx) {
     ? allBooks.find(b => b.id === group.clubBookId && !lockedIds.has(b.id))
     : null;
 
-  // Filtrado
-  let list = [...allBooks];
-  if (filterState !== 'all') {
-    list = list.filter(b => progMap.get(b.id)?.status === filterState);
-  }
-  if (booksUiState.onlyMine || rawFilter === 'my-proposals') {
-    list = list.filter(b => b.proposedBy?.id === user.id || b.addedBy === user.name);
-  }
-  if (booksUiState.genre !== 'all') {
-    const targetG = booksUiState.genre.toLowerCase();
-    list = list.filter(b => splitGenres(b.genres).some(g => g.toLowerCase() === targetG));
-  }
-  if (booksUiState.author !== 'all') {
-    const targetA = booksUiState.author.toLowerCase();
-    list = list.filter(b => String(b.author || '').toLowerCase() === targetA);
-  }
-  if (booksUiState.format !== 'all') {
-    list = list.filter(b => (progMap.get(b.id)?.format || 'physical') === booksUiState.format);
-  }
-  if (booksUiState.rating !== 'all') {
-    list = list.filter(b => {
-      const avg = getAverage(b);
-      if (booksUiState.rating === 'rated') return avg !== null;
-      if (booksUiState.rating === 'unrated') return avg === null;
-      const minScore = Number(booksUiState.rating);
-      return avg !== null && avg >= minScore;
-    });
-  }
-
-  const q = (booksUiState.search || '').trim().toLowerCase();
-  if (q) {
-    list = list.filter(b =>
-      [b.title, b.author, b.genres, b.year, b.publisher, b.isbn13, b.isbn10].some(v => String(v || '').toLowerCase().includes(q))
-    );
-  }
-
-  // Ordenamiento
-  const rate = b => Number(getAverage(b) ?? -1);
-  if (booksUiState.sort === 'rating') {
-    list.sort((a, b) => rate(b) - rate(a));
-  } else if (booksUiState.sort === 'title') {
-    list.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
-  } else if (booksUiState.sort === 'pages') {
-    list.sort((a, b) => (Number(b.pages) || 0) - (Number(a.pages) || 0));
-  } else if (booksUiState.sort === 'progress') {
-    list.sort((a, b) => getBookPct(b, progMap.get(b.id)) - getBookPct(a, progMap.get(a.id)));
-  }
-
   const advCount = countActiveAdvancedFilters();
   const sortLabels = {
     recent: 'Recientes',
@@ -291,6 +243,77 @@ export function renderGroupBooksView(viewport, group, user, ctx) {
   if (booksUiState.sort !== 'recent') activeTags.push({ key: 'sort', label: `Orden: ${sortLabels[booksUiState.sort] || booksUiState.sort}` });
 
   const pendingUnlocked = allBooks.filter(b => !lockedIds.has(b.id) && progMap.get(b.id)?.status === 'Por leer');
+
+  const buildBooksSlotHtml = () => {
+    let list = [...allBooks];
+    if (filterState !== 'all') {
+      list = list.filter(b => progMap.get(b.id)?.status === filterState);
+    }
+    if (booksUiState.onlyMine || rawFilter === 'my-proposals') {
+      list = list.filter(b => b.proposedBy?.id === user.id || b.addedBy === user.name);
+    }
+    if (booksUiState.genre !== 'all') {
+      const targetG = booksUiState.genre.toLowerCase();
+      list = list.filter(b => splitGenres(b.genres).some(g => g.toLowerCase() === targetG));
+    }
+    if (booksUiState.author !== 'all') {
+      const targetA = booksUiState.author.toLowerCase();
+      list = list.filter(b => String(b.author || '').toLowerCase() === targetA);
+    }
+    if (booksUiState.format !== 'all') {
+      list = list.filter(b => (progMap.get(b.id)?.format || 'physical') === booksUiState.format);
+    }
+    if (booksUiState.rating !== 'all') {
+      list = list.filter(b => {
+        const avg = getAverage(b);
+        if (booksUiState.rating === 'rated') return avg !== null;
+        if (booksUiState.rating === 'unrated') return avg === null;
+        const minScore = Number(booksUiState.rating);
+        return avg !== null && avg >= minScore;
+      });
+    }
+
+    const q = (booksUiState.search || '').trim().toLowerCase();
+    if (q) {
+      list = list.filter(b =>
+        [b.title, b.author, b.genres, b.year, b.publisher, b.isbn13, b.isbn10].some(v => String(v || '').toLowerCase().includes(q))
+      );
+    }
+
+    const rate = b => Number(getAverage(b) ?? -1);
+    if (booksUiState.sort === 'rating') {
+      list.sort((a, b) => rate(b) - rate(a));
+    } else if (booksUiState.sort === 'title') {
+      list.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+    } else if (booksUiState.sort === 'pages') {
+      list.sort((a, b) => (Number(b.pages) || 0) - (Number(a.pages) || 0));
+    } else if (booksUiState.sort === 'progress') {
+      list.sort((a, b) => getBookPct(b, progMap.get(b.id)) - getBookPct(a, progMap.get(a.id)));
+    }
+
+    const clubHeroHtml = (clubBook && !q && filterState === 'all' && advCount === 0)
+      ? renderClubBookHero(clubBook, group, user)
+      : '';
+
+    const listHtml = list.length === 0 ? `
+      <div class="rbk-empty">
+        <div class="rbk-empty-ico">${svg(ICO.book, 24)}</div>
+        <b>${q || filterState !== 'all' || advCount > 0 ? 'Sin resultados con estos filtros' : 'Tu biblioteca está vacía'}</b>
+        <span>${q || filterState !== 'all' || advCount > 0
+          ? 'Prueba ajustando el estado, la búsqueda o los filtros avanzados.'
+          : 'Busca por título, autor o ISBN para añadir el primer libro del grupo.'}</span>
+        ${q || filterState !== 'all' || advCount > 0
+          ? `<button type="button" class="btn btn-secondary btn-sm" id="rbk-reset-empty">Ver todos los libros</button>`
+          : `<button type="button" class="btn btn-primary btn-sm" id="rbk-add-empty">+ Añadir primer libro</button>`}
+      </div>
+    ` : `
+      <div class="rbk-list">
+        ${list.map(b => renderBookCard(b, progMap.get(b.id), user, lockedIds.has(b.id), b.id === group.clubBookId, readingStats.avgPagesPerHour)).join('')}
+      </div>
+    `;
+
+    return `${clubHeroHtml}${listHtml}`;
+  };
 
   viewport.innerHTML = `
     <div class="rbk-wrap">
@@ -327,15 +350,12 @@ export function renderGroupBooksView(viewport, group, user, ctx) {
         </button>
       </header>
 
-      <!-- Lectura actual del club (fijada por el grupo) -->
-      ${clubBook && !q && filterState === 'all' && advCount === 0 ? renderClubBookHero(clubBook, group, user) : ''}
-
       <!-- Buscador + Filtros avanzados -->
       <div class="rbk-search-row">
         <div class="rbk-search-box">
           ${svg(ICO.search, 17)}
-          <input type="text" id="rbk-search-inp" placeholder="Título, autor, género o ISBN…" value="${esc(booksUiState.search)}" autocomplete="off">
-          ${booksUiState.search ? `<button type="button" class="rbk-search-clear" id="rbk-search-clear" aria-label="Limpiar búsqueda">✕</button>` : ''}
+          <input type="text" id="rbk-search-inp" placeholder="Título, autor, género o ISBN…" value="${esc(booksUiState.search)}" enterkeyhint="search" autocomplete="off">
+          <button type="button" class="rbk-search-clear" id="rbk-search-clear" aria-label="Limpiar búsqueda" ${booksUiState.search ? '' : 'hidden'}>✕</button>
         </div>
         <button type="button" class="rbk-filter-btn ${advCount > 0 ? 'has-active' : ''}" id="rbk-adv-btn" aria-label="Filtros avanzados y orden">
           ${svg(ICO.sliders, 18)}
@@ -365,23 +385,9 @@ export function renderGroupBooksView(viewport, group, user, ctx) {
         </div>
       ` : ''}
 
-      <!-- Lista de libros -->
-      ${list.length === 0 ? `
-        <div class="rbk-empty">
-          <div class="rbk-empty-ico">${svg(ICO.book, 24)}</div>
-          <b>${q || filterState !== 'all' || advCount > 0 ? 'Sin resultados con estos filtros' : 'Tu biblioteca está vacía'}</b>
-          <span>${q || filterState !== 'all' || advCount > 0
-            ? 'Prueba ajustando el estado, la búsqueda o los filtros avanzados.'
-            : 'Busca por título, autor o ISBN para añadir el primer libro del grupo.'}</span>
-          ${q || filterState !== 'all' || advCount > 0
-            ? `<button type="button" class="btn btn-secondary btn-sm" id="rbk-reset-empty">Ver todos los libros</button>`
-            : `<button type="button" class="btn btn-primary btn-sm" id="rbk-add-empty">+ Añadir primer libro</button>`}
-        </div>
-      ` : `
-        <div class="rbk-list">
-          ${list.map(b => renderBookCard(b, progMap.get(b.id), user, lockedIds.has(b.id), b.id === group.clubBookId, readingStats.avgPagesPerHour)).join('')}
-        </div>
-      `}
+      <div id="rbk-results-slot" style="display:flex;flex-direction:column;gap:0.75rem;">
+        ${buildBooksSlotHtml()}
+      </div>
     </div>
   `;
 
@@ -408,16 +414,99 @@ export function renderGroupBooksView(viewport, group, user, ctx) {
     openAddBookModal(group);
   };
   viewport.querySelector('#rbk-add-btn')?.addEventListener('click', handleAddClick);
-  viewport.querySelector('#rbk-add-empty')?.addEventListener('click', handleAddClick);
 
-  // Club book hero interactions
-  viewport.querySelector('[data-club-open]')?.addEventListener('click', () => {
-    if (clubBook) openBookDetailModal(clubBook.id, user, { openReviewModal, openMediaCommentsModal, onQuoteBook });
-  });
-  viewport.querySelector('[data-club-timer]')?.addEventListener('click', e => {
-    e.stopPropagation();
-    if (clubBook) openReadingSessionModal(clubBook.id, user, () => rerender());
-  });
+  const resetAllFilters = () => {
+    booksUiState.search = '';
+    booksUiState.genre = 'all';
+    booksUiState.author = 'all';
+    booksUiState.rating = 'all';
+    booksUiState.format = 'all';
+    booksUiState.onlyMine = false;
+    booksUiState.sort = 'recent';
+    setFilterState('all');
+    rerender();
+  };
+
+  const bindBooksSlotEvents = (slotEl) => {
+    if (!slotEl) return;
+
+    slotEl.querySelector('#rbk-add-empty')?.addEventListener('click', handleAddClick);
+    slotEl.querySelector('#rbk-reset-empty')?.addEventListener('click', resetAllFilters);
+
+    slotEl.querySelector('[data-club-open]')?.addEventListener('click', () => {
+      if (clubBook) openBookDetailModal(clubBook.id, user, { openReviewModal, openMediaCommentsModal, onQuoteBook });
+    });
+    slotEl.querySelector('[data-club-timer]')?.addEventListener('click', e => {
+      e.stopPropagation();
+      if (clubBook) openReadingSessionModal(clubBook.id, user, () => rerender());
+    });
+
+    slotEl.querySelectorAll('[data-rbk-card]').forEach(card => {
+      card.addEventListener('click', () => {
+        const id = card.getAttribute('data-rbk-card');
+        if (lockedIds.has(id)) {
+          UI.showUpgradeModal(
+            'En el Plan Free el límite es de 5 libros por grupo. Los más recientes quedaron bloqueados; activa ruma Plus para desbloquearlos.',
+            () => store.upgradeGroupToPremium(group.id)
+          );
+          return;
+        }
+        const b = find(id);
+        if (b) openBookDetailModal(b.id, user, { openReviewModal, openMediaCommentsModal, onQuoteBook });
+      });
+    });
+
+    slotEl.querySelectorAll('[data-rbk-status]').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        const b = find(btn.getAttribute('data-rbk-status'));
+        if (b) openBookProgressModal(b, user, openReviewModal);
+      });
+    });
+
+    slotEl.querySelectorAll('[data-rbk-timer]').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        const b = find(btn.getAttribute('data-rbk-timer'));
+        if (b) openReadingSessionModal(b.id, user);
+      });
+    });
+
+    slotEl.querySelectorAll('[data-rbk-act]').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        const id = btn.getAttribute('data-rbk-act');
+        const mode = btn.getAttribute('data-rbk-act-mode');
+        const b = find(id);
+        if (!b) return;
+        if (mode === 'progress') {
+          openBookProgressModal(b, user, openReviewModal);
+        } else if (mode === 'start' || mode === 'resume') {
+          store.setUserBookProgress(b.id, { status: 'Leyendo' });
+          UI.showToast(`Empezaste a leer "${b.title}"`, 'success');
+        } else if (mode === 'rate') {
+          openReviewModal('books', b, user);
+        }
+      });
+    });
+
+    slotEl.querySelectorAll('[data-rbk-social]').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        const b = find(btn.getAttribute('data-rbk-social'));
+        if (b) openBookDetailModal(b.id, user, { openReviewModal, openMediaCommentsModal, onQuoteBook, initialTab: 'comments' });
+      });
+    });
+
+    slotEl.querySelectorAll('[data-rbk-more]').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        const b = find(btn.getAttribute('data-rbk-more'));
+        if (!b) return;
+        openBookOptionsMenu(group, b, user, { openReviewModal, openMediaCommentsModal, onQuoteBook });
+      });
+    });
+  };
 
   // Filtros de estado
   viewport.querySelectorAll('[data-rbk-filter]').forEach(btn => {
@@ -427,21 +516,37 @@ export function renderGroupBooksView(viewport, group, user, ctx) {
     });
   });
 
-  // Búsqueda local conservando foco
-  viewport.querySelector('#rbk-search-inp')?.addEventListener('input', e => {
+  // Búsqueda local en vivo sin destruir el input (estable en iPhone / Safari iOS)
+  const searchInp = viewport.querySelector('#rbk-search-inp');
+  const clearBtn = viewport.querySelector('#rbk-search-clear');
+  const resultsSlot = viewport.querySelector('#rbk-results-slot');
+
+  searchInp?.addEventListener('input', e => {
     booksUiState.search = e.target.value;
-    const pos = e.target.selectionStart;
-    rerender();
-    const inp = viewport.querySelector('#rbk-search-inp');
-    if (inp) {
-      inp.focus();
-      try { inp.setSelectionRange(pos, pos); } catch (_) {}
+    if (clearBtn) clearBtn.hidden = !booksUiState.search;
+    if (resultsSlot) {
+      resultsSlot.innerHTML = buildBooksSlotHtml();
+      bindBooksSlotEvents(resultsSlot);
+    }
+  });
+  searchInp?.addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      searchInp.blur();
     }
   });
 
-  viewport.querySelector('#rbk-search-clear')?.addEventListener('click', () => {
+  clearBtn?.addEventListener('click', () => {
     booksUiState.search = '';
-    rerender();
+    if (searchInp) {
+      searchInp.value = '';
+      searchInp.focus();
+    }
+    clearBtn.hidden = true;
+    if (resultsSlot) {
+      resultsSlot.innerHTML = buildBooksSlotHtml();
+      bindBooksSlotEvents(resultsSlot);
+    }
   });
 
   // Filtros avanzados
@@ -462,86 +567,9 @@ export function renderGroupBooksView(viewport, group, user, ctx) {
     });
   });
 
-  const resetAllFilters = () => {
-    booksUiState.search = '';
-    booksUiState.genre = 'all';
-    booksUiState.author = 'all';
-    booksUiState.rating = 'all';
-    booksUiState.format = 'all';
-    booksUiState.onlyMine = false;
-    booksUiState.sort = 'recent';
-    setFilterState('all');
-    rerender();
-  };
   viewport.querySelector('#rbk-clear-all')?.addEventListener('click', resetAllFilters);
-  viewport.querySelector('#rbk-reset-empty')?.addEventListener('click', resetAllFilters);
 
-  // Interacciones de tarjetas
-  viewport.querySelectorAll('[data-rbk-card]').forEach(card => {
-    card.addEventListener('click', () => {
-      const id = card.getAttribute('data-rbk-card');
-      if (lockedIds.has(id)) {
-        UI.showUpgradeModal(
-          'En el Plan Free el límite es de 5 libros por grupo. Los más recientes quedaron bloqueados; activa ruma Plus para desbloquearlos.',
-          () => store.upgradeGroupToPremium(group.id)
-        );
-        return;
-      }
-      const b = find(id);
-      if (b) openBookDetailModal(b.id, user, { openReviewModal, openMediaCommentsModal, onQuoteBook });
-    });
-  });
-
-  viewport.querySelectorAll('[data-rbk-status]').forEach(btn => {
-    btn.addEventListener('click', e => {
-      e.stopPropagation();
-      const b = find(btn.getAttribute('data-rbk-status'));
-      if (b) openBookProgressModal(b, user, openReviewModal);
-    });
-  });
-
-  viewport.querySelectorAll('[data-rbk-timer]').forEach(btn => {
-    btn.addEventListener('click', e => {
-      e.stopPropagation();
-      const b = find(btn.getAttribute('data-rbk-timer'));
-      if (b) openReadingSessionModal(b.id, user);
-    });
-  });
-
-  viewport.querySelectorAll('[data-rbk-act]').forEach(btn => {
-    btn.addEventListener('click', e => {
-      e.stopPropagation();
-      const id = btn.getAttribute('data-rbk-act');
-      const mode = btn.getAttribute('data-rbk-act-mode');
-      const b = find(id);
-      if (!b) return;
-      if (mode === 'progress') {
-        openBookProgressModal(b, user, openReviewModal);
-      } else if (mode === 'start' || mode === 'resume') {
-        store.setUserBookProgress(b.id, { status: 'Leyendo' });
-        UI.showToast(`Empezaste a leer "${b.title}"`, 'success');
-      } else if (mode === 'rate') {
-        openReviewModal('books', b, user);
-      }
-    });
-  });
-
-  viewport.querySelectorAll('[data-rbk-social]').forEach(btn => {
-    btn.addEventListener('click', e => {
-      e.stopPropagation();
-      const b = find(btn.getAttribute('data-rbk-social'));
-      if (b) openBookDetailModal(b.id, user, { openReviewModal, openMediaCommentsModal, onQuoteBook, initialTab: 'comments' });
-    });
-  });
-
-  viewport.querySelectorAll('[data-rbk-more]').forEach(btn => {
-    btn.addEventListener('click', e => {
-      e.stopPropagation();
-      const b = find(btn.getAttribute('data-rbk-more'));
-      if (!b) return;
-      openBookOptionsMenu(group, b, user, { openReviewModal, openMediaCommentsModal, onQuoteBook });
-    });
-  });
+  bindBooksSlotEvents(resultsSlot);
 }
 
 function renderClubBookHero(book, group, user) {
@@ -2425,8 +2453,8 @@ function openAddBookModal(group) {
           ${activeTab === 'search' ? `
             <div style="display:flex;flex-direction:column;gap:0.75rem;">
               <form id="rbk-api-form" style="display:flex;gap:0.45rem;">
-                <input type="search" id="rbk-api-q" class="form-input" placeholder="Título, autor o ISBN (ej. Dune, 978...)" value="${esc(lastQuery)}" style="flex:1;" autocomplete="off">
-                <button type="submit" class="btn btn-primary btn-sm">Buscar</button>
+                <input type="search" id="rbk-api-q" class="form-input" placeholder="Título, autor o ISBN (ej. Dune, 978...)" value="${esc(lastQuery)}" style="flex:1;min-width:0;" enterkeyhint="search" autocomplete="off" autocorrect="off" spellcheck="false">
+                <button type="submit" class="btn btn-primary btn-sm" style="flex-shrink:0;">Buscar</button>
               </form>
 
               <div class="rbk-lang-row">
@@ -2452,7 +2480,7 @@ function openAddBookModal(group) {
                 </div>
               </div>
 
-              <div id="rbk-api-res" style="display:flex;flex-direction:column;gap:0.55rem;max-height:42dvh;overflow-y:auto;-webkit-overflow-scrolling:touch;">
+              <div id="rbk-api-res" style="display:flex;flex-direction:column;gap:0.55rem;">
                 ${renderResultsHtml()}
               </div>
             </div>
@@ -2464,7 +2492,7 @@ function openAddBookModal(group) {
                   <b style="font-size:0.8rem;color:var(--text-primary);">Portada personalizada (opcional)</b>
                   <div>
                     <button type="button" class="btn btn-secondary btn-sm" id="rbk-man-pick-cover">📷 Elegir portada</button>
-                    <input type="file" id="rbk-man-cover-file" accept="image/*" hidden>
+                    <input type="file" id="rbk-man-cover-file" accept="image/*,.heic,.heif" hidden>
                   </div>
                 </div>
               </div>
@@ -2519,6 +2547,7 @@ function openAddBookModal(group) {
         });
 
         const searchInp = document.getElementById('rbk-api-q');
+        const resBox = document.getElementById('rbk-api-res');
         searchInp?.addEventListener('input', () => {
           clearTimeout(searchDebounce);
           const val = searchInp.value;
@@ -2528,10 +2557,15 @@ function openAddBookModal(group) {
         document.getElementById('rbk-api-form')?.addEventListener('submit', e => {
           e.preventDefault();
           clearTimeout(searchDebounce);
+          searchInp?.blur();
           runLiveSearch(searchInp?.value || '');
         });
 
-        bindResultsEvents(document.getElementById('rbk-api-res'));
+        resBox?.addEventListener('touchmove', () => {
+          if (document.activeElement === searchInp) searchInp.blur();
+        }, { passive: true });
+
+        bindResultsEvents(resBox);
 
         // Portada manual con recortador
         const manCoverInp = document.getElementById('rbk-man-cover-file');

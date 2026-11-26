@@ -12,11 +12,13 @@
 
 import { CONFIG } from '../core/config.js';
 import { MediaStorage } from './media-storage.js';
+import { compactGroupForStorage } from '../core/store-sync-merge.js';
 
 const BASE_URL = `${CONFIG.cloudSync?.databaseUrl || 'https://luma-f53ee-default-rtdb.firebaseio.com'}/${CONFIG.cloudSync?.rootPath || 'ruma_cloud_v1'}`;
 
 let eventSource = null;
 let pollTimer = null;
+let resumeCleanup = null;
 let isPushing = false;
 let lastKnownCloudRev = 0;
 let authToken = null;
@@ -237,11 +239,12 @@ export const CloudSync = {
       });
 
       grpList.forEach(grp => {
+        const cleanGrp = compactGroupForStorage(grp);
         requests.push(
           fetch(rtdbUrl(`/groups/${safeKey(grp.id)}.json`), {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(grp)
+            body: JSON.stringify(cleanGrp)
           })
         );
       });
@@ -406,8 +409,24 @@ export const CloudSync = {
       if (full) onRemoteState(full);
     };
 
+    const pollMetaOnce = async () => {
+      if (isPushing || (typeof document !== 'undefined' && document.hidden)) return;
+      try {
+        const res = await fetch(rtdbUrl(`/meta.json`), { cache: 'no-store' });
+        if (!res.ok) return;
+        const remoteMeta = await res.json();
+        setStatus('online');
+        if (remoteMeta && Number(remoteMeta.rev) > lastKnownCloudRev) {
+          await handleMeta(remoteMeta, true);
+        }
+      } catch (_) {
+        setStatus('offline');
+      }
+    };
+
     // 1. Stream SSE sobre `/meta.json` (~120 bytes por evento en lugar del JSON entero)
-    if (typeof EventSource !== 'undefined') {
+    const connectEventSource = () => {
+      if (typeof EventSource === 'undefined') return;
       try {
         if (eventSource) eventSource.close();
         eventSource = new EventSource(rtdbUrl(`/meta.json`));
@@ -435,23 +454,35 @@ export const CloudSync = {
           // El polling de respaldo mantiene la sincronización si SSE se desconecta en red móvil
         };
       } catch (_) {}
-    }
+    };
+
+    connectEventSource();
 
     // 2. Polling liviano cada 5s consultando únicamente `/meta.json`
     if (pollTimer) clearInterval(pollTimer);
-    pollTimer = setInterval(async () => {
-      if (isPushing || document.hidden) return;
-      try {
-        const res = await fetch(rtdbUrl(`/meta.json`), { cache: 'no-store' });
-        if (!res.ok) return;
-        const remoteMeta = await res.json();
-        setStatus('online');
-        if (remoteMeta && Number(remoteMeta.rev) > lastKnownCloudRev) {
-          await handleMeta(remoteMeta, true);
+    pollTimer = setInterval(pollMetaOnce, 5000);
+
+    // 3. Reanudar al instante tras bloqueo de pantalla o cambio de app en iPhone (iOS cierra EventSource en segundo plano)
+    if (resumeCleanup) {
+      resumeCleanup();
+      resumeCleanup = null;
+    }
+    if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+      const onResume = () => {
+        if (document.hidden) return;
+        if (typeof EventSource !== 'undefined' && (!eventSource || eventSource.readyState === EventSource.CLOSED)) {
+          connectEventSource();
         }
-      } catch (_) {
-        setStatus('offline');
-      }
-    }, 5000);
+        pollMetaOnce();
+      };
+      document.addEventListener('visibilitychange', onResume);
+      window.addEventListener('pageshow', onResume);
+      window.addEventListener('online', onResume);
+      resumeCleanup = () => {
+        document.removeEventListener('visibilitychange', onResume);
+        window.removeEventListener('pageshow', onResume);
+        window.removeEventListener('online', onResume);
+      };
+    }
   }
 };

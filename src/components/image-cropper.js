@@ -156,15 +156,31 @@ export function openImageCropperModal(file, {
 export function pickAndCropImage(options) {
   const input = document.createElement('input');
   input.type = 'file';
-  input.accept = 'image/*';
-  input.onchange = () => {
+  input.accept = 'image/*,.heic,.heif';
+  input.style.cssText = 'position:fixed;left:-9999px;top:-9999px;width:1px;height:1px;opacity:0;pointer-events:none;';
+  document.body.appendChild(input);
+
+  let cleaned = false;
+  const cleanup = () => {
+    if (cleaned) return;
+    cleaned = true;
+    input.remove();
+  };
+
+  input.addEventListener('change', () => {
     const file = input.files?.[0];
+    cleanup();
     if (!file) return;
-    if (!file.type.startsWith('image/')) {
+    const isImageMime = file.type && file.type.startsWith('image/');
+    const isImageExt = /\.(jpe?g|png|webp|gif|heic|heif|avif|bmp)$/i.test(file.name || '');
+    if (!isImageMime && !isImageExt) {
       UI.showToast('Selecciona un archivo de imagen válido.', 'error');
       return;
     }
     openImageCropperModal(file, options);
-  };
+  });
+
+  input.addEventListener('cancel', cleanup);
+  window.addEventListener('focus', () => setTimeout(cleanup, 1500), { once: true });
   input.click();
 }

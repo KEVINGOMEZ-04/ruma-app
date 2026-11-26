@@ -12,11 +12,62 @@ import { GoogleAuth } from '../services/google-auth.js';
 import { CloudSync } from '../services/cloud-sync.js';
 import { MediaStorage } from '../services/media-storage.js';
 import { PRELOADED_SERIES_EPISODES } from '../services/media-api.js';
-import { mergeAccountObjects, mergeCloudAndLocalGroups } from './store-sync-merge.js';
+import {
+  compactAvatar,
+  compactGroupForStorage,
+  hydrateGroupFromStorage,
+  mergeAccountObjects,
+  mergeCloudAndLocalGroups,
+  stripGroupThumbnailsForEmergencyLocal
+} from './store-sync-merge.js';
+
+const fallbackKv = new Map();
+let hadNonEmptyLocalStorage = false;
+
+function syncFallbackWithClear() {
+  try {
+    const len = localStorage.length;
+    if (typeof len === 'number') {
+      if (len > 0) {
+        hadNonEmptyLocalStorage = true;
+      } else if (hadNonEmptyLocalStorage && len === 0) {
+        hadNonEmptyLocalStorage = false;
+        fallbackKv.clear();
+      }
+      return;
+    }
+    if (
+      hadNonEmptyLocalStorage &&
+      localStorage.getItem(CONFIG.storageKeys.accounts) === null &&
+      localStorage.getItem(CONFIG.storageKeys.groups) === null &&
+      localStorage.getItem(CONFIG.storageKeys.currentUserId) === null
+    ) {
+      hadNonEmptyLocalStorage = false;
+      fallbackKv.clear();
+    }
+  } catch (_) {}
+}
+
+function safeGetStorage(key) {
+  syncFallbackWithClear();
+  if (fallbackKv.has(key)) {
+    return fallbackKv.get(key);
+  }
+  try {
+    const val = localStorage.getItem(key);
+    if (val !== null) hadNonEmptyLocalStorage = true;
+    return val;
+  } catch (_) {
+    return null;
+  }
+}
 
 function safeSetStorage(key, value) {
+  const str = String(value);
   try {
-    localStorage.setItem(key, value);
+    localStorage.setItem(key, str);
+    hadNonEmptyLocalStorage = true;
+    fallbackKv.delete(key);
     return true;
   } catch (err) {
     console.warn('Error guardando en almacenamiento local (cuota iOS/Safari):', err?.name || err);
@@ -24,12 +75,20 @@ function safeSetStorage(key, value) {
   }
 }
 
-// Evita incrustar copias repetidas de avatares base64 (~30-60 KB) dentro de logs, películas o reseñas.
-// La UI resuelve el avatar actualizado desde group.members / accounts por userId.
-function compactAvatar(avatar) {
-  if (!avatar || typeof avatar !== 'string') return '';
-  if (avatar.startsWith('data:') || avatar.length > 2000) return '';
-  return avatar;
+function safeSetScalarStorage(key, value) {
+  const str = String(value);
+  if (!safeSetStorage(key, str)) {
+    fallbackKv.set(key, str);
+    return false;
+  }
+  return true;
+}
+
+function safeRemoveStorage(key) {
+  fallbackKv.delete(key);
+  try {
+    localStorage.removeItem(key);
+  } catch (_) {}
 }
 
 class RumaStore {
@@ -45,22 +104,128 @@ class RumaStore {
     this.dirtyGroupIds = new Set();
     this._syncedAccountSnapshots = new Map();
     this._syncedGroupSnapshots = new Map();
+    this._memAccountsJson = null;
+    this._lastAccountsStorageRaw = undefined;
+    this._accountsQuotaOwner = undefined;
+    this._memGroupsJson = null;
+    this._lastGroupsStorageRaw = undefined;
+    this._groupsQuotaOwner = undefined;
     this.init();
   }
 
   init() {
-    if (!localStorage.getItem(CONFIG.storageKeys.accounts)) {
-      safeSetStorage(CONFIG.storageKeys.accounts, JSON.stringify([]));
+    if (!safeGetStorage(CONFIG.storageKeys.accounts)) {
+      this._writeAccountsState([]);
     }
-    if (!localStorage.getItem(CONFIG.storageKeys.groups)) {
-      safeSetStorage(CONFIG.storageKeys.groups, JSON.stringify([]));
+    if (!safeGetStorage(CONFIG.storageKeys.groups)) {
+      this._writeGroupsState([]);
     }
     this._refreshSnapshots(this.getAccounts(), this.getGroupsRaw());
-    const savedTheme = localStorage.getItem(CONFIG.storageKeys.theme) || 'dark';
+    const savedTheme = safeGetStorage(CONFIG.storageKeys.theme) || 'dark';
     this.setTheme(savedTheme, false);
 
-    // Iniciar sincronización en la nube en tiempo real
-    this.bootstrapCloudSync();
+    // Restaurar respaldo local de IndexedDB (crucial en iPhone cuando un grupo supera 5 MB de localStorage)
+    // e iniciar sincronización en la nube en tiempo real
+    this.restoreStateFromIndexedDB().finally(() => {
+      this.bootstrapCloudSync();
+    });
+  }
+
+  async restoreStateFromIndexedDB() {
+    try {
+      const [idbAccounts, idbGroups] = await Promise.all([
+        MediaStorage.getAppState('accounts'),
+        MediaStorage.getAppState('groups')
+      ]);
+      const hasAccounts = Array.isArray(idbAccounts) && idbAccounts.length > 0;
+      const hasGroups = Array.isArray(idbGroups) && idbGroups.length > 0;
+      if (hasAccounts || hasGroups) {
+        this.applyRemoteCloudState({
+          accounts: hasAccounts ? idbAccounts : [],
+          groups: hasGroups ? idbGroups : []
+        }, true);
+      }
+    } catch (_) {}
+  }
+
+  _readAccountsState() {
+    const storageRaw = safeGetStorage(CONFIG.storageKeys.accounts);
+    const currentOwner = safeGetStorage(CONFIG.storageKeys.currentUserId);
+    const ownerReset = storageRaw === null && this._accountsQuotaOwner !== undefined && currentOwner !== this._accountsQuotaOwner;
+    if (storageRaw !== this._lastAccountsStorageRaw || ownerReset) {
+      this._lastAccountsStorageRaw = storageRaw;
+      this._accountsQuotaOwner = undefined;
+      this._memAccountsJson = storageRaw || '[]';
+    }
+    try {
+      return JSON.parse(this._memAccountsJson || '[]') || [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  _writeAccountsState(accounts) {
+    const clean = Array.isArray(accounts) ? accounts : [];
+    const json = JSON.stringify(clean);
+    this._memAccountsJson = json;
+    if (safeSetStorage(CONFIG.storageKeys.accounts, json)) {
+      this._lastAccountsStorageRaw = json;
+      this._accountsQuotaOwner = undefined;
+    } else {
+      this._lastAccountsStorageRaw = safeGetStorage(CONFIG.storageKeys.accounts);
+      this._accountsQuotaOwner = safeGetStorage(CONFIG.storageKeys.currentUserId);
+    }
+    MediaStorage.saveAppState('accounts', clean).catch(() => {});
+  }
+
+  _readGroupsState() {
+    const storageRaw = safeGetStorage(CONFIG.storageKeys.groups);
+    const currentOwner = safeGetStorage(CONFIG.storageKeys.currentUserId);
+    const ownerReset = storageRaw === null && this._groupsQuotaOwner !== undefined && currentOwner !== this._groupsQuotaOwner;
+    if (storageRaw !== this._lastGroupsStorageRaw || ownerReset) {
+      this._lastGroupsStorageRaw = storageRaw;
+      this._groupsQuotaOwner = undefined;
+      this._memGroupsJson = storageRaw || '[]';
+    }
+    try {
+      return JSON.parse(this._memGroupsJson || '[]') || [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  _writeGroupsState(groups) {
+    const cleanList = (Array.isArray(groups) ? groups : [])
+      .filter(g => !this.isLegacyDemoGroup(g))
+      .map(g => compactGroupForStorage(g));
+    const fullJson = JSON.stringify(cleanList);
+    this._memGroupsJson = fullJson;
+
+    if (safeSetStorage(CONFIG.storageKeys.groups, fullJson)) {
+      this._lastGroupsStorageRaw = fullJson;
+      this._groupsQuotaOwner = undefined;
+    } else {
+      const currentUserId = safeGetStorage(CONFIG.storageKeys.currentUserId);
+      const prioritized = currentUserId
+        ? cleanList.filter(g => g?.deleted || g?.creatorId === currentUserId || (g?.members || []).some(m => m.id === currentUserId))
+        : cleanList;
+      const prioJson = JSON.stringify(prioritized);
+
+      if (prioJson.length < fullJson.length && safeSetStorage(CONFIG.storageKeys.groups, prioJson)) {
+        this._lastGroupsStorageRaw = prioJson;
+        this._groupsQuotaOwner = currentUserId;
+      } else {
+        const slimJson = JSON.stringify(prioritized.map(g => stripGroupThumbnailsForEmergencyLocal(g)));
+        if (safeSetStorage(CONFIG.storageKeys.groups, slimJson)) {
+          this._lastGroupsStorageRaw = slimJson;
+        } else {
+          this._lastGroupsStorageRaw = safeGetStorage(CONFIG.storageKeys.groups);
+        }
+        this._groupsQuotaOwner = currentUserId;
+      }
+    }
+
+    MediaStorage.saveAppState('groups', cleanList).catch(() => {});
   }
 
   _refreshSnapshots(accounts = null, groups = null) {
@@ -71,7 +236,7 @@ class RumaStore {
     }
     if (Array.isArray(groups)) {
       groups.forEach(g => {
-        if (g && g.id) this._syncedGroupSnapshots.set(g.id, JSON.stringify(g));
+        if (g && g.id) this._syncedGroupSnapshots.set(g.id, JSON.stringify(compactGroupForStorage(g)));
       });
     }
   }
@@ -134,7 +299,7 @@ class RumaStore {
         mergedMap.set(a.id, mergeAccountObjects(prev, a));
       });
       const mergedAccounts = Array.from(mergedMap.values());
-      safeSetStorage(CONFIG.storageKeys.accounts, JSON.stringify(mergedAccounts));
+      this._writeAccountsState(mergedAccounts);
       this._refreshSnapshots(mergedAccounts, null);
       changed = true;
     }
@@ -142,7 +307,7 @@ class RumaStore {
     if (Array.isArray(cloudData.groups) && cloudData.groups.length > 0) {
       const localGroups = this.getGroupsRaw();
       const mergedGroups = this.mergeCloudAndLocalGroups(localGroups, cloudData.groups);
-      safeSetStorage(CONFIG.storageKeys.groups, JSON.stringify(mergedGroups));
+      this._writeGroupsState(mergedGroups);
       this._refreshSnapshots(null, mergedGroups);
       changed = true;
     }
@@ -187,7 +352,7 @@ class RumaStore {
       const accountsToPush = [];
       const groupsToPush = [];
 
-      // Merge granular por cuenta modificada (re-leyendo localStorage tras el await para no perder cambios recientes)
+      // Merge granular por cuenta modificada (re-leyendo estado tras el await para no perder cambios recientes)
       if (dirtyAccIds.length > 0) {
         const remoteResults = await Promise.all(dirtyAccIds.map(id => CloudSync.pullAccount(id)));
         const freshAccounts = this.getAccounts();
@@ -201,11 +366,11 @@ class RumaStore {
           accountsToPush.push(merged);
         });
         const nextAccounts = Array.from(accMap.values());
-        safeSetStorage(CONFIG.storageKeys.accounts, JSON.stringify(nextAccounts));
+        this._writeAccountsState(nextAccounts);
         this._refreshSnapshots(accountsToPush, null);
       }
 
-      // Merge granular por grupo modificado (re-leyendo localStorage tras el await para jamás revertir clics rápidos)
+      // Merge granular por grupo modificado (re-leyendo estado tras el await para jamás revertir clics rápidos)
       if (dirtyGrpIds.length > 0) {
         const remoteResults = await Promise.all(dirtyGrpIds.map(id => CloudSync.pullGroup(id)));
         const freshGroups = this.getGroupsRaw();
@@ -217,11 +382,12 @@ class RumaStore {
           const merged = remoteGrp
             ? (this.mergeCloudAndLocalGroups([remoteGrp], [localGrp])[0] || localGrp)
             : localGrp;
-          grpMap.set(id, merged);
-          groupsToPush.push(merged);
+          const compacted = compactGroupForStorage(merged);
+          grpMap.set(id, compacted);
+          groupsToPush.push(compacted);
         });
         const nextGroups = Array.from(grpMap.values());
-        safeSetStorage(CONFIG.storageKeys.groups, JSON.stringify(nextGroups));
+        this._writeGroupsState(nextGroups);
         this._refreshSnapshots(null, groupsToPush);
       }
 
@@ -274,21 +440,17 @@ class RumaStore {
       const metaTheme = document.querySelector('meta[name="theme-color"]');
       if (metaTheme) metaTheme.setAttribute('content', normalized === 'light' ? '#FCFAFF' : '#15111E');
     }
-    safeSetStorage(CONFIG.storageKeys.theme, normalized);
+    safeSetScalarStorage(CONFIG.storageKeys.theme, normalized);
     if (emit) this.notify();
   }
 
   getTheme() {
-    return localStorage.getItem(CONFIG.storageKeys.theme) || 'dark';
+    return safeGetStorage(CONFIG.storageKeys.theme) || 'dark';
   }
 
   // --- CUENTAS Y AUTENTICACIÓN SEGURA (HASH PBKDF2 + CÓDIGO DE RECUPERACIÓN) ---
   getAccounts() {
-    try {
-      return JSON.parse(localStorage.getItem(CONFIG.storageKeys.accounts)) || [];
-    } catch (_) {
-      return [];
-    }
+    return this._readAccountsState();
   }
 
   saveAccounts(accounts, syncCloud = true, explicitDirtyIds = null) {
@@ -303,12 +465,12 @@ class RumaStore {
         }
       });
     }
-    safeSetStorage(CONFIG.storageKeys.accounts, JSON.stringify(accounts));
+    this._writeAccountsState(accounts);
     if (syncCloud) this.scheduleCloudPush();
   }
 
   getCurrentUser() {
-    const id = localStorage.getItem(CONFIG.storageKeys.currentUserId);
+    const id = safeGetStorage(CONFIG.storageKeys.currentUserId);
     if (!id) return null;
     return this.getAccounts().find(u => u.id === id) || null;
   }
@@ -341,7 +503,7 @@ class RumaStore {
       this.pushMergedStateToCloud();
     }
 
-    safeSetStorage(CONFIG.storageKeys.currentUserId, user.id);
+    safeSetScalarStorage(CONFIG.storageKeys.currentUserId, user.id);
     this.currentInterface = 'hub';
     this.checkPendingInviteFromUrl();
     this.notify();
@@ -508,7 +670,7 @@ class RumaStore {
 
     accounts.push(newUser);
     this.saveAccounts(accounts, true, [newUser.id]);
-    safeSetStorage(CONFIG.storageKeys.currentUserId, newUser.id);
+    safeSetScalarStorage(CONFIG.storageKeys.currentUserId, newUser.id);
     this.currentInterface = 'hub';
     this.checkPendingInviteFromUrl();
     this.notify();
@@ -596,14 +758,14 @@ class RumaStore {
       this.saveAccounts(accounts, true, [user.id]);
     }
 
-    safeSetStorage(CONFIG.storageKeys.currentUserId, user.id);
+    safeSetScalarStorage(CONFIG.storageKeys.currentUserId, user.id);
     this.currentInterface = 'hub';
     this.notify();
     return { ok: true, user };
   }
 
   logout() {
-    localStorage.removeItem(CONFIG.storageKeys.currentUserId);
+    safeRemoveStorage(CONFIG.storageKeys.currentUserId);
     try { GoogleAuth.clearToken(); } catch (_) {}
     this.currentInterface = 'hub';
     this.notify();
@@ -679,10 +841,11 @@ class RumaStore {
   // Incluye "lápidas" (grupos eliminados) para que la eliminación se propague por la nube
   getGroupsRaw() {
     try {
-      const raw = JSON.parse(localStorage.getItem(CONFIG.storageKeys.groups)) || [];
+      const raw = this._readGroupsState();
       const list = raw.filter(g => !this.isLegacyDemoGroup(g));
-      // Garantizar hidratación de series con episodios precargados
+      // Garantizar hidratación de recuerdos compactados y de series con episodios precargados
       list.forEach(g => {
+        hydrateGroupFromStorage(g);
         (g.series || []).forEach(s => {
           const matchKey = String(s.tmdbId || s.id);
           if (!s.seasonEpisodes && PRELOADED_SERIES_EPISODES[matchKey]) {
@@ -714,8 +877,8 @@ class RumaStore {
 
   saveGroups(groups, syncCloud = true, explicitDirtyIds = null) {
     const nowIso = new Date().toISOString();
-    const activeId = localStorage.getItem(CONFIG.storageKeys.activeGroupId);
-    const keep = Array.isArray(groups) ? groups.slice() : [];
+    const activeId = safeGetStorage(CONFIG.storageKeys.activeGroupId);
+    const keep = (Array.isArray(groups) ? groups : []).map(g => compactGroupForStorage(g));
     const dirtySet = new Set(Array.isArray(explicitDirtyIds) ? explicitDirtyIds.filter(Boolean) : []);
 
     keep.forEach(g => {
@@ -731,7 +894,7 @@ class RumaStore {
     });
 
     this.getGroupsRaw().filter(g => g.deleted && !keep.some(k => k.id === g.id)).forEach(t => keep.push(t));
-    safeSetStorage(CONFIG.storageKeys.groups, JSON.stringify(keep));
+    this._writeGroupsState(keep);
     if (syncCloud) this.scheduleCloudPush();
   }
 
@@ -743,7 +906,7 @@ class RumaStore {
 
   getActiveGroup() {
     const user = this.getCurrentUser();
-    const activeId = localStorage.getItem(CONFIG.storageKeys.activeGroupId);
+    const activeId = safeGetStorage(CONFIG.storageKeys.activeGroupId);
     const myGroups = this.getMyGroups();
     const locked = Entitlements.getLockedGroupIds(user, this.getGroups());
     const found = myGroups.find(g => g.id === activeId && !locked.has(g.id));
@@ -756,7 +919,7 @@ class RumaStore {
     if (locked.has(groupId)) {
       return { ok: false, locked: true };
     }
-    localStorage.setItem(CONFIG.storageKeys.activeGroupId, groupId);
+    safeSetScalarStorage(CONFIG.storageKeys.activeGroupId, groupId);
     this.currentInterface = 'group';
     this.currentGroupTab = 'home';
     this.notify();
@@ -789,14 +952,14 @@ class RumaStore {
   getUnreadChatCount(group) {
     const u = this.getCurrentUser();
     if (!group || !u) return 0;
-    const seen = localStorage.getItem(this._chatSeenKey(group.id)) || '';
+    const seen = safeGetStorage(this._chatSeenKey(group.id)) || '';
     return (group.messages || []).filter(m => m.senderId !== u.id && (m.timestamp || '') > seen).length;
   }
 
   markChatSeen(group) {
     if (!group) return;
     const last = (group.messages || []).reduce((mx, m) => (m.timestamp > mx ? m.timestamp : mx), '');
-    if (last) localStorage.setItem(this._chatSeenKey(group.id), last);
+    if (last) safeSetScalarStorage(this._chatSeenKey(group.id), last);
   }
 
   navigate(interfaceName, options = {}) {
@@ -975,7 +1138,7 @@ class RumaStore {
     target.updatedAt = new Date().toISOString();
     this.logActivity(target, user, 'join');
 
-    localStorage.setItem(CONFIG.storageKeys.activeGroupId, target.id);
+    safeSetScalarStorage(CONFIG.storageKeys.activeGroupId, target.id);
     this.saveGroups(allGroups);
     this.setActiveGroup(target.id);
     return { ok: true, group: target };
@@ -1050,9 +1213,9 @@ class RumaStore {
     const rest = this.getGroupsRaw().filter(g => g.id !== groupId);
     rest.push(tomb);
     this.dirtyGroupIds.add(groupId);
-    safeSetStorage(CONFIG.storageKeys.groups, JSON.stringify(rest));
-    if (localStorage.getItem(CONFIG.storageKeys.activeGroupId) === groupId) {
-      localStorage.removeItem(CONFIG.storageKeys.activeGroupId);
+    this._writeGroupsState(rest);
+    if (safeGetStorage(CONFIG.storageKeys.activeGroupId) === groupId) {
+      safeRemoveStorage(CONFIG.storageKeys.activeGroupId);
     }
     this.currentInterface = 'hub';
     this.notify();
@@ -1091,8 +1254,8 @@ class RumaStore {
     group.updatedAt = now;
 
     this.saveGroups(allGroups);
-    if (localStorage.getItem(CONFIG.storageKeys.activeGroupId) === groupId) {
-      localStorage.removeItem(CONFIG.storageKeys.activeGroupId);
+    if (safeGetStorage(CONFIG.storageKeys.activeGroupId) === groupId) {
+      safeRemoveStorage(CONFIG.storageKeys.activeGroupId);
     }
     this.currentInterface = 'hub';
     this.notify();
@@ -1172,7 +1335,7 @@ class RumaStore {
       description: record.description,
       authorId: user.id,
       authorName: user.name,
-      authorAvatar: user.avatar,
+      authorAvatar: compactAvatar(user.avatar),
       coverPreview,
       photos: allPhotos.length > 0 ? allPhotos : [coverPreview],
       files: record.files || [],
@@ -1190,7 +1353,7 @@ class RumaStore {
       memoryData.comments = prev.comments || [];
       memoryData.authorId = prev.authorId || memoryData.authorId;
       memoryData.authorName = prev.authorName || memoryData.authorName;
-      memoryData.authorAvatar = prev.authorAvatar || memoryData.authorAvatar;
+      memoryData.authorAvatar = compactAvatar(prev.authorAvatar || memoryData.authorAvatar);
       memoryData.createdAt = prev.createdAt || memoryData.createdAt;
       memoryData.updatedAt = new Date().toISOString();
       if (!memoryData.driveSubfolderId && prev.driveSubfolderId) {
@@ -1320,7 +1483,7 @@ class RumaStore {
       id: Utils.generateId('mcom'),
       authorId: user.id,
       authorName: user.name,
-      authorAvatar: user.avatar,
+      authorAvatar: compactAvatar(user.avatar),
       text: text.trim(),
       createdAt: new Date().toISOString()
     };
@@ -2873,7 +3036,7 @@ class RumaStore {
       id: Utils.generateId('msg'),
       senderId: user.id,
       senderName: user.name,
-      senderAvatar: user.avatar || 'assets/ruma_icon_512.png',
+      senderAvatar: compactAvatar(user.avatar) || 'assets/ruma_icon_512.png',
       text: cleanText,
       timestamp: new Date().toISOString(),
       quote,

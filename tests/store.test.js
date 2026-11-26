@@ -251,3 +251,106 @@ describe('Store Freemium guards, Series/Movies states & permissions (AUD-05, AUD
     expect(store.getActiveGroup().memories.map(m => m.id)).toEqual(['mem_kevin']);
   });
 });
+
+describe('iPhone / iOS Safari QuotaExceededError resilience & Base64 deduplication', () => {
+  it('keeps TMDb movies/series additions, episode tracking, and chat working when localStorage throws QuotaExceededError', () => {
+    const user = { id: 'u1', name: 'Kevin', username: 'kevin', isPremium: true };
+    const group = {
+      id: 'g_ios',
+      name: 'iPhone Group',
+      code: 'IOS001',
+      plan: 'premium',
+      creatorId: 'u1',
+      members: [{ id: 'u1', name: 'Kevin', role: 'admin' }],
+      movies: [],
+      series: [],
+      songs: [],
+      books: [],
+      memories: [],
+      messages: []
+    };
+    seedSession(user, [group], 'g_ios');
+
+    const origSetItem = localStorage.setItem;
+    localStorage.setItem = () => {
+      const err = new Error('The quota has been exceeded.');
+      err.name = 'QuotaExceededError';
+      throw err;
+    };
+
+    try {
+      const addMovie = store.addMediaToActiveGroup('movies', {
+        tmdbId: 157336,
+        title: 'Interstellar',
+        year: '2014',
+        poster: 'https://image.tmdb.org/t/p/w500/interstellar.jpg'
+      });
+      expect(addMovie.ok).toBe(true);
+
+      const addSeries = store.addMediaToActiveGroup('series', {
+        tmdbId: 1396,
+        title: 'Breaking Bad',
+        seasons: [{ seasonNumber: 1, episodeCount: 7 }]
+      });
+      expect(addSeries.ok).toBe(true);
+
+      const epRes = store.toggleEpisodeWatched(addSeries.item.id, 1, 1);
+      expect(epRes.isWatched).toBe(true);
+
+      const chatRes = store.sendChatMessage({ text: 'Probando desde iPhone' });
+      expect(chatRes?.msg?.text).toBe('Probando desde iPhone');
+
+      const live = store.getActiveGroup();
+      expect(live.movies.map(m => m.title)).toEqual(['Interstellar']);
+      expect(live.series[0].userProgress.u1.watchedEpisodes['1_1']).toBe(true);
+      expect(live.messages.map(m => m.text)).toEqual(['Probando desde iPhone']);
+    } finally {
+      localStorage.setItem = origSetItem;
+    }
+  });
+
+  it('deduplicates triple Base64 memory thumbnails and compacts embedded Base64 child avatars while hydrating UI fields', () => {
+    const fakeAvatar = 'data:image/jpeg;base64,' + 'A'.repeat(4000);
+    const fakeThumb = 'data:image/jpeg;base64,' + 'B'.repeat(8000);
+    const user = { id: 'u1', name: 'Kevin', username: 'kevin', avatar: fakeAvatar, isPremium: true };
+    const bloatedGroup = {
+      id: 'g_bloat',
+      name: 'Testeo',
+      code: 'TST001',
+      plan: 'premium',
+      creatorId: 'u1',
+      members: [{ id: 'u1', name: 'Kevin', avatar: fakeAvatar, role: 'admin' }],
+      memories: [{
+        id: 'mem_1',
+        title: 'Viaje',
+        authorId: 'u1',
+        authorName: 'Kevin',
+        authorAvatar: fakeAvatar,
+        coverPreview: fakeThumb,
+        photos: [fakeThumb],
+        files: [{ id: 'f1', name: 'IMG_0001.HEIC', thumbnail: fakeThumb }],
+        comments: [{ id: 'mc1', authorId: 'u1', authorName: 'Kevin', authorAvatar: fakeAvatar, text: 'Increíble' }]
+      }],
+      movies: [],
+      series: [],
+      songs: [],
+      books: [],
+      messages: [{ id: 'msg1', senderId: 'u1', senderName: 'Kevin', senderAvatar: fakeAvatar, text: 'Hola', timestamp: '2026-05-01T10:00:00Z' }]
+    };
+
+    seedSession(user, [bloatedGroup], 'g_bloat');
+    store.saveGroups(store.getGroups());
+
+    const storedRaw = localStorage.getItem(CONFIG.storageKeys.groups);
+    // `fakeThumb` must appear only ONCE (in files[0].thumbnail), not 3 times
+    expect(storedRaw.split(fakeThumb).length - 1).toBe(1);
+    // `fakeAvatar` must appear only ONCE (in group.members[0].avatar), stripped from memories/comments/messages
+    expect(storedRaw.split(fakeAvatar).length - 1).toBe(1);
+
+    // Hydrated group returned to UI still exposes coverPreview, photos, and member avatar seamlessly
+    const hydrated = store.getActiveGroup();
+    expect(hydrated.members[0].avatar).toBe(fakeAvatar);
+    expect(hydrated.memories[0].coverPreview).toBe(fakeThumb);
+    expect(hydrated.memories[0].photos).toEqual([fakeThumb]);
+  });
+});

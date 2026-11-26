@@ -90,10 +90,11 @@ function withGroupTab(tabKey, viewport, onReady) {
     })
     .catch((err) => {
       console.error(`Error cargando pestaña ${tabKey}:`, err);
+      if (Utils.tryAutoReloadForStaleChunk(err)) return;
       if (seq !== tabRenderSeq) return;
       const liveViewport = document.getElementById('group-tab-viewport') || viewport;
       if (liveViewport) {
-        liveViewport.innerHTML = `<div class="ruma-view-loading">No se pudo cargar esta sección. Intenta nuevamente.</div>`;
+        Utils.renderChunkLoadFallback(liveViewport, () => store.notify());
       }
     });
 }

@@ -147,7 +147,7 @@ export function openUploadMemoryModal(group, editingMemory = null, prefillDate =
 
         <div class="form-group">
           <label class="form-label">Fotos o Videos del Álbum (Sin límite de peso en MB/GB)</label>
-          <input type="file" id="mem-files" class="form-input" accept="image/*,video/*" multiple>
+          <input type="file" id="mem-files" class="form-input" accept="image/*,video/*,.heic,.heif,.mov,.m4v,.mp4" multiple>
         </div>
 
         <div class="form-group">
@@ -159,13 +159,13 @@ export function openUploadMemoryModal(group, editingMemory = null, prefillDate =
         <div class="form-group">
           <label class="form-label">🎵 Banda Sonora del Recuerdo (Opcional)</label>
           <div style="display:flex;gap:0.5rem;">
-            <input type="text" id="mem-song-query" class="form-input" placeholder="Buscar canción en iTunes para este recuerdo...">
+            <input type="search" id="mem-song-query" class="form-input" placeholder="Buscar canción en iTunes para este recuerdo..." enterkeyhint="search" autocomplete="off">
             <button type="button" class="btn btn-secondary btn-sm" id="btn-mem-search-song">Buscar</button>
           </div>
           <div id="mem-song-selected" style="margin-top:0.45rem;font-size:0.82rem;color:var(--brand-lilac-soft);">
             ${selectedSong ? `🎵 Seleccionada: <strong>${Utils.sanitize(selectedSong.title)}</strong> - ${Utils.sanitize(selectedSong.artist)}` : ''}
           </div>
-          <div id="mem-song-results" style="display:flex;flex-direction:column;gap:0.35rem;margin-top:0.45rem;max-height:150px;overflow-y:auto;"></div>
+          <div id="mem-song-results" style="display:flex;flex-direction:column;gap:0.35rem;margin-top:0.45rem;max-height:180px;overflow-y:auto;-webkit-overflow-scrolling:touch;"></div>
         </div>
 
         <!-- Grabadora de Nota de Voz (Acoplada de LUMA) -->
@@ -227,12 +227,18 @@ export function openUploadMemoryModal(group, editingMemory = null, prefillDate =
       });
 
       // Buscar canción para el recuerdo
-      document.getElementById('btn-mem-search-song')?.addEventListener('click', async () => {
-        const q = document.getElementById('mem-song-query')?.value.trim();
+      const memSongInput = document.getElementById('mem-song-query');
+      const runMemSongSearch = async () => {
+        const q = memSongInput?.value.trim();
         const resBox = document.getElementById('mem-song-results');
         if (!q || !resBox) return;
+        memSongInput?.blur();
         resBox.innerHTML = `<div style="font-size:0.78rem;color:var(--brand-lilac);">Buscando canciones...</div>`;
         const tracks = await MusicService.searchSongs(q, 5);
+        if (!tracks.length) {
+          resBox.innerHTML = `<div style="font-size:0.78rem;color:var(--text-muted);padding:0.35rem 0;">Sin coincidencias para esa búsqueda.</div>`;
+          return;
+        }
         resBox.innerHTML = tracks.map((t, idx) => `
           <div style="display:flex;align-items:center;justify-content:space-between;padding:0.4rem 0.6rem;background:var(--bg-elevated);border-radius:var(--radius-xs);">
             <div style="display:flex;align-items:center;gap:0.5rem;min-width:0;">
@@ -251,6 +257,14 @@ export function openUploadMemoryModal(group, editingMemory = null, prefillDate =
             resBox.innerHTML = '';
           });
         });
+      };
+
+      document.getElementById('btn-mem-search-song')?.addEventListener('click', runMemSongSearch);
+      memSongInput?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          runMemSongSearch();
+        }
       });
 
       // Grabadora de voz real con MediaRecorder (compatible con iPhone/iOS Safari)

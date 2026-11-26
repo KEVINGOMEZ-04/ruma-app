@@ -14,8 +14,26 @@ const STORE_NAME = 'media_blobs';
 
 let dbInstance = null;
 
+function inferIsVideo(fileOrBlob, fallbackName = '') {
+  const mime = String(fileOrBlob?.type || '').toLowerCase();
+  if (mime.startsWith('video/')) return true;
+  const name = String(fallbackName || fileOrBlob?.name || '').toLowerCase();
+  return /\.(mp4|mov|m4v|webm|ogv|3gp)$/i.test(name);
+}
+
+function inferIsImage(fileOrBlob, fallbackName = '') {
+  const mime = String(fileOrBlob?.type || '').toLowerCase();
+  if (mime.startsWith('image/')) return true;
+  if (mime) return false;
+  const name = String(fallbackName || fileOrBlob?.name || '').toLowerCase();
+  return /\.(jpe?g|png|webp|gif|heic|heif|avif|bmp)$/i.test(name);
+}
+
 function openDB() {
   if (dbInstance) return Promise.resolve(dbInstance);
+  if (typeof indexedDB === 'undefined') {
+    return Promise.reject(new Error('IndexedDB no disponible en este entorno.'));
+  }
 
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
@@ -51,15 +69,17 @@ export const MediaStorage = {
     if (!id || !fileOrBlob) throw new Error('ID y archivo binario son obligatorios.');
 
     const db = await openDB();
-    const isVideo = fileOrBlob.type ? fileOrBlob.type.startsWith('video/') : false;
+    const displayName = metadata.name || fileOrBlob.name || 'archivo';
+    const isVideo = inferIsVideo(fileOrBlob, displayName);
+    const isImage = !isVideo && inferIsImage(fileOrBlob, displayName);
 
-    // Generar miniatura liviana para renderizado instantáneo en listas
+    // Generar miniatura liviana para renderizado instantáneo en listas sin saturar cuota de iPhone
     let thumbnailDataUrl = '';
     try {
       if (isVideo) {
         thumbnailDataUrl = await this.generateVideoThumbnail(fileOrBlob);
-      } else if (fileOrBlob.type && fileOrBlob.type.startsWith('image/')) {
-        thumbnailDataUrl = await this.generateImageThumbnail(fileOrBlob, 1200);
+      } else if (isImage) {
+        thumbnailDataUrl = await this.generateImageThumbnail(fileOrBlob, 720);
       }
     } catch (err) {
       console.warn('No se pudo generar miniatura previa:', err);
@@ -68,8 +88,8 @@ export const MediaStorage = {
     const record = {
       id,
       blob: fileOrBlob,
-      name: metadata.name || fileOrBlob.name || 'archivo',
-      type: fileOrBlob.type || (isVideo ? 'video/mp4' : 'application/octet-stream'),
+      name: displayName,
+      type: fileOrBlob.type || (isVideo ? 'video/mp4' : (isImage ? 'image/jpeg' : 'application/octet-stream')),
       size: fileOrBlob.size || 0,
       isVideo,
       thumbnail: thumbnailDataUrl,
@@ -198,6 +218,44 @@ export const MediaStorage = {
   },
 
   /**
+   * Persiste una instantánea de estado de aplicación en IndexedDB (respaldo sin límite de 5 MB en iPhone/Safari).
+   */
+  async saveAppState(key, stateValue) {
+    if (!key) return false;
+    try {
+      const db = await openDB();
+      const record = {
+        id: `__ruma_state__:${key}`,
+        stateValue,
+        isAppState: true,
+        createdAt: Date.now()
+      };
+      return await new Promise((resolve) => {
+        const tx = db.transaction(STORE_NAME, 'readwrite');
+        const store = tx.objectStore(STORE_NAME);
+        const req = store.put(record);
+        req.onsuccess = () => resolve(true);
+        req.onerror = () => resolve(false);
+      });
+    } catch (_) {
+      return false;
+    }
+  },
+
+  /**
+   * Recupera una instantánea de estado guardada en IndexedDB.
+   */
+  async getAppState(key) {
+    if (!key) return null;
+    try {
+      const item = await this.getMedia(`__ruma_state__:${key}`);
+      return item && item.isAppState ? item.stateValue : null;
+    } catch (_) {
+      return null;
+    }
+  },
+
+  /**
    * Extrae un fotograma del video en el segundo 0.5 para usarlo como póster de portada (compatible con iOS Safari)
    */
   generateVideoThumbnail(videoFile) {
@@ -241,7 +299,7 @@ export const MediaStorage = {
         if (settled) return;
         try {
           const canvas = document.createElement('canvas');
-          const maxDim = 800;
+          const maxDim = 640;
           let w = video.videoWidth || 640;
           let h = video.videoHeight || 360;
 
@@ -259,7 +317,7 @@ export const MediaStorage = {
           canvas.height = h;
           const ctx = canvas.getContext('2d');
           ctx.drawImage(video, 0, 0, w, h);
-          finish(canvas.toDataURL('image/jpeg', 0.82));
+          finish(canvas.toDataURL('image/jpeg', 0.72));
         } catch (_) {
           finish('');
         }
@@ -279,7 +337,7 @@ export const MediaStorage = {
   /**
    * Genera una miniatura comprimida para imágenes gigantes de 100 MB (optimizada para iPhone)
    */
-  generateImageThumbnail(imageFile, maxDimension = 1200) {
+  generateImageThumbnail(imageFile, maxDimension = 720) {
     return new Promise((resolve) => {
       const img = new Image();
       const objUrl = URL.createObjectURL(imageFile);
@@ -314,7 +372,7 @@ export const MediaStorage = {
           canvas.height = Math.max(1, h);
           const ctx = canvas.getContext('2d');
           ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-          finish(canvas.toDataURL('image/jpeg', 0.84));
+          finish(canvas.toDataURL('image/jpeg', 0.72));
         } catch (_) {
           finish('');
         }

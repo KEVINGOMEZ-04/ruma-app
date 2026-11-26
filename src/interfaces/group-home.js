@@ -49,15 +49,17 @@ export function timeAgo(iso) {
   return new Date(iso).toLocaleDateString('es');
 }
 
-function activityRowHtml(a) {
+function activityRowHtml(a, group) {
   const meta = ACT_META[a.type] || ACT_META.memory;
   const isJoin = a.type === 'join';
+  const member = (group?.members || []).find(m => m.id === a.userId);
+  const avatarSrc = member?.avatar || a.userAvatar || 'assets/ruma_default_avatar.png';
   return `
     <li class="rg-act-row">
       <span class="rg-act-ico ${meta.cls}">${svg(ICONS[meta.icon])}</span>
-      <img class="rg-act-avatar" src="${Utils.sanitize(a.userAvatar || 'assets/ruma_default_avatar.png')}" alt="">
+      <img class="rg-act-avatar" src="${Utils.sanitize(avatarSrc)}" alt="">
       <div class="rg-act-text">
-        <div class="rg-act-title"><b>${Utils.sanitize(a.userName || 'Alguien')}</b> ${meta.text}</div>
+        <div class="rg-act-title"><b>${Utils.sanitize(member?.name || a.userName || 'Alguien')}</b> ${meta.text}</div>
         ${!isJoin && a.detail ? `<div class="rg-act-sub">${Utils.sanitize(a.detail)}</div>` : ''}
       </div>
       <span class="rg-act-time">${timeAgo(a.at)}</span>
@@ -92,7 +94,7 @@ export function groupHomeHtml(group) {
       </div>
       ${recent.length === 0
         ? `<div class="rg-act-empty"><b>Aún no hay actividad</b><span>Aquí verás las novedades del grupo cuando comiencen a ocurrir.</span></div>`
-        : `<ul class="rg-act-list">${recent.map(activityRowHtml).join('')}</ul>`}
+        : `<ul class="rg-act-list">${recent.map(a => activityRowHtml(a, group)).join('')}</ul>`}
     </section>`;
 }
 
@@ -102,7 +104,7 @@ export function bindGroupHome(container, group) {
     UI.openModal({
       title: 'Toda la actividad',
       size: 'md',
-      contentHtml: `<ul class="rg-act-list rg-act-list-full">${all.map(activityRowHtml).join('')}</ul>`
+      contentHtml: `<ul class="rg-act-list rg-act-list-full">${all.map(a => activityRowHtml(a, group)).join('')}</ul>`
     });
   });
 }

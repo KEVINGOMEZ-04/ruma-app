@@ -10,6 +10,8 @@
  */
 
 let sharedAudio = null;
+let audioGestureUnlocked = false;
+let isUnlockingAudio = false;
 let currentPlayingId = null;
 let currentPlayingTrack = null;
 let currentUpdateCallback = null;
@@ -18,6 +20,31 @@ let globalListeners = new Set();
 let onLyricsRequest = null;
 let onPreviewRefresh = null;
 let retriedTrackIds = new Set();
+
+const SILENT_UNLOCK_WAV = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
+
+function unlockAudioForGesture() {
+  if (audioGestureUnlocked) return;
+  try {
+    const audio = getSharedAudio();
+    if (!audio || currentPlayingId) return;
+    isUnlockingAudio = true;
+    audio.src = SILENT_UNLOCK_WAV;
+    const p = audio.play();
+    if (p && typeof p.then === 'function') {
+      p.then(() => {
+        audioGestureUnlocked = true;
+        if (isUnlockingAudio) audio.pause();
+      }).catch(() => {}).finally(() => {
+        isUnlockingAudio = false;
+      });
+    } else {
+      isUnlockingAudio = false;
+    }
+  } catch (_) {
+    isUnlockingAudio = false;
+  }
+}
 
 function fmtClock(sec) {
   const s = Math.max(0, Math.floor(Number(sec) || 0));
@@ -66,6 +93,7 @@ function getSharedAudio() {
     sharedAudio.setAttribute('webkit-playsinline', '');
 
     sharedAudio.addEventListener('timeupdate', () => {
+      if (isUnlockingAudio || !currentPlayingId) return;
       if (typeof currentUpdateCallback === 'function' && sharedAudio) {
         currentUpdateCallback({
           trackId: currentPlayingId,
@@ -78,12 +106,18 @@ function getSharedAudio() {
     });
 
     sharedAudio.addEventListener('play', () => {
+      audioGestureUnlocked = true;
+      if (isUnlockingAudio || !currentPlayingId) return;
       if (currentPlayingTrack) syncMediaSession(currentPlayingTrack);
       notifyGlobalPlayer();
     });
-    sharedAudio.addEventListener('pause', () => notifyGlobalPlayer());
+    sharedAudio.addEventListener('pause', () => {
+      if (isUnlockingAudio) return;
+      notifyGlobalPlayer();
+    });
 
     sharedAudio.addEventListener('ended', () => {
+      if (isUnlockingAudio || !currentPlayingId) return;
       const prevId = currentPlayingId;
       if (typeof currentUpdateCallback === 'function') {
         currentUpdateCallback({
@@ -107,6 +141,7 @@ function getSharedAudio() {
     });
 
     sharedAudio.addEventListener('error', async () => {
+      if (isUnlockingAudio || !currentPlayingId) return;
       const failedTrack = currentPlayingTrack;
       const prevId = currentPlayingId;
 
@@ -329,6 +364,7 @@ export const MusicService = {
       this.playTrack(track);
       return { ok: true, isPlaying: true, track };
     }
+    unlockAudioForGesture();
     const results = await this.searchSongs(`${track.title} ${track.artist || ''}`, 3);
     const freshUrl = results.find(r => r.previewUrl)?.previewUrl;
     if (freshUrl) {
@@ -390,6 +426,7 @@ export const MusicService = {
   togglePreview(trackId, previewUrl, onUpdate = null, trackMeta = null) {
     if (!previewUrl) return { error: 'No hay fragmento disponible para este tema.' };
 
+    isUnlockingAudio = false;
     const audio = getSharedAudio();
     if (onUpdate) currentUpdateCallback = onUpdate;
     if (trackMeta) currentPlayingTrack = trackMeta;

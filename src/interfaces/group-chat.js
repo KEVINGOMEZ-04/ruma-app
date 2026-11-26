@@ -249,61 +249,73 @@ export function renderGroupChatView(viewport, group, user, ctx) {
     if (!liveMsgIds.has(id)) chatUiState.selectedIds.delete(id);
   });
 
-  const q = chatUiState.searchQuery.trim().toLowerCase();
-  const messages = q
-    ? allMessages.filter(m =>
-        (m.text || '').toLowerCase().includes(q) ||
-        senderNameFor(m, group).toLowerCase().includes(q) ||
-        (m.quote?.title || '').toLowerCase().includes(q)
-      )
-    : allMessages;
-
   const pinnedMsg = group.pinnedMessageId ? allMessages.find(m => m.id === group.pinnedMessageId) : null;
   const pendingQuote = getPendingQuote();
   const draftValue = chatUiState.drafts[group.id] || '';
-  const playingTrackId = MusicService.getCurrentPlayingId();
 
-  let lastDay = '';
-  const rowsHtml = messages.map(msg => {
-    const day = dayLabel(msg.timestamp);
-    const sep = day !== lastDay ? `<div class="rch-day"><span>${Utils.sanitize(day)}</span></div>` : '';
-    lastDay = day;
-    const isMine = msg.senderId === user.id;
-    const id = Utils.sanitize(msg.id);
-    const av = Utils.sanitize(senderAvatarFor(msg, group));
-    const displayName = senderNameFor(msg, group);
-    const canDel = store.canDeleteChatMessage(group, msg, user);
-    const isSelected = chatUiState.selectMode && chatUiState.selectedIds.has(msg.id);
-    const isPinned = Boolean(group.pinnedMessageId && group.pinnedMessageId === msg.id);
+  const buildChatRowsHtml = () => {
+    const q = chatUiState.searchQuery.trim().toLowerCase();
+    const messages = q
+      ? allMessages.filter(m =>
+          (m.text || '').toLowerCase().includes(q) ||
+          senderNameFor(m, group).toLowerCase().includes(q) ||
+          (m.quote?.title || '').toLowerCase().includes(q)
+        )
+      : allMessages;
 
-    return `${sep}
-      <div class="rch-row ${isMine ? 'mine' : 'other'} ${chatUiState.selectMode ? 'is-select-mode' : ''} ${isSelected ? 'is-selected' : ''} ${chatUiState.selectMode && !canDel ? 'is-unselectable' : ''}" data-msg-id="${id}" ${chatUiState.selectMode && canDel ? `data-toggle-select="${id}"` : ''}>
-        ${chatUiState.selectMode ? `
-          <span class="rch-select-chk ${isSelected ? 'checked' : ''} ${canDel ? '' : 'disabled'}" aria-hidden="true">${canDel ? (isSelected ? '✓' : '') : '🔒'}</span>
-        ` : ''}
-        ${!isMine ? `<button type="button" class="rch-av-btn" data-chat-profile="${Utils.sanitize(msg.senderId || '')}" title="${Utils.sanitize(displayName)}"><img class="rch-av" src="${av}" alt="${Utils.sanitize(displayName)}"></button>` : ''}
-        <div class="rch-bubble ${isMine ? 'mine' : 'other'}" data-bubble-msg="${id}">
-          <div class="rch-head">
-            <strong class="rch-sender">${isMine ? 'Tú' : Utils.sanitize(displayName)}${isPinned ? ' <span class="rch-pin-ico" title="Mensaje fijado">📌</span>' : ''}</strong>
-            ${chatUiState.selectMode ? '' : `
-              <div class="rch-head-acts">
-                <button type="button" class="rch-ico-act" data-reply-msg="${id}" title="Responder" aria-label="Responder">${svg(ICO.reply, 14)}</button>
-                <button type="button" class="rch-ico-act" data-more-msg="${id}" title="Reaccionar o más opciones" aria-label="Opciones del mensaje">⋯</button>
-              </div>
-            `}
+    if (messages.length === 0) {
+      return `
+        <div class="rg-card rm-empty" style="margin:auto 0;">
+          <b>${q ? 'Sin coincidencias' : `Aún no hay mensajes en ${Utils.sanitize(group.name)}`}</b>
+          <span>${q ? 'Prueba con otra palabra o borra el filtro.' : 'Escribe el primer mensaje o pulsa + para compartir fotos, audios o enlazar contenido del grupo.'}</span>
+        </div>`;
+    }
+
+    const playingTrackId = MusicService.getCurrentPlayingId();
+    let lastDay = '';
+    return messages.map(msg => {
+      const day = dayLabel(msg.timestamp);
+      const sep = day !== lastDay ? `<div class="rch-day"><span>${Utils.sanitize(day)}</span></div>` : '';
+      lastDay = day;
+      const isMine = msg.senderId === user.id;
+      const id = Utils.sanitize(msg.id);
+      const av = Utils.sanitize(senderAvatarFor(msg, group));
+      const displayName = senderNameFor(msg, group);
+      const canDel = store.canDeleteChatMessage(group, msg, user);
+      const isSelected = chatUiState.selectMode && chatUiState.selectedIds.has(msg.id);
+      const isPinned = Boolean(group.pinnedMessageId && group.pinnedMessageId === msg.id);
+
+      return `${sep}
+        <div class="rch-row ${isMine ? 'mine' : 'other'} ${chatUiState.selectMode ? 'is-select-mode' : ''} ${isSelected ? 'is-selected' : ''} ${chatUiState.selectMode && !canDel ? 'is-unselectable' : ''}" data-msg-id="${id}" ${chatUiState.selectMode && canDel ? `data-toggle-select="${id}"` : ''}>
+          ${chatUiState.selectMode ? `
+            <span class="rch-select-chk ${isSelected ? 'checked' : ''} ${canDel ? '' : 'disabled'}" aria-hidden="true">${canDel ? (isSelected ? '✓' : '') : '🔒'}</span>
+          ` : ''}
+          ${!isMine ? `<button type="button" class="rch-av-btn" data-chat-profile="${Utils.sanitize(msg.senderId || '')}" title="${Utils.sanitize(displayName)}"><img class="rch-av" src="${av}" alt="${Utils.sanitize(displayName)}"></button>` : ''}
+          <div class="rch-bubble ${isMine ? 'mine' : 'other'}" data-bubble-msg="${id}">
+            <div class="rch-head">
+              <strong class="rch-sender">${isMine ? 'Tú' : Utils.sanitize(displayName)}${isPinned ? ' <span class="rch-pin-ico" title="Mensaje fijado">📌</span>' : ''}</strong>
+              ${chatUiState.selectMode ? '' : `
+                <div class="rch-head-acts">
+                  <button type="button" class="rch-ico-act" data-reply-msg="${id}" title="Responder" aria-label="Responder">${svg(ICO.reply, 14)}</button>
+                  <button type="button" class="rch-ico-act" data-more-msg="${id}" title="Reaccionar o más opciones" aria-label="Opciones del mensaje">⋯</button>
+                </div>
+              `}
+            </div>
+            ${renderQuoteHtml(msg, playingTrackId)}
+            ${renderMediaHtml(msg)}
+            ${msg.text ? `<div class="rch-text">${formatChatTextHtml(msg.text)}</div>` : ''}
+            <div class="rch-foot">
+              ${renderReactionsHtml(msg, user.id)}
+              <span class="rch-time">
+                ${msg.editedAt ? `<span class="rch-edited">editado</span> · ` : ''}${Utils.formatTime(msg.timestamp)}
+              </span>
+            </div>
           </div>
-          ${renderQuoteHtml(msg, playingTrackId)}
-          ${renderMediaHtml(msg)}
-          ${msg.text ? `<div class="rch-text">${formatChatTextHtml(msg.text)}</div>` : ''}
-          <div class="rch-foot">
-            ${renderReactionsHtml(msg, user.id)}
-            <span class="rch-time">
-              ${msg.editedAt ? `<span class="rch-edited">editado</span> · ` : ''}${Utils.formatTime(msg.timestamp)}
-            </span>
-          </div>
-        </div>
-      </div>`;
-  }).join('');
+        </div>`;
+    }).join('');
+  };
+
+  const q = chatUiState.searchQuery.trim().toLowerCase();
 
   viewport.innerHTML = `
     <div class="rch-wrap" id="rch-root">
@@ -337,17 +349,13 @@ export function renderGroupChatView(viewport, group, user, ctx) {
       ${chatUiState.searchOpen ? `
         <div class="rch-searchbar">
           ${svg(ICO.search, 15)}
-          <input type="search" id="rch-search-inp" value="${Utils.sanitize(chatUiState.searchQuery)}" placeholder="Buscar mensajes, personas o contenido..." autocomplete="off">
-          ${chatUiState.searchQuery ? `<button type="button" id="rch-search-clear" aria-label="Limpiar">✕</button>` : ''}
+          <input type="text" id="rch-search-inp" value="${Utils.sanitize(chatUiState.searchQuery)}" placeholder="Buscar mensajes, personas o contenido..." enterkeyhint="search" autocomplete="off">
+          <button type="button" id="rch-search-clear" aria-label="Limpiar" ${chatUiState.searchQuery ? '' : 'hidden'}>✕</button>
         </div>` : ''}
 
       <div class="rch-scroll-wrap">
         <div class="rch-scroll" id="rch-scroll" data-group-id="${Utils.sanitize(group.id)}">
-          ${messages.length === 0 ? `
-            <div class="rg-card rm-empty" style="margin:auto 0;">
-              <b>${q ? 'Sin coincidencias' : `Aún no hay mensajes en ${Utils.sanitize(group.name)}`}</b>
-              <span>${q ? 'Prueba con otra palabra o borra el filtro.' : 'Escribe el primer mensaje o pulsa + para compartir fotos, audios o enlazar contenido del grupo.'}</span>
-            </div>` : rowsHtml}
+          ${buildChatRowsHtml()}
         </div>
         <button type="button" class="rch-scroll-bottom-btn" id="rch-scroll-bottom" hidden aria-label="Ir al último mensaje" title="Ir al último mensaje">${svg(ICO.arrowDown, 17)}</button>
       </div>
@@ -400,7 +408,7 @@ export function renderGroupChatView(viewport, group, user, ctx) {
               </div>
             </div>
 
-            <input type="file" id="rch-inp-photo" accept="image/*" hidden>
+            <input type="file" id="rch-inp-photo" accept="image/*,.heic,.heif" hidden>
             <input type="file" id="rch-inp-video" accept="video/*" hidden>
             <input type="file" id="rch-inp-audio" accept="audio/*" hidden>
 
@@ -641,19 +649,8 @@ export function renderGroupChatView(viewport, group, user, ctx) {
     });
   });
 
-  // Controles de selección múltiple
+  // Controles de la barra de selección múltiple
   if (chatUiState.selectMode) {
-    viewport.querySelectorAll('[data-toggle-select]').forEach(row => {
-      row.addEventListener('click', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        const mid = row.getAttribute('data-toggle-select');
-        if (!mid) return;
-        if (chatUiState.selectedIds.has(mid)) chatUiState.selectedIds.delete(mid);
-        else chatUiState.selectedIds.add(mid);
-        rerender();
-      });
-    });
     viewport.querySelector('#rch-bulk-cancel')?.addEventListener('click', () => {
       chatUiState.selectMode = false;
       chatUiState.selectedIds.clear();
@@ -665,13 +662,17 @@ export function renderGroupChatView(viewport, group, user, ctx) {
   }
 
   // Barra de mensaje fijado
+  viewport.querySelector('#rch-pinned-jump')?.addEventListener('click', () => {
+    const pinnedId = viewport.querySelector('#rch-pinned-jump')?.getAttribute('data-jump-msg');
+    if (pinnedId) jumpToMessage(pinnedId);
+  });
   viewport.querySelector('#rch-unpin-btn')?.addEventListener('click', (e) => {
     e.stopPropagation();
     const res = store.togglePinChatMessage(null);
     if (res.ok) UI.showToast('Mensaje desfijado', 'info');
   });
 
-  // Buscador en chat
+  // Buscador en chat (actualización in-situ de #rch-scroll para no cerrar ni romper el teclado en iPhone)
   viewport.querySelector('#rch-toggle-search')?.addEventListener('click', () => {
     chatUiState.searchOpen = !chatUiState.searchOpen;
     if (!chatUiState.searchOpen) chatUiState.searchQuery = '';
@@ -680,33 +681,36 @@ export function renderGroupChatView(viewport, group, user, ctx) {
   });
 
   const searchInp = viewport.querySelector('#rch-search-inp');
+  const clearSearchBtn = viewport.querySelector('#rch-search-clear');
   if (searchInp) {
     searchInp.addEventListener('input', (e) => {
       chatUiState.searchQuery = e.target.value;
-      const pos = e.target.selectionStart;
-      rerender();
-      const next = viewport.querySelector('#rch-search-inp');
-      if (next) {
-        next.focus();
-        try { next.setSelectionRange(pos, pos); } catch (_) {}
+      if (clearSearchBtn) clearSearchBtn.hidden = !chatUiState.searchQuery;
+      if (scrollBox) {
+        scrollBox.innerHTML = buildChatRowsHtml();
+        bindChatScrollEvents(scrollBox);
+      }
+    });
+    searchInp.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        searchInp.blur();
       }
     });
   }
-  viewport.querySelector('#rch-search-clear')?.addEventListener('click', () => {
+  clearSearchBtn?.addEventListener('click', () => {
     chatUiState.searchQuery = '';
-    rerender();
-    viewport.querySelector('#rch-search-inp')?.focus();
+    if (searchInp) {
+      searchInp.value = '';
+      searchInp.focus();
+    }
+    clearSearchBtn.hidden = true;
+    if (scrollBox) {
+      scrollBox.innerHTML = buildChatRowsHtml();
+      bindChatScrollEvents(scrollBox);
+      scrollBox.scrollTop = scrollBox.scrollHeight;
+    }
   });
-
-  // Abrir perfil al tocar avatar
-  if (!chatUiState.selectMode) {
-    viewport.querySelectorAll('[data-chat-profile]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const uid = btn.getAttribute('data-chat-profile');
-        if (uid) store.navigate('profile', { inspectUserId: uid });
-      });
-    });
-  }
 
   // Popover + (atado a rootEl para no acumular listeners en viewport)
   const pop = viewport.querySelector('#rch-pop');
@@ -888,59 +892,8 @@ export function renderGroupChatView(viewport, group, user, ctx) {
     });
   };
 
+  // Reproducir canción citada directamente desde el chat (sincronizado con reproductor global)
   if (!chatUiState.selectMode) {
-    // Reacciones directas en burbujas
-    viewport.querySelectorAll('[data-react-msg]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        store.toggleChatMessageReaction(btn.getAttribute('data-react-msg'), btn.getAttribute('data-react-emoji'));
-      });
-    });
-
-    viewport.querySelectorAll('[data-reply-msg]').forEach(btn => btn.addEventListener('click', () => {
-      const m = allMessages.find(x => x.id === btn.getAttribute('data-reply-msg'));
-      if (m) replyToMsg(m);
-    }));
-
-    viewport.querySelectorAll('[data-more-msg]').forEach(btn => btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const m = allMessages.find(x => x.id === btn.getAttribute('data-more-msg'));
-      if (m) openMessageActionsModal(m);
-    }));
-
-    // Pulsación larga en móvil sobre cualquier burbuja para abrir reacciones y acciones
-    viewport.querySelectorAll('[data-bubble-msg]').forEach(bubble => {
-      let pressTimer = null;
-      let startX = 0;
-      let startY = 0;
-      const cancelPress = () => {
-        if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
-      };
-      bubble.addEventListener('touchstart', (e) => {
-        if (e.touches.length !== 1) return;
-        if (e.target.closest('button, a, audio, video, img')) return;
-        startX = e.touches[0].clientX;
-        startY = e.touches[0].clientY;
-        const mid = bubble.getAttribute('data-bubble-msg');
-        pressTimer = setTimeout(() => {
-          pressTimer = null;
-          const m = allMessages.find(x => x.id === mid);
-          if (m) {
-            try { navigator.vibrate?.(15); } catch (_) {}
-            openMessageActionsModal(m);
-          }
-        }, 460);
-      }, { passive: true });
-      bubble.addEventListener('touchmove', (e) => {
-        if (!pressTimer || e.touches.length !== 1) return;
-        const dx = Math.abs(e.touches[0].clientX - startX);
-        const dy = Math.abs(e.touches[0].clientY - startY);
-        if (dx > 10 || dy > 10) cancelPress();
-      }, { passive: true });
-      bubble.addEventListener('touchend', cancelPress, { passive: true });
-      bubble.addEventListener('touchcancel', cancelPress, { passive: true });
-    });
-
-    // Reproducir canción citada directamente desde el chat (sincronizado con reproductor global)
     const syncChatSongBtns = (playerState) => {
       if (!document.body.contains(viewport)) {
         if (unsubscribeChatMusic) { unsubscribeChatMusic(); unsubscribeChatMusic = null; }
@@ -956,71 +909,145 @@ export function renderGroupChatView(viewport, group, user, ctx) {
     };
     if (unsubscribeChatMusic) unsubscribeChatMusic();
     unsubscribeChatMusic = MusicService.subscribe(syncChatSongBtns);
-
-    viewport.querySelectorAll('[data-chat-play-song]').forEach(btn => btn.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      const songId = btn.getAttribute('data-chat-play-song');
-      const song = (group.songs || []).find(s => s.id === songId);
-      if (!song) return;
-      if (song.previewUrl) {
-        MusicService.toggleTrack(song);
-        return;
-      }
-      btn.textContent = '⏳';
-      const res = await MusicService.playTrackOrResolve(song);
-      if (!res.ok) {
-        btn.textContent = '▶';
-        UI.showToast(res.error || 'Preview de 30s no disponible.', 'info');
-      }
-    }));
-
-    // Navegar a sección al tocar tarjeta citada
-    viewport.querySelectorAll('[data-jump-quote-type]').forEach(box => box.addEventListener('click', () => {
-      const t = box.getAttribute('data-jump-quote-type');
-      if (t === 'memory') store.navigate('group', { groupTab: 'memories' });
-      else if (t === 'movie') store.navigate('group', { groupTab: 'movies' });
-      else if (t === 'series') store.navigate('group', { groupTab: 'series' });
-      else if (t === 'song') store.navigate('group', { groupTab: 'music' });
-      else if (t === 'book') store.navigate('group', { groupTab: 'books' });
-      else if (t === 'activity' || t === 'goal') store.navigate('group', { groupTab: 'goals_notes' });
-    }));
-
-    // Saltar y resaltar mensaje respondido o fijado
-    viewport.querySelectorAll('[data-jump-msg]').forEach(box => box.addEventListener('click', () => {
-      jumpToMessage(box.getAttribute('data-jump-msg'));
-    }));
-  } else {
-    if (unsubscribeChatMusic) { unsubscribeChatMusic(); unsubscribeChatMusic = null; }
+  } else if (unsubscribeChatMusic) {
+    unsubscribeChatMusic();
+    unsubscribeChatMusic = null;
   }
 
-  const bindZoom = (img) => {
-    img.addEventListener('click', (e) => {
-      if (chatUiState.selectMode) return;
-      e.stopPropagation();
-      UI.openLightbox(img.getAttribute('data-zoom-img'), false);
-    });
-  };
-  viewport.querySelectorAll('[data-zoom-img]').forEach(bindZoom);
+  function bindChatScrollEvents(scrollEl) {
+    if (!scrollEl) return;
 
-  // Hidratar adjuntos multimedia descargados fuera del JSON del grupo (IndexedDB -> /chat_media/)
-  viewport.querySelectorAll('[data-chat-media-id]').forEach(async (slot) => {
-    const mediaId = slot.getAttribute('data-chat-media-id');
-    const mediaType = slot.getAttribute('data-chat-media-type') || 'image';
-    const mediaDur = slot.getAttribute('data-chat-media-dur') || '';
-    const dataUrl = await CloudSync.fetchChatMedia(group.id, mediaId);
-    if (!slot.isConnected) return;
-    if (!dataUrl) {
-      slot.textContent = '⚠️ Adjunto no disponible';
-      return;
+    if (chatUiState.selectMode) {
+      scrollEl.querySelectorAll('[data-toggle-select]').forEach(row => {
+        row.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const mid = row.getAttribute('data-toggle-select');
+          if (!mid) return;
+          if (chatUiState.selectedIds.has(mid)) chatUiState.selectedIds.delete(mid);
+          else chatUiState.selectedIds.add(mid);
+          rerender();
+        });
+      });
+    } else {
+      scrollEl.querySelectorAll('[data-chat-profile]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const uid = btn.getAttribute('data-chat-profile');
+          if (uid) store.navigate('profile', { inspectUserId: uid });
+        });
+      });
+
+      scrollEl.querySelectorAll('[data-react-msg]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          store.toggleChatMessageReaction(btn.getAttribute('data-react-msg'), btn.getAttribute('data-react-emoji'));
+        });
+      });
+
+      scrollEl.querySelectorAll('[data-reply-msg]').forEach(btn => btn.addEventListener('click', () => {
+        const m = allMessages.find(x => x.id === btn.getAttribute('data-reply-msg'));
+        if (m) replyToMsg(m);
+      }));
+
+      scrollEl.querySelectorAll('[data-more-msg]').forEach(btn => btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const m = allMessages.find(x => x.id === btn.getAttribute('data-more-msg'));
+        if (m) openMessageActionsModal(m);
+      }));
+
+      scrollEl.querySelectorAll('[data-bubble-msg]').forEach(bubble => {
+        let pressTimer = null;
+        let startX = 0;
+        let startY = 0;
+        const cancelPress = () => {
+          if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+        };
+        bubble.addEventListener('touchstart', (e) => {
+          if (e.touches.length !== 1) return;
+          if (e.target.closest('button, a, audio, video, img')) return;
+          startX = e.touches[0].clientX;
+          startY = e.touches[0].clientY;
+          const mid = bubble.getAttribute('data-bubble-msg');
+          pressTimer = setTimeout(() => {
+            pressTimer = null;
+            const m = allMessages.find(x => x.id === mid);
+            if (m) {
+              try { navigator.vibrate?.(15); } catch (_) {}
+              openMessageActionsModal(m);
+            }
+          }, 460);
+        }, { passive: true });
+        bubble.addEventListener('touchmove', (e) => {
+          if (!pressTimer || e.touches.length !== 1) return;
+          const dx = Math.abs(e.touches[0].clientX - startX);
+          const dy = Math.abs(e.touches[0].clientY - startY);
+          if (dx > 10 || dy > 10) cancelPress();
+        }, { passive: true });
+        bubble.addEventListener('touchend', cancelPress, { passive: true });
+        bubble.addEventListener('touchcancel', cancelPress, { passive: true });
+      });
+
+      scrollEl.querySelectorAll('[data-chat-play-song]').forEach(btn => btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const songId = btn.getAttribute('data-chat-play-song');
+        const song = (group.songs || []).find(s => s.id === songId);
+        if (!song) return;
+        if (song.previewUrl) {
+          MusicService.toggleTrack(song);
+          return;
+        }
+        btn.textContent = '⏳';
+        const res = await MusicService.playTrackOrResolve(song);
+        if (!res.ok) {
+          btn.textContent = '▶';
+          UI.showToast(res.error || 'Preview de 30s no disponible.', 'info');
+        }
+      }));
+
+      scrollEl.querySelectorAll('[data-jump-quote-type]').forEach(box => box.addEventListener('click', () => {
+        const t = box.getAttribute('data-jump-quote-type');
+        if (t === 'memory') store.navigate('group', { groupTab: 'memories' });
+        else if (t === 'movie') store.navigate('group', { groupTab: 'movies' });
+        else if (t === 'series') store.navigate('group', { groupTab: 'series' });
+        else if (t === 'song') store.navigate('group', { groupTab: 'music' });
+        else if (t === 'book') store.navigate('group', { groupTab: 'books' });
+        else if (t === 'activity' || t === 'goal') store.navigate('group', { groupTab: 'goals_notes' });
+      }));
+
+      scrollEl.querySelectorAll('[data-jump-msg]').forEach(box => box.addEventListener('click', () => {
+        jumpToMessage(box.getAttribute('data-jump-msg'));
+      }));
     }
-    const tmp = document.createElement('div');
-    tmp.innerHTML = buildResolvedMediaHtml(mediaType, dataUrl, mediaDur);
-    const rendered = tmp.firstElementChild;
-    if (rendered) {
-      slot.replaceWith(rendered);
-      if (rendered.matches('[data-zoom-img]')) bindZoom(rendered);
-    }
-  });
+
+    const bindZoom = (img) => {
+      img.addEventListener('click', (e) => {
+        if (chatUiState.selectMode) return;
+        e.stopPropagation();
+        UI.openLightbox(img.getAttribute('data-zoom-img'), false);
+      });
+    };
+    scrollEl.querySelectorAll('[data-zoom-img]').forEach(bindZoom);
+
+    scrollEl.querySelectorAll('[data-chat-media-id]').forEach(async (slot) => {
+      const mediaId = slot.getAttribute('data-chat-media-id');
+      const mediaType = slot.getAttribute('data-chat-media-type') || 'image';
+      const mediaDur = slot.getAttribute('data-chat-media-dur') || '';
+      const dataUrl = await CloudSync.fetchChatMedia(group.id, mediaId);
+      if (!slot.isConnected) return;
+      if (!dataUrl) {
+        slot.textContent = '⚠️ Adjunto no disponible';
+        return;
+      }
+      const tmp = document.createElement('div');
+      tmp.innerHTML = buildResolvedMediaHtml(mediaType, dataUrl, mediaDur);
+      const rendered = tmp.firstElementChild;
+      if (rendered) {
+        slot.replaceWith(rendered);
+        if (rendered.matches('[data-zoom-img]')) bindZoom(rendered);
+      }
+    });
+  }
+
+  bindChatScrollEvents(scrollBox);
 
   viewport.querySelector('#rch-form')?.addEventListener('submit', (e) => {
     e.preventDefault();

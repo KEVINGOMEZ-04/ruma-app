@@ -461,9 +461,10 @@ export function renderGroupMemoriesView(viewport, group, user, isAdmin, ctx) {
       e.stopPropagation();
       const mem = allMemories.find(m => m.id === el.getAttribute('data-play-song'));
       if (!mem?.song) return;
-      if (mem.song.previewUrl) return MusicService.playTrack(mem.song);
-      const res = await MusicService.searchSongs(`${mem.song.title} ${mem.song.artist || ''}`, 2);
-      if (res[0]?.previewUrl) MusicService.playTrack(res[0]);
+      const res = await MusicService.playTrackOrResolve(mem.song);
+      if (!res?.ok && res?.error) {
+        UI.showToast(res.error, 'info');
+      }
     });
   });
 

@@ -55,10 +55,11 @@ function mountInterface(name, exportKey, viewRoot) {
     })
     .catch((err) => {
       console.error(`Error cargando vista ${name}:`, err);
+      if (Utils.tryAutoReloadForStaleChunk(err)) return;
       if (seq !== appRenderSeq) return;
       const liveRoot = document.getElementById('ruma-view-root');
       if (liveRoot) {
-        liveRoot.innerHTML = `<div class="ruma-view-loading">No se pudo cargar esta sección. Recarga la página.</div>`;
+        Utils.renderChunkLoadFallback(liveRoot, () => renderApp());
       }
     });
 }
@@ -67,21 +68,35 @@ function mountInterface(name, exportKey, viewRoot) {
 function syncVisualViewport() {
   const vv = window.visualViewport;
   const h = vv ? vv.height : window.innerHeight;
+  const top = vv ? Math.max(0, Math.round(vv.offsetTop || 0)) : 0;
   if (h && h > 180) {
     document.documentElement.style.setProperty('--vvh', `${Math.round(h)}px`);
   }
+  document.documentElement.style.setProperty('--vv-top', `${top}px`);
   const active = document.activeElement;
   const isEditing = !!active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable);
-  const kbOpen = !!vv && isEditing && (window.innerHeight - vv.height > 140);
+  const kbOpen = !!vv && isEditing && (window.innerHeight - vv.height > 120);
   document.documentElement.classList.toggle('ruma-kb-open', kbOpen);
 }
 
 if (typeof window !== 'undefined') {
+  window.addEventListener('vite:preloadError', (event) => {
+    event.preventDefault();
+    Utils.tryAutoReloadForStaleChunk(event?.payload || new Error('Failed to fetch dynamically imported module'));
+  });
+  try {
+    const cleanUrl = new URL(window.location.href);
+    if (cleanUrl.searchParams.has('_rv')) {
+      cleanUrl.searchParams.delete('_rv');
+      window.history.replaceState({}, '', cleanUrl.toString());
+    }
+  } catch (_) {}
   if (window.visualViewport) {
     window.visualViewport.addEventListener('resize', syncVisualViewport);
+    window.visualViewport.addEventListener('scroll', syncVisualViewport, { passive: true });
   }
   window.addEventListener('orientationchange', () => setTimeout(syncVisualViewport, 120));
-  document.addEventListener('focusin', syncVisualViewport);
+  document.addEventListener('focusin', () => setTimeout(syncVisualViewport, 40));
   document.addEventListener('focusout', () => setTimeout(syncVisualViewport, 80));
   syncVisualViewport();
 }

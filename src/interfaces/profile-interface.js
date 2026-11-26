@@ -300,8 +300,8 @@ export function renderProfileInterface(container) {
         </section>
       </div>
     </div>
-    <input type="file" id="rpf-file-avatar" accept="image/*" hidden>
-    <input type="file" id="rpf-file-banner" accept="image/*" hidden>
+    <input type="file" id="rpf-file-avatar" accept="image/*,.heic,.heif" hidden>
+    <input type="file" id="rpf-file-banner" accept="image/*,.heic,.heif" hidden>
   `;
 
   if (!isOwnProfile) {

@@ -214,22 +214,29 @@ export async function openMovieDetailModal(group, movie, user, onQuote = null) {
 export function openSearchTmdbModal(group, category) {
   const isMovies = category === 'movies';
   let debounceTimer = null;
+  let searchSeq = 0;
 
   UI.openModal({
     title: isMovies ? '🎬 Buscar Película en TMDb' : '📺 Buscar Serie en TMDb',
     size: 'lg',
+    onClose: () => {
+      clearTimeout(debounceTimer);
+    },
     contentHtml: `
       <div>
-        <div style="margin-bottom:0.85rem;">
-          <input type="text" id="tmdb-search-input" class="form-input" placeholder="Escribe el título de la ${isMovies ? 'película' : 'serie'}..." autofocus>
-          <div style="font-size:0.75rem;color:var(--text-secondary);margin-top:0.35rem;">
-            ⚡ Búsqueda en vivo conectada con el catálogo oficial de TMDb (importa sinopsis, temporadas, tráiler y plataformas).
+        <form id="tmdb-search-form" style="margin-bottom:0.75rem;">
+          <div style="display:flex;gap:0.45rem;align-items:center;">
+            <input type="search" id="tmdb-search-input" class="form-input" style="flex:1;min-width:0;" placeholder="Escribe el título de la ${isMovies ? 'película' : 'serie'}..." enterkeyhint="search" autocomplete="off" autocorrect="off" spellcheck="false">
+            <button type="submit" class="btn btn-primary btn-sm" style="flex-shrink:0;padding:0.65rem 0.9rem;">Buscar</button>
           </div>
-        </div>
+          <div style="font-size:0.74rem;color:var(--text-secondary);margin-top:0.3rem;">
+            ⚡ Catálogo oficial de TMDb (importa sinopsis, temporadas, tráiler y plataformas).
+          </div>
+        </form>
         ${isMovies ? `
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;margin-bottom:0.85rem;">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.6rem;margin-bottom:0.75rem;">
             <div>
-              <label class="form-label">Estado inicial</label>
+              <label class="form-label" style="margin-bottom:0.2rem;">Estado inicial</label>
               <select id="tmdb-pick-status" class="form-select">
                 <option value="Por ver">🌱 Por ver</option>
                 <option value="Vista">🍿 Vista</option>
@@ -237,7 +244,7 @@ export function openSearchTmdbModal(group, category) {
               </select>
             </div>
             <div>
-              <label class="form-label">Prioridad de visionado</label>
+              <label class="form-label" style="margin-bottom:0.2rem;">Prioridad</label>
               <select id="tmdb-pick-priority" class="form-select">
                 <option value="5">★★★★★ (5/5 Urgente)</option>
                 <option value="4">★★★★☆ (4/5 Alta)</option>
@@ -246,29 +253,42 @@ export function openSearchTmdbModal(group, category) {
             </div>
           </div>
         ` : ''}
-        <div id="tmdb-search-results" style="display:flex;flex-direction:column;gap:0.55rem;max-height:340px;overflow-y:auto;padding-right:0.25rem;">
-          <div style="text-align:center;padding:1.5rem;color:var(--text-secondary);font-size:0.85rem;">
+        <div id="tmdb-search-results" style="display:flex;flex-direction:column;gap:0.55rem;">
+          <div style="text-align:center;padding:1.35rem 0.75rem;color:var(--text-secondary);font-size:0.85rem;">
             Empieza a escribir para buscar títulos en TMDb...
           </div>
         </div>
       </div>
     `,
     onMount: () => {
+      const form = document.getElementById('tmdb-search-form');
       const input = document.getElementById('tmdb-search-input');
       const resultsEl = document.getElementById('tmdb-search-results');
 
       const doSearch = async () => {
+        const mySeq = ++searchSeq;
         const q = input?.value.trim();
         if (!q || !resultsEl) {
-          if (resultsEl) resultsEl.innerHTML = `<div style="text-align:center;padding:1.5rem;color:var(--text-secondary);font-size:0.85rem;">Empieza a escribir para buscar títulos...</div>`;
+          if (resultsEl) resultsEl.innerHTML = `<div style="text-align:center;padding:1.35rem 0.75rem;color:var(--text-secondary);font-size:0.85rem;">Empieza a escribir para buscar títulos...</div>`;
           return;
         }
 
         resultsEl.innerHTML = `<div style="color:var(--brand-lilac);font-size:0.85rem;padding:0.75rem;">Consultando catálogo oficial de TMDb...</div>`;
-        const results = isMovies ? await MediaService.searchMovies(q) : await MediaService.searchSeries(q);
+        let results = [];
+        try {
+          results = isMovies ? await MediaService.searchMovies(q) : await MediaService.searchSeries(q);
+        } catch (_) {
+          results = [];
+        }
+        if (mySeq !== searchSeq || !document.body.contains(resultsEl)) return;
 
         if (results.length === 0) {
-          resultsEl.innerHTML = `<div style="color:var(--text-muted);font-size:0.85rem;padding:1rem;text-align:center;">Sin resultados para esa búsqueda.</div>`;
+          const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
+          resultsEl.innerHTML = `<div style="color:var(--text-muted);font-size:0.85rem;padding:1rem;text-align:center;">${
+            isOffline
+              ? '📴 Sin conexión a internet. Verifica tu red e intenta de nuevo.'
+              : 'Sin resultados para esa búsqueda.'
+          }</div>`;
           return;
         }
 
@@ -375,10 +395,21 @@ export function openSearchTmdbModal(group, category) {
         });
       };
 
+      form?.addEventListener('submit', (e) => {
+        e.preventDefault();
+        clearTimeout(debounceTimer);
+        input?.blur();
+        doSearch();
+      });
+
       input?.addEventListener('input', () => {
         clearTimeout(debounceTimer);
         debounceTimer = setTimeout(doSearch, 280);
       });
+
+      resultsEl?.addEventListener('touchmove', () => {
+        if (document.activeElement === input) input.blur();
+      }, { passive: true });
     }
   });
 }
@@ -581,12 +612,15 @@ export function openAddSongModal(group) {
     },
     contentHtml: `
       <div>
-        <div style="margin-bottom:0.8rem;">
-          <input type="text" id="song-search-inp" class="form-input" placeholder="Busca por nombre de canción, artista o letra..." autofocus>
-          <div style="font-size:0.75rem;color:var(--text-secondary);margin-top:0.3rem;">
+        <form id="song-search-form" style="margin-bottom:0.75rem;">
+          <div style="display:flex;gap:0.45rem;align-items:center;">
+            <input type="search" id="song-search-inp" class="form-input" style="flex:1;min-width:0;" placeholder="Busca por canción, artista o letra..." enterkeyhint="search" autocomplete="off" autocorrect="off" spellcheck="false">
+            <button type="submit" class="btn btn-primary btn-sm" style="flex-shrink:0;padding:0.65rem 0.9rem;">Buscar</button>
+          </div>
+          <div style="font-size:0.74rem;color:var(--text-secondary);margin-top:0.3rem;">
             ⚡ Búsqueda en vivo en iTunes con preview oficial de 30s.
           </div>
-        </div>
+        </form>
 
         <div class="rmu-add-meta-grid">
           <div>
@@ -616,14 +650,15 @@ export function openAddSongModal(group) {
           </div>
         ` : ''}
 
-        <div id="song-search-results" style="display:flex;flex-direction:column;gap:0.55rem;max-height:290px;overflow-y:auto;padding-right:0.2rem;">
-          <div style="text-align:center;padding:1.4rem;color:var(--text-secondary);font-size:0.85rem;">
+        <div id="song-search-results" style="display:flex;flex-direction:column;gap:0.55rem;">
+          <div style="text-align:center;padding:1.35rem 0.75rem;color:var(--text-secondary);font-size:0.85rem;">
             Empieza a escribir para buscar en vivo...
           </div>
         </div>
       </div>
     `,
     onMount: (modalEl) => {
+      const form = document.getElementById('song-search-form');
       const inp = document.getElementById('song-search-inp');
       const resultsEl = document.getElementById('song-search-results');
       let currentList = [];
@@ -658,17 +693,27 @@ export function openAddSongModal(group) {
         const q = inp?.value.trim();
         if (!q || !resultsEl) {
           currentList = [];
-          if (resultsEl) resultsEl.innerHTML = `<div style="text-align:center;padding:1.4rem;color:var(--text-secondary);font-size:0.85rem;">Empieza a escribir para buscar en vivo...</div>`;
+          if (resultsEl) resultsEl.innerHTML = `<div style="text-align:center;padding:1.35rem 0.75rem;color:var(--text-secondary);font-size:0.85rem;">Empieza a escribir para buscar en vivo...</div>`;
           return;
         }
 
         resultsEl.innerHTML = `<div style="color:var(--primary);font-size:0.85rem;padding:0.75rem;">Buscando coincidencias en iTunes...</div>`;
-        const list = await MusicService.searchSongs(q, 10);
+        let list = [];
+        try {
+          list = await MusicService.searchSongs(q, 10);
+        } catch (_) {
+          list = [];
+        }
         if (mySeq !== searchSeq || !document.body.contains(resultsEl)) return;
         currentList = list;
 
         if (list.length === 0) {
-          resultsEl.innerHTML = `<div style="color:var(--text-muted);font-size:0.85rem;padding:1rem;text-align:center;">No encontramos canciones con esa búsqueda.</div>`;
+          const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
+          resultsEl.innerHTML = `<div style="color:var(--text-muted);font-size:0.85rem;padding:1rem;text-align:center;">${
+            isOffline
+              ? '📴 Sin conexión a internet. Verifica tu red e intenta de nuevo.'
+              : 'No encontramos canciones con esa búsqueda.'
+          }</div>`;
           return;
         }
 
@@ -737,10 +782,21 @@ export function openAddSongModal(group) {
         });
       };
 
+      form?.addEventListener('submit', (e) => {
+        e.preventDefault();
+        clearTimeout(debounceTimer);
+        inp?.blur();
+        executeSearch();
+      });
+
       inp?.addEventListener('input', () => {
         clearTimeout(debounceTimer);
         debounceTimer = setTimeout(executeSearch, 280);
       });
+
+      resultsEl?.addEventListener('touchmove', () => {
+        if (document.activeElement === inp) inp.blur();
+      }, { passive: true });
     }
   });
 }

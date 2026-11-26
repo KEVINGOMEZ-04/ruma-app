@@ -246,12 +246,15 @@
 .rmv-ficha-btn:active{transform:scale(.98)}
 
 /* =========================================================================
-   MODALES RESPONSIVOS
+   MODALES RESPONSIVOS (Compatibles con teclado virtual iOS Safari / --vvh)
    ========================================================================= */
-.ruma-modal{display:flex!important;flex-direction:column!important;overflow:hidden!important;padding:0!important;max-height:88dvh!important}
+.ruma-modal{display:flex!important;flex-direction:column!important;overflow:hidden!important;padding:0!important;max-height:calc(var(--vvh, 100dvh) - 1.8rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px))!important}
 .ruma-modal-head{display:flex;align-items:center;justify-content:space-between;gap:.75rem;padding:1.05rem 1.3rem;border-bottom:1px solid var(--border);background:var(--surface);flex:0 0 auto}
 .ruma-modal-head h3{margin:0;font-family:var(--font-display);font-size:clamp(1.02rem,4.2vw,1.22rem);font-weight:800;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-primary)}
-.ruma-modal-body{flex:1 1 auto;overflow-y:auto;overflow-x:hidden;padding:1.15rem 1.3rem 1.35rem;-webkit-overflow-scrolling:touch}
+.ruma-modal-body{flex:1 1 auto;overflow-y:auto;overflow-x:hidden;padding:1.15rem 1.3rem 1.35rem;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+
+html.ruma-kb-open .ruma-modal-backdrop{top:var(--vv-top,0px);bottom:auto;height:var(--vvh,100dvh);align-items:flex-start;padding-top:calc(.45rem + env(safe-area-inset-top,0px))!important;padding-bottom:.45rem!important}
+html.ruma-kb-open .ruma-modal{max-height:calc(var(--vvh,100dvh) - .9rem - env(safe-area-inset-top,0px))!important}
 
 .rv-panel{grid-template-columns:repeat(auto-fit,minmax(min(100%,250px),1fr))!important;box-sizing:border-box;max-width:100%;overflow:hidden}
 .rv-form,.rv-panel-col{max-width:100%;min-width:0;box-sizing:border-box}
@@ -260,9 +263,9 @@
 
 @media (max-width:520px){
   .ruma-modal-backdrop{padding:.65rem!important}
-  .ruma-modal{border-radius:1.35rem!important;max-height:90dvh!important}
-  .ruma-modal-head{padding:.9rem 1rem}
-  .ruma-modal-body{padding:.95rem 1rem 1.25rem}
+  .ruma-modal{border-radius:1.35rem!important;max-height:calc(var(--vvh, 100dvh) - 1.3rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px))!important}
+  .ruma-modal-head{padding:.85rem 1rem}
+  .ruma-modal-body{padding:.9rem 1rem 1.15rem}
   .rv-panel{padding:.85rem!important;gap:.85rem!important}
   .rv-head{gap:.6rem}
   .rv-score-big{font-size:1.85rem!important;min-width:52px!important}

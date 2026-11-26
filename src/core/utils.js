@@ -119,7 +119,11 @@ export const Utils = {
 
   async fileToPreviewDataUrl(file, maxDimension = 900, quality = 0.72) {
     if (!file) return '';
-    if (!file.type || !file.type.startsWith('image/')) {
+    const looksLikeImage = Boolean(
+      (file.type && file.type.startsWith('image/')) ||
+      (!file.type && /\.(jpe?g|png|webp|gif|heic|heif|avif|bmp)$/i.test(file.name || ''))
+    );
+    if (!looksLikeImage) {
       return new Promise((resolve) => {
         const reader = new FileReader();
         reader.onload = () => resolve(reader.result || '');
@@ -165,6 +169,63 @@ export const Utils = {
         resolve('');
       };
       img.src = objUrl;
+    });
+  },
+
+  isDynamicImportError(err) {
+    const msg = String(err?.message || err || '').toLowerCase();
+    return (
+      msg.includes('failed to fetch dynamically imported module') ||
+      msg.includes('importing a module script failed') ||
+      msg.includes('error loading dynamically imported module') ||
+      msg.includes('unable to preload css')
+    );
+  },
+
+  tryAutoReloadForStaleChunk(err) {
+    if (typeof window === 'undefined' || !this.isDynamicImportError(err)) return false;
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return false;
+    try {
+      const guardKey = 'ruma_chunk_reload_ts';
+      const last = Number(sessionStorage.getItem(guardKey) || 0);
+      if (Date.now() - last < 20000) return false;
+      sessionStorage.setItem(guardKey, String(Date.now()));
+      const url = new URL(window.location.href);
+      url.searchParams.set('_rv', Date.now().toString(36));
+      window.location.replace(url.toString());
+      return true;
+    } catch (_) {
+      return false;
+    }
+  },
+
+  renderChunkLoadFallback(container, onRetry = null) {
+    if (!container) return;
+    const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
+    container.innerHTML = `
+      <div class="ruma-view-loading" style="flex-direction:column;gap:0.75rem;padding:2rem 1rem;text-align:center;">
+        <div style="font-size:0.9rem;color:var(--text-secondary);max-width:320px;">
+          ${isOffline
+            ? '📴 Sin conexión a internet. Verifica tu red para cargar esta sección.'
+            : '✨ Hay una versión actualizada de Ruma o se interrumpió la carga de esta sección.'}
+        </div>
+        <div style="display:flex;gap:0.55rem;justify-content:center;flex-wrap:wrap;">
+          ${onRetry ? `<button type="button" class="btn btn-secondary btn-sm" data-chunk-retry>Reintentar</button>` : ''}
+          <button type="button" class="btn btn-primary btn-sm" data-chunk-reload>🔄 Actualizar app</button>
+        </div>
+      </div>
+    `;
+    container.querySelector('[data-chunk-retry]')?.addEventListener('click', () => {
+      onRetry?.();
+    });
+    container.querySelector('[data-chunk-reload]')?.addEventListener('click', () => {
+      try {
+        const url = new URL(window.location.href);
+        url.searchParams.set('_rv', Date.now().toString(36));
+        window.location.replace(url.toString());
+      } catch (_) {
+        window.location.reload();
+      }
     });
   }
 };
