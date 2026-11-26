@@ -1652,14 +1652,7 @@ class RumaStore {
     };
 
     if (prev.status !== 'Leído' && nextStatus === 'Leído') {
-      this._pushActivity(group, {
-        type: 'book',
-        actorId: user.id,
-        actorName: user.name,
-        actorAvatar: user.avatar,
-        title: `terminó de leer "${book.title}"`,
-        sub: book.author || 'Biblioteca del grupo'
-      });
+      this.logActivity(group, user, 'book', `Terminó de leer "${book.title}"`);
     }
 
     this.saveGroups(allGroups, true, [group.id]);
@@ -1727,14 +1720,7 @@ class RumaStore {
     };
 
     if (prev.status !== 'Leído' && isCompleted) {
-      this._pushActivity(group, {
-        type: 'book',
-        actorId: user.id,
-        actorName: user.name,
-        actorAvatar: user.avatar,
-        title: `terminó de leer "${book.title}"`,
-        sub: book.author || 'Biblioteca del grupo'
-      });
+      this.logActivity(group, user, 'book', `Terminó de leer "${book.title}"`);
     }
 
     this.saveGroups(allGroups, true, [group.id]);
@@ -1850,14 +1836,7 @@ class RumaStore {
     const book = (group.books || []).find(b => b.id === bookId);
     if (!book) return null;
     group.clubBookId = book.id;
-    this._pushActivity(group, {
-      type: 'book',
-      actorId: user.id,
-      actorName: user.name,
-      actorAvatar: user.avatar,
-      title: `fijó "${book.title}" como lectura actual del club`,
-      sub: book.author || 'Club de lectura'
-    });
+    this.logActivity(group, user, 'book', `Fijó "${book.title}" como lectura del club`);
     this.saveGroups(allGroups, true, [group.id]);
     this.notify();
     return group.clubBookId;
