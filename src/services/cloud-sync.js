@@ -19,6 +19,14 @@ let eventSource = null;
 let pollTimer = null;
 let isPushing = false;
 let lastKnownCloudRev = 0;
+let authToken = null;
+
+function rtdbUrl(path, query = '') {
+  const sep = query ? `&${query}` : '';
+  const auth = authToken ? `auth=${encodeURIComponent(authToken)}` : '';
+  const qs = auth ? `?${auth}${sep}` : (query ? `?${query}` : '');
+  return `${BASE_URL}${path}${qs}`;
+}
 let statusListeners = [];
 let currentStatus = 'connecting'; // 'online' | 'syncing' | 'offline' | 'connecting'
 
@@ -56,6 +64,14 @@ function sanitizeAccountForCloud(account) {
 }
 
 export const CloudSync = {
+  setAuthToken(token) {
+    authToken = token ? String(token).trim() : null;
+  },
+
+  getAuthToken() {
+    return authToken;
+  },
+
   getStatus() {
     return currentStatus;
   },
@@ -70,7 +86,7 @@ export const CloudSync = {
   async pullAccount(accountId) {
     if (!CONFIG.cloudSync?.enabled || !accountId) return null;
     try {
-      const res = await fetch(`${BASE_URL}/accounts/${safeKey(accountId)}.json`, { cache: 'no-store' });
+      const res = await fetch(rtdbUrl(`/accounts/${safeKey(accountId)}.json`), { cache: 'no-store' });
       if (!res.ok) return null;
       return await res.json();
     } catch (_) {
@@ -84,7 +100,7 @@ export const CloudSync = {
   async pullGroup(groupId) {
     if (!CONFIG.cloudSync?.enabled || !groupId) return null;
     try {
-      const res = await fetch(`${BASE_URL}/groups/${safeKey(groupId)}.json`, { cache: 'no-store' });
+      const res = await fetch(rtdbUrl(`/groups/${safeKey(groupId)}.json`), { cache: 'no-store' });
       if (!res.ok) return null;
       return await res.json();
     } catch (_) {
@@ -100,7 +116,7 @@ export const CloudSync = {
     if (!CONFIG.cloudSync?.enabled || !code) return null;
     const clean = String(code).trim().toUpperCase();
     try {
-      const res = await fetch(`${BASE_URL}/groups.json?shallow=true`, { cache: 'no-store' });
+      const res = await fetch(rtdbUrl('/groups.json', 'shallow=true'), { cache: 'no-store' });
       if (!res.ok) return null;
       const indexMap = await res.json();
       if (!indexMap || typeof indexMap !== 'object') return null;
@@ -109,7 +125,7 @@ export const CloudSync = {
       const matches = await Promise.all(
         groupIds.map(async (gid) => {
           try {
-            const codeRes = await fetch(`${BASE_URL}/groups/${safeKey(gid)}/code.json`, { cache: 'no-store' });
+            const codeRes = await fetch(rtdbUrl(`/groups/${safeKey(gid)}/code.json`), { cache: 'no-store' });
             if (!codeRes.ok) return null;
             const remoteCode = await codeRes.json();
             if (String(remoteCode || '').trim().toUpperCase() === clean) {
@@ -136,14 +152,14 @@ export const CloudSync = {
   async pullCloudState(force = false) {
     if (!CONFIG.cloudSync?.enabled) return null;
     try {
-      const metaRes = await fetch(`${BASE_URL}/meta.json`, { cache: 'no-store' });
+      const metaRes = await fetch(rtdbUrl(`/meta.json`), { cache: 'no-store' });
       if (!metaRes.ok) throw new Error(`HTTP ${metaRes.status}`);
       const meta = await metaRes.json();
 
       if (meta && meta.version === 2) {
         const [accRes, grpRes] = await Promise.all([
-          fetch(`${BASE_URL}/accounts.json`, { cache: 'no-store' }),
-          fetch(`${BASE_URL}/groups.json`, { cache: 'no-store' })
+          fetch(rtdbUrl(`/accounts.json`), { cache: 'no-store' }),
+          fetch(rtdbUrl(`/groups.json`), { cache: 'no-store' })
         ]);
         if (!accRes.ok || !grpRes.ok) throw new Error('Error descargando entidades v2');
         const [accRaw, grpRaw] = await Promise.all([accRes.json(), grpRes.json()]);
@@ -164,7 +180,7 @@ export const CloudSync = {
       }
 
       // Retrocompatibilidad: leer formato v1 (`state.json`) si aún no se migró a v2
-      const legacyRes = await fetch(`${BASE_URL}/state.json`, { cache: 'no-store' });
+      const legacyRes = await fetch(rtdbUrl(`/state.json`), { cache: 'no-store' });
       if (!legacyRes.ok) throw new Error(`HTTP ${legacyRes.status}`);
       const legacy = await legacyRes.json();
       if (legacy && (Array.isArray(legacy.accounts) || Array.isArray(legacy.groups))) {
@@ -212,7 +228,7 @@ export const CloudSync = {
       accList.forEach(acc => {
         const cleanAcc = sanitizeAccountForCloud(acc);
         requests.push(
-          fetch(`${BASE_URL}/accounts/${safeKey(acc.id)}.json`, {
+          fetch(rtdbUrl(`/accounts/${safeKey(acc.id)}.json`), {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(cleanAcc)
@@ -222,7 +238,7 @@ export const CloudSync = {
 
       grpList.forEach(grp => {
         requests.push(
-          fetch(`${BASE_URL}/groups/${safeKey(grp.id)}.json`, {
+          fetch(rtdbUrl(`/groups/${safeKey(grp.id)}.json`), {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(grp)
@@ -243,7 +259,7 @@ export const CloudSync = {
         changedGroupId: grpList.length === 1 && accList.length === 0 ? grpList[0].id : null
       };
 
-      const metaRes = await fetch(`${BASE_URL}/meta.json`, {
+      const metaRes = await fetch(rtdbUrl(`/meta.json`), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(metaPayload)
@@ -278,7 +294,7 @@ export const CloudSync = {
 
     if (!CONFIG.cloudSync?.enabled) return true;
     try {
-      const res = await fetch(`${BASE_URL}/chat_media/${safeKey(groupId)}/${safeKey(mediaId)}.json`, {
+      const res = await fetch(rtdbUrl(`/chat_media/${safeKey(groupId)}/${safeKey(mediaId)}.json`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -313,7 +329,7 @@ export const CloudSync = {
           return local.dataUrl;
         }
         if (!CONFIG.cloudSync?.enabled || !groupId) return null;
-        const res = await fetch(`${BASE_URL}/chat_media/${safeKey(groupId)}/${safeKey(mediaId)}.json`);
+        const res = await fetch(rtdbUrl(`/chat_media/${safeKey(groupId)}/${safeKey(mediaId)}.json`));
         if (!res.ok) return null;
         const remote = await res.json();
         if (remote?.dataUrl) {
@@ -342,7 +358,7 @@ export const CloudSync = {
     MediaStorage.deleteMedia(mediaId).catch(() => {});
     if (!CONFIG.cloudSync?.enabled || !groupId) return;
     try {
-      await fetch(`${BASE_URL}/chat_media/${safeKey(groupId)}/${safeKey(mediaId)}.json`, {
+      await fetch(rtdbUrl(`/chat_media/${safeKey(groupId)}/${safeKey(mediaId)}.json`), {
         method: 'DELETE'
       });
     } catch (_) {}
@@ -394,7 +410,7 @@ export const CloudSync = {
     if (typeof EventSource !== 'undefined') {
       try {
         if (eventSource) eventSource.close();
-        eventSource = new EventSource(`${BASE_URL}/meta.json`);
+        eventSource = new EventSource(rtdbUrl(`/meta.json`));
 
         const onStreamPacket = async (e) => {
           setStatus('online');
@@ -404,7 +420,7 @@ export const CloudSync = {
             if (packet.path === '/' && packet.data && typeof packet.data === 'object') {
               await handleMeta(packet.data, false);
             } else {
-              const res = await fetch(`${BASE_URL}/meta.json`, { cache: 'no-store' });
+              const res = await fetch(rtdbUrl(`/meta.json`), { cache: 'no-store' });
               if (res.ok) {
                 const freshMeta = await res.json();
                 await handleMeta(freshMeta, false);
@@ -426,7 +442,7 @@ export const CloudSync = {
     pollTimer = setInterval(async () => {
       if (isPushing || document.hidden) return;
       try {
-        const res = await fetch(`${BASE_URL}/meta.json`, { cache: 'no-store' });
+        const res = await fetch(rtdbUrl(`/meta.json`), { cache: 'no-store' });
         if (!res.ok) return;
         const remoteMeta = await res.json();
         setStatus('online');

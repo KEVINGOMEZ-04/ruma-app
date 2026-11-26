@@ -89,24 +89,92 @@ export function renderGroupSeriesView(viewport, group, user, ctx) {
   const watchingCount = all.filter(s => statusOf.get(s.id) === 'Viendo').length;
   const completedCount = all.filter(s => statusOf.get(s.id) === 'Completada').length;
 
-  let list = [...all];
-  if (['Viendo', 'Por ver', 'Completada'].includes(filterState)) {
-    list = list.filter(s => statusOf.get(s.id) === filterState);
-  } else if (filterState === 'my-proposals') {
-    list = list.filter(s => s.proposedBy?.id === user.id || s.addedBy === user.name);
-  }
-
-  const q = (seriesUiState.search || '').trim().toLowerCase();
-  if (q) {
-    list = list.filter(s => [s.title, s.genres, s.synopsis, s.cast, s.years, s.year].some(v => String(v || '').toLowerCase().includes(q)));
-  }
-
+  const lockedSeriesIds = Entitlements.getLockedMediaIds(group, 'series');
   const rate = s => Number(getAverage(s) ?? s.tmdbRating ?? 0);
   const stOrder = { Viendo: 0, 'Por ver': 1, Completada: 2 };
-  if (seriesUiState.sort === 'watching') list.sort((a, b) => (stOrder[statusOf.get(a.id)] ?? 9) - (stOrder[statusOf.get(b.id)] ?? 9));
-  else if (seriesUiState.sort === 'rating') list.sort((a, b) => rate(b) - rate(a));
-  else if (seriesUiState.sort === 'year') list.sort((a, b) => (parseInt(b.year || b.years, 10) || 0) - (parseInt(a.year || a.years, 10) || 0));
-  else if (seriesUiState.sort === 'title') list.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+
+  const getFilteredSeries = () => {
+    let list = [...all];
+    if (['Viendo', 'Por ver', 'Completada'].includes(filterState)) {
+      list = list.filter(s => statusOf.get(s.id) === filterState);
+    } else if (filterState === 'my-proposals') {
+      list = list.filter(s => s.proposedBy?.id === user.id || s.addedBy === user.name);
+    }
+    const q = (seriesUiState.search || '').trim().toLowerCase();
+    if (q) {
+      list = list.filter(s => [s.title, s.genres, s.synopsis, s.cast, s.years, s.year].some(v => String(v || '').toLowerCase().includes(q)));
+    }
+    if (seriesUiState.sort === 'watching') list.sort((a, b) => (stOrder[statusOf.get(a.id)] ?? 9) - (stOrder[statusOf.get(b.id)] ?? 9));
+    else if (seriesUiState.sort === 'rating') list.sort((a, b) => rate(b) - rate(a));
+    else if (seriesUiState.sort === 'year') list.sort((a, b) => (parseInt(b.year || b.years, 10) || 0) - (parseInt(a.year || a.years, 10) || 0));
+    else if (seriesUiState.sort === 'title') list.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+    return { list, q };
+  };
+
+  const buildListHtml = () => {
+    const { list, q } = getFilteredSeries();
+    if (list.length === 0) {
+      return `
+        <div class="rg-card rm-empty">
+          <b>${q || filterState !== 'all' ? 'No hay series en este filtro' : 'Aún no hay series en el grupo'}</b>
+          <span>${q || filterState !== 'all' ? 'Prueba cambiando el filtro o buscando otro título.' : 'Añade la primera serie desde TMDb para empezar una maratón grupal.'}</span>
+        </div>`;
+    }
+    return `
+      <div class="rmv-list">
+        ${list.map(s => {
+          const isLocked = lockedSeriesIds.has(s.id);
+          const st = statusOf.get(s.id);
+          const bm = badgeMeta(st);
+          const avg = getAverage(s);
+          const ratingNum = avg !== null && avg !== undefined ? Number(avg).toFixed(1) : (s.tmdbRating ? Number(s.tmdbRating).toFixed(1) : '—');
+          const seasonsN = (s.seasons || []).length;
+          const meta = [s.years || s.year, seasonsN ? `${seasonsN} temp.` : '', totalEpisodes(s) ? `${totalEpisodes(s)} capítulos` : ''].filter(Boolean).join(' • ');
+          const pr = progressInfo(s, user.id, st);
+          const nextEp = !isLocked ? nextEpisodeForUser(s, user.id) : null;
+          const activeMembers = (group.members || []).filter(m => {
+            const mst = userSeriesStatus(s, m.id);
+            return mst === 'Viendo' || mst === 'Completada';
+          });
+          const id = Utils.sanitize(s.id);
+          return `
+            <article class="rg-card rmv-card rms-card ${isLocked ? 'is-locked' : ''}">
+              <img class="rmv-poster" src="${Utils.sanitize(s.poster || 'assets/ruma_icon_512.png')}" alt="${Utils.sanitize(s.title)}" ${isLocked ? 'data-locked-series' : `data-sr-open="${id}"`}>
+              <div class="rmv-body">
+                <div class="rmv-top">
+                  <h3 class="rmv-title" ${isLocked ? 'data-locked-series' : `data-sr-open="${id}"`}>${Utils.sanitize(s.title)}</h3>
+                  <button type="button" class="rmv-more-btn" data-sr-more="${id}" aria-label="Más opciones">⋯</button>
+                </div>
+                <div class="rmv-meta">${Utils.sanitize(meta || 'Serie')}</div>
+                <div class="rms-row">
+                  <span class="rmv-rating-pill">⭐ <b>${Utils.sanitize(String(ratingNum))}</b></span>
+                  ${isLocked
+                    ? `<span class="rms-badge is-locked">🔒 Plan Free</span>`
+                    : `<span class="rms-badge ${bm.cls}">${bm.icon} ${bm.label}</span>`}
+                  ${!isLocked && activeMembers.length > 0 ? `<span class="rms-group-pill" title="Miembros viendo o que completaron">👥 ${activeMembers.length}</span>` : ''}
+                </div>
+                ${isLocked ? `
+                  <div class="rmv-watched-some" style="color:var(--error);">🔒 Excede el límite de 5 series del Plan Free</div>
+                ` : `
+                  <div class="rms-progress">
+                    <span class="rms-prog-txt">${pr.label} (${pr.pct}%)</span>
+                    <div class="rms-bar"><i style="width:${pr.pct}%"></i></div>
+                  </div>
+                `}
+                <div class="rms-actions">
+                  ${isLocked ? `
+                    <button type="button" class="rms-btn is-locked" data-locked-series>🔒 Bloqueada · Activar ruma Plus</button>
+                  ` : `
+                    <button type="button" class="rms-btn rms-btn-main" data-sr-open="${id}">▶ Capítulos<span class="rms-mar"> &amp; Maratón</span></button>
+                    ${nextEp ? `<button type="button" class="rms-btn rms-btn-next" data-sr-quick-ep="${id}" data-s="${nextEp.season}" data-e="${nextEp.episode}" title="Marcar T${nextEp.season}·E${nextEp.episode} como visto">✓ T${nextEp.season}·E${nextEp.episode}</button>` : ''}
+                    <button type="button" class="rms-btn" data-sr-comm="${id}">💬 ${(s.comments || []).length}</button>
+                  `}
+                </div>
+              </div>
+            </article>`;
+        }).join('')}
+      </div>`;
+  };
 
   const chips = [
     { id: 'all', label: 'Todas' },
@@ -151,73 +219,107 @@ export function renderGroupSeriesView(viewport, group, user, ctx) {
         <span class="rm-plus">+</span>${svg(ICO.tv, 22)}<span>Añadir Serie (TMDb)</span>
       </button>
 
-      ${list.length === 0 ? `
-        <div class="rg-card rm-empty">
-          <b>${q || filterState !== 'all' ? 'No hay series en este filtro' : 'Aún no hay series en el grupo'}</b>
-          <span>${q || filterState !== 'all' ? 'Prueba cambiando el filtro o buscando otro título.' : 'Añade la primera serie desde TMDb para empezar una maratón grupal.'}</span>
-        </div>
-      ` : `
-        <div class="rmv-list">
-          ${(() => {
-            const lockedIds = Entitlements.getLockedMediaIds(group, 'series');
-            return list.map(s => {
-            const isLocked = lockedIds.has(s.id);
-            const st = statusOf.get(s.id);
-            const bm = badgeMeta(st);
-            const avg = getAverage(s);
-            const ratingNum = avg !== null && avg !== undefined ? Number(avg).toFixed(1) : (s.tmdbRating ? Number(s.tmdbRating).toFixed(1) : '—');
-            const seasonsN = (s.seasons || []).length;
-            const meta = [s.years || s.year, seasonsN ? `${seasonsN} temp.` : '', totalEpisodes(s) ? `${totalEpisodes(s)} capítulos` : ''].filter(Boolean).join(' • ');
-            const pr = progressInfo(s, user.id, st);
-            const nextEp = !isLocked ? nextEpisodeForUser(s, user.id) : null;
-            const activeMembers = (group.members || []).filter(m => {
-              const mst = userSeriesStatus(s, m.id);
-              return mst === 'Viendo' || mst === 'Completada';
-            });
-            const id = Utils.sanitize(s.id);
-            return `
-              <article class="rg-card rmv-card rms-card ${isLocked ? 'is-locked' : ''}">
-                <img class="rmv-poster" src="${Utils.sanitize(s.poster || 'assets/ruma_icon_512.png')}" alt="${Utils.sanitize(s.title)}" ${isLocked ? 'data-locked-series' : `data-sr-open="${id}"`}>
-                <div class="rmv-body">
-                  <div class="rmv-top">
-                    <h3 class="rmv-title" ${isLocked ? 'data-locked-series' : `data-sr-open="${id}"`}>${Utils.sanitize(s.title)}</h3>
-                    <button type="button" class="rmv-more-btn" data-sr-more="${id}" aria-label="Más opciones">⋯</button>
-                  </div>
-                  <div class="rmv-meta">${Utils.sanitize(meta || 'Serie')}</div>
-                  <div class="rms-row">
-                    <span class="rmv-rating-pill">⭐ <b>${Utils.sanitize(String(ratingNum))}</b></span>
-                    ${isLocked
-                      ? `<span class="rms-badge is-locked">🔒 Plan Free</span>`
-                      : `<span class="rms-badge ${bm.cls}">${bm.icon} ${bm.label}</span>`}
-                    ${!isLocked && activeMembers.length > 0 ? `<span class="rms-group-pill" title="Miembros viendo o que completaron">👥 ${activeMembers.length}</span>` : ''}
-                  </div>
-                  ${isLocked ? `
-                    <div class="rmv-watched-some" style="color:var(--error);">🔒 Excede el límite de 5 series del Plan Free</div>
-                  ` : `
-                    <div class="rms-progress">
-                      <span class="rms-prog-txt">${pr.label} (${pr.pct}%)</span>
-                      <div class="rms-bar"><i style="width:${pr.pct}%"></i></div>
-                    </div>
-                  `}
-                  <div class="rms-actions">
-                    ${isLocked ? `
-                      <button type="button" class="rms-btn is-locked" data-locked-series>🔒 Bloqueada · Activar ruma Plus</button>
-                    ` : `
-                      <button type="button" class="rms-btn rms-btn-main" data-sr-open="${id}">▶ Capítulos<span class="rms-mar"> &amp; Maratón</span></button>
-                      ${nextEp ? `<button type="button" class="rms-btn rms-btn-next" data-sr-quick-ep="${id}" data-s="${nextEp.season}" data-e="${nextEp.episode}" title="Marcar T${nextEp.season}·E${nextEp.episode} como visto">✓ T${nextEp.season}·E${nextEp.episode}</button>` : ''}
-                      <button type="button" class="rms-btn" data-sr-comm="${id}">💬 ${(s.comments || []).length}</button>
-                    `}
-                  </div>
-                </div>
-              </article>`;
-          }).join('');
-          })()}
-        </div>
-      `}
+      <div id="rms-results-slot">${buildListHtml()}</div>
     </div>
   `;
 
   const find = id => all.find(s => s.id === id);
+
+  const bindResultsEvents = (container) => {
+    if (!container) return;
+    container.querySelectorAll('[data-sr-open]').forEach(el => el.addEventListener('click', () => {
+      const s = find(el.getAttribute('data-sr-open'));
+      if (s) openSeriesDetail(s);
+    }));
+    container.querySelectorAll('[data-sr-quick-ep]').forEach(el => el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (el.disabled) return;
+      const s = find(el.getAttribute('data-sr-quick-ep'));
+      const sNum = Number(el.getAttribute('data-s'));
+      const eNum = Number(el.getAttribute('data-e'));
+      if (!s || !sNum || !eNum) return;
+      el.disabled = true;
+      const res = store.markEpisodeWatched(s.id, sNum, eNum);
+      if (res?.alreadyWatched) return;
+      if (res?.isFullyCompleted) {
+        fireConfetti({ particleCount: 110, spread: 80, origin: { y: 0.65 } });
+        UI.showToast(`🏆 ¡Completaste "${s.title}"!`, 'success');
+      } else {
+        UI.showToast(`✓ Marcado T${sNum}·E${eNum} de "${s.title}"`, 'success');
+      }
+    }));
+    container.querySelectorAll('[data-locked-series]').forEach(el => el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      UI.showUpgradeModal('En el Plan Free el límite es de 5 series por grupo. Las más recientes quedaron bloqueadas; activa ruma Plus para desbloquearlas.', () => store.upgradeGroupToPremium(group.id));
+    }));
+    container.querySelectorAll('[data-sr-comm]').forEach(el => el.addEventListener('click', () => {
+      const s = find(el.getAttribute('data-sr-comm'));
+      if (s) openMediaCommentsModal('series', s);
+    }));
+    container.querySelectorAll('[data-sr-more]').forEach(btn => btn.addEventListener('click', e => {
+      e.stopPropagation();
+      const s = find(btn.getAttribute('data-sr-more'));
+      if (!s) return;
+      const isLocked = lockedSeriesIds.has(s.id);
+      const canDelete = store.canDeleteMediaItem(group, s, user);
+      const proposer = s.proposedBy?.name || s.addedBy || 'Miembro';
+
+      if (isLocked) {
+        UI.openModal({
+          title: `🔒 ${s.title}`,
+          contentHtml: `
+            <div style="display:flex;flex-direction:column;gap:.65rem;">
+              <p style="font-size:.84rem;color:var(--text-secondary);margin:0;">
+                Esta serie excede el límite de 5 series del <strong>Plan Free</strong>. Activa ruma Plus para desbloquearla o libera espacio eliminando una serie.
+              </p>
+              <button type="button" class="btn btn-primary" id="sr-m-upgrade">✨ Ver ruma Plus</button>
+              <div style="font-size:.75rem;color:var(--text-muted);">Añadida por <b>${Utils.sanitize(proposer)}</b></div>
+              ${canDelete ? `<button type="button" class="btn" id="sr-m-del" style="background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.5);color:var(--error);">🗑️ Eliminar serie</button>` : ''}
+            </div>`,
+          onMount: () => {
+            document.getElementById('sr-m-upgrade')?.addEventListener('click', () => {
+              UI.closeModal();
+              UI.showUpgradeModal('Mejora a ruma Plus para desbloquear todas las series del grupo sin límite de 5.', () => store.upgradeGroupToPremium(group.id));
+            });
+            document.getElementById('sr-m-del')?.addEventListener('click', () => {
+              const res = store.deleteMediaItem('series', s.id);
+              UI.closeModal();
+              UI.showToast(res.ok ? 'Serie eliminada 🗑️' : res.error, res.ok ? 'info' : 'error');
+            });
+          }
+        });
+        return;
+      }
+
+      UI.openModal({
+        title: s.title,
+        contentHtml: `
+          <div style="display:flex;flex-direction:column;gap:.6rem;">
+            <button type="button" class="btn btn-secondary" id="sr-m-open">▶ Capítulos &amp; Maratón</button>
+            <button type="button" class="btn btn-secondary" id="sr-m-rate">⭐ Calificar / Escribir reseña</button>
+            <button type="button" class="btn btn-secondary" id="sr-m-comm">💬 Comentarios (${(s.comments || []).length})</button>
+            <button type="button" class="btn btn-secondary" id="sr-m-quote">↩ Citar en el chat</button>
+            <div style="font-size:.75rem;color:var(--text-muted);">Añadida por <b>${Utils.sanitize(proposer)}</b></div>
+            ${canDelete ? `<button type="button" class="btn" id="sr-m-del" style="background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.5);color:var(--error);">🗑️ Eliminar serie</button>` : `
+              <div style="font-size:.74rem;color:var(--text-muted);text-align:center;padding:.35rem;border-radius:.6rem;background:var(--surface-secondary);">🔒 Solo quien la añadió (${Utils.sanitize(proposer)}) o el líder del grupo pueden eliminarla.</div>`}
+          </div>`,
+        onMount: () => {
+          const on = (id, fn) => document.getElementById(id)?.addEventListener('click', () => { UI.closeModal(); fn(); });
+          on('sr-m-open', () => openSeriesDetail(s));
+          on('sr-m-rate', () => openReviewModal('series', s, user));
+          on('sr-m-comm', () => openMediaCommentsModal('series', s));
+          on('sr-m-quote', () => onQuoteSeries(s));
+          on('sr-m-del', () => {
+            const res = store.deleteMediaItem('series', s.id);
+            UI.showToast(res.ok ? 'Serie eliminada 🗑️' : res.error, res.ok ? 'info' : 'error');
+          });
+        }
+      });
+    }));
+  };
+
+  const resultsSlot = viewport.querySelector('#rms-results-slot');
+  bindResultsEvents(resultsSlot);
 
   viewport.querySelectorAll('[data-sr-filter]').forEach(b => b.addEventListener('click', () => {
     setFilterState(b.getAttribute('data-sr-filter'));
@@ -226,10 +328,10 @@ export function renderGroupSeriesView(viewport, group, user, ctx) {
 
   viewport.querySelector('#rms-search-inp')?.addEventListener('input', e => {
     seriesUiState.search = e.target.value;
-    const pos = e.target.selectionStart;
-    rerender();
-    const n = viewport.querySelector('#rms-search-inp');
-    if (n) { n.focus(); try { n.setSelectionRange(pos, pos); } catch (_) {} }
+    if (resultsSlot) {
+      resultsSlot.innerHTML = buildListHtml();
+      bindResultsEvents(resultsSlot);
+    }
   });
 
   viewport.querySelector('#rms-sort-btn')?.addEventListener('click', () => {
@@ -261,98 +363,6 @@ export function renderGroupSeriesView(viewport, group, user, ctx) {
     }
     openSearchTmdbModal(group, 'series');
   });
-
-  viewport.querySelectorAll('[data-sr-open]').forEach(el => el.addEventListener('click', () => {
-    const s = find(el.getAttribute('data-sr-open'));
-    if (s) openSeriesDetail(s);
-  }));
-  viewport.querySelectorAll('[data-sr-quick-ep]').forEach(el => el.addEventListener('click', (e) => {
-    e.stopPropagation();
-    if (el.disabled) return;
-    const s = find(el.getAttribute('data-sr-quick-ep'));
-    const sNum = Number(el.getAttribute('data-s'));
-    const eNum = Number(el.getAttribute('data-e'));
-    if (!s || !sNum || !eNum) return;
-    el.disabled = true;
-    const res = store.markEpisodeWatched(s.id, sNum, eNum);
-    if (res?.alreadyWatched) return;
-    if (res?.isFullyCompleted) {
-      fireConfetti({ particleCount: 110, spread: 80, origin: { y: 0.65 } });
-      UI.showToast(`🏆 ¡Completaste "${s.title}"!`, 'success');
-    } else {
-      UI.showToast(`✓ Marcado T${sNum}·E${eNum} de "${s.title}"`, 'success');
-    }
-  }));
-  viewport.querySelectorAll('[data-locked-series]').forEach(el => el.addEventListener('click', (e) => {
-    e.stopPropagation();
-    UI.showUpgradeModal('En el Plan Free el límite es de 5 series por grupo. Las más recientes quedaron bloqueadas; activa ruma Plus para desbloquearlas.', () => store.upgradeGroupToPremium(group.id));
-  }));
-  viewport.querySelectorAll('[data-sr-comm]').forEach(el => el.addEventListener('click', () => {
-    const s = find(el.getAttribute('data-sr-comm'));
-    if (s) openMediaCommentsModal('series', s);
-  }));
-
-  const lockedSeriesIds = Entitlements.getLockedMediaIds(group, 'series');
-  viewport.querySelectorAll('[data-sr-more]').forEach(btn => btn.addEventListener('click', e => {
-    e.stopPropagation();
-    const s = find(btn.getAttribute('data-sr-more'));
-    if (!s) return;
-    const isLocked = lockedSeriesIds.has(s.id);
-    const canDelete = store.canDeleteMediaItem(group, s, user);
-    const proposer = s.proposedBy?.name || s.addedBy || 'Miembro';
-
-    if (isLocked) {
-      UI.openModal({
-        title: `🔒 ${s.title}`,
-        contentHtml: `
-          <div style="display:flex;flex-direction:column;gap:.65rem;">
-            <p style="font-size:.84rem;color:var(--text-secondary);margin:0;">
-              Esta serie excede el límite de 5 series del <strong>Plan Free</strong>. Activa ruma Plus para desbloquearla o libera espacio eliminando una serie.
-            </p>
-            <button type="button" class="btn btn-primary" id="sr-m-upgrade">✨ Ver ruma Plus</button>
-            <div style="font-size:.75rem;color:var(--text-muted);">Añadida por <b>${Utils.sanitize(proposer)}</b></div>
-            ${canDelete ? `<button type="button" class="btn" id="sr-m-del" style="background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.5);color:var(--error);">🗑️ Eliminar serie</button>` : ''}
-          </div>`,
-        onMount: () => {
-          document.getElementById('sr-m-upgrade')?.addEventListener('click', () => {
-            UI.closeModal();
-            UI.showUpgradeModal('Mejora a ruma Plus para desbloquear todas las series del grupo sin límite de 5.', () => store.upgradeGroupToPremium(group.id));
-          });
-          document.getElementById('sr-m-del')?.addEventListener('click', () => {
-            const res = store.deleteMediaItem('series', s.id);
-            UI.closeModal();
-            UI.showToast(res.ok ? 'Serie eliminada 🗑️' : res.error, res.ok ? 'info' : 'error');
-          });
-        }
-      });
-      return;
-    }
-
-    UI.openModal({
-      title: s.title,
-      contentHtml: `
-        <div style="display:flex;flex-direction:column;gap:.6rem;">
-          <button type="button" class="btn btn-secondary" id="sr-m-open">▶ Capítulos &amp; Maratón</button>
-          <button type="button" class="btn btn-secondary" id="sr-m-rate">⭐ Calificar / Escribir reseña</button>
-          <button type="button" class="btn btn-secondary" id="sr-m-comm">💬 Comentarios (${(s.comments || []).length})</button>
-          <button type="button" class="btn btn-secondary" id="sr-m-quote">↩ Citar en el chat</button>
-          <div style="font-size:.75rem;color:var(--text-muted);">Añadida por <b>${Utils.sanitize(proposer)}</b></div>
-          ${canDelete ? `<button type="button" class="btn" id="sr-m-del" style="background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.5);color:var(--error);">🗑️ Eliminar serie</button>` : `
-            <div style="font-size:.74rem;color:var(--text-muted);text-align:center;padding:.35rem;border-radius:.6rem;background:var(--surface-secondary);">🔒 Solo quien la añadió (${Utils.sanitize(proposer)}) o el líder del grupo pueden eliminarla.</div>`}
-        </div>`,
-      onMount: () => {
-        const on = (id, fn) => document.getElementById(id)?.addEventListener('click', () => { UI.closeModal(); fn(); });
-        on('sr-m-open', () => openSeriesDetail(s));
-        on('sr-m-rate', () => openReviewModal('series', s, user));
-        on('sr-m-comm', () => openMediaCommentsModal('series', s));
-        on('sr-m-quote', () => onQuoteSeries(s));
-        on('sr-m-del', () => {
-          const res = store.deleteMediaItem('series', s.id);
-          UI.showToast(res.ok ? 'Serie eliminada 🗑️' : res.error, res.ok ? 'info' : 'error');
-        });
-      }
-    });
-  }));
 
   hydrateMediaFromTmdb(group, 'series');
 }

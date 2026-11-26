@@ -1,0 +1,31 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "ruma_cloud_v1": {
+      "meta": {
+        ".read": "auth != null",
+        ".write": "auth != null"
+      },
+      "accounts": {
+        "$uid": {
+          ".read": "auth != null && auth.uid === $uid",
+          ".write": "auth != null && auth.uid === $uid",
+          ".validate": "!newData.hasChild('password')"
+        }
+      },
+      "groups": {
+        "$groupId": {
+          ".read": "auth != null && (data.child('creatorId').val() === auth.uid || data.child('memberIds').child(auth.uid).val() === true)",
+          ".write": "auth != null && (!data.exists() || data.child('creatorId').val() === auth.uid || data.child('memberIds').child(auth.uid).val() === true)"
+        }
+      },
+      "chat_media": {
+        "$groupId": {
+          ".read": "auth != null && (root.child('ruma_cloud_v1/groups/' + $groupId + '/creatorId').val() === auth.uid || root.child('ruma_cloud_v1/groups/' + $groupId + '/memberIds/' + auth.uid).val() === true)",
+          ".write": "auth != null && (root.child('ruma_cloud_v1/groups/' + $groupId + '/creatorId').val() === auth.uid || root.child('ruma_cloud_v1/groups/' + $groupId + '/memberIds/' + auth.uid).val() === true)"
+        }
+      }
+    }
+  }
+}
