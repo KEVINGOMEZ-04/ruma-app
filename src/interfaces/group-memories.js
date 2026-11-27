@@ -308,6 +308,7 @@ export function renderGroupMemoriesView(viewport, group, user, isAdmin, ctx) {
     const dayMems = allMemories.filter(m => m.date === dateStr);
     const dayPlans = plans.filter(p => p.date === dateStr);
     const isFuture = dateStr > todayStr;
+    const isPast = dateStr < todayStr;
 
     UI.openModal({
       title: `📅 ${fmtLongDate(dateStr)}`,
@@ -336,7 +337,7 @@ export function renderGroupMemoriesView(viewport, group, user, isAdmin, ctx) {
           ${dayMems.length === 0 && dayPlans.length === 0 ? `<p style="color:var(--text-secondary);font-size:.88rem;margin:0;">No hay recuerdos ni planes registrados en esta fecha.</p>` : ''}
           <div style="display:flex;gap:.5rem;flex-wrap:wrap;justify-content:flex-end;margin-top:.3rem;">
             ${!isFuture ? `<button type="button" class="btn btn-primary btn-sm" id="day-add-mem">+ Añadir Recuerdo aquí</button>` : ''}
-            <button type="button" class="btn ${isFuture ? 'btn-primary' : 'btn-secondary'} btn-sm" id="day-add-plan">+ Agendar Plan 🗓️</button>
+            ${!isPast ? `<button type="button" class="btn ${isFuture ? 'btn-primary' : 'btn-secondary'} btn-sm" id="day-add-plan">+ Agendar Plan 🗓️</button>` : ''}
           </div>
         </div>`,
       onMount: () => {

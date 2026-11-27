@@ -356,6 +356,35 @@ describe('Store Freemium guards, Series/Movies states & permissions (AUD-05, AUD
     expect(res.memory.files[0].isCover).toBe(true);
     expect(res.memory.files.slice(1).map(f => f.name)).toEqual(['foto1.jpg', 'foto2.jpg']);
   });
+
+  it('restricts memories to past/today dates and plans to today/future dates', async () => {
+    const user = { id: 'u1', name: 'Kevin', username: 'kevin', isPremium: true };
+    const group = {
+      id: 'g_dates',
+      name: 'Calendario',
+      code: 'CAL001',
+      plan: 'premium',
+      creatorId: 'u1',
+      members: [{ id: 'u1', name: 'Kevin', role: 'admin' }],
+      memories: [],
+      plans: []
+    };
+    seedSession(user, [group], 'g_dates');
+
+    const nowLocal = new Date();
+    const localToday = `${nowLocal.getFullYear()}-${String(nowLocal.getMonth() + 1).padStart(2, '0')}-${String(nowLocal.getDate()).padStart(2, '0')}`;
+
+    // Plan in the past -> rejected (null)
+    expect(store.addPlanToActiveGroup({ title: 'Plan Pasado', date: '2020-01-01', time: '18:00' })).toBeNull();
+    // Plan today and in the future -> allowed
+    expect(store.addPlanToActiveGroup({ title: 'Plan Hoy', date: localToday, time: '18:00' })?.title).toBe('Plan Hoy');
+    expect(store.addPlanToActiveGroup({ title: 'Plan Futuro', date: '2099-12-31', time: '20:00' })?.title).toBe('Plan Futuro');
+
+    // Memory in the future -> rejected
+    const futureMem = await store.addMemoryToActiveGroup({ title: 'Recuerdo Futuro', date: '2099-12-31', files: [] });
+    expect(futureMem.ok).toBe(false);
+    expect(futureMem.error).toMatch(/pasados o el día de hoy/i);
+  });
 });
 
 describe('iPhone / iOS Safari QuotaExceededError resilience & Base64 deduplication', () => {

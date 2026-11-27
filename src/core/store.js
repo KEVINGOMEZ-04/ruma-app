@@ -1327,6 +1327,15 @@ class RumaStore {
     const group = allGroups.find(g => g.id === active?.id);
     if (!group || !user) return { ok: false, error: 'Grupo no disponible.' };
 
+    const nowLocal = new Date();
+    const localToday = `${nowLocal.getFullYear()}-${String(nowLocal.getMonth() + 1).padStart(2, '0')}-${String(nowLocal.getDate()).padStart(2, '0')}`;
+    if (date && String(date) > localToday) {
+      return {
+        ok: false,
+        error: 'Los recuerdos solo se pueden añadir para días pasados o el día de hoy.'
+      };
+    }
+
     const linkedFiles = Array.isArray(files) ? files : [];
     const limits = Entitlements.getGroupLimits(group);
     if (linkedFiles.length > limits.maxFilesPerMemoryUpload) {
@@ -1572,6 +1581,12 @@ class RumaStore {
     const allGroups = this.getGroups();
     const group = allGroups.find(g => g.id === this.getActiveGroup()?.id);
     if (!group || !user || !title) return null;
+
+    const nowLocal = new Date();
+    const localToday = `${nowLocal.getFullYear()}-${String(nowLocal.getMonth() + 1).padStart(2, '0')}-${String(nowLocal.getDate()).padStart(2, '0')}`;
+    if (date && String(date) < localToday) {
+      return null;
+    }
 
     group.plans = group.plans || [];
     const newPlan = {

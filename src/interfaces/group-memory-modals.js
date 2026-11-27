@@ -11,6 +11,10 @@ import { DriveBridge } from '../services/drive-bridge.js';
 import { UI } from '../components/ui.js';
 
 export function openAddPlanModal(dateStr, onSaved) {
+  const nowLocal = new Date();
+  const localToday = `${nowLocal.getFullYear()}-${String(nowLocal.getMonth() + 1).padStart(2, '0')}-${String(nowLocal.getDate()).padStart(2, '0')}`;
+  const safeInitialDate = (!dateStr || dateStr < localToday) ? localToday : dateStr;
+
   UI.openModal({
     title: '🗓️ Agendar Plan o Cita a Futuro',
     contentHtml: `
@@ -21,8 +25,8 @@ export function openAddPlanModal(dateStr, onSaved) {
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;">
           <div class="form-group">
-            <label class="form-label">Fecha</label>
-            <input type="date" id="plan-date" class="form-input" value="${Utils.sanitize(dateStr)}" required>
+            <label class="form-label">Fecha (hoy o a futuro)</label>
+            <input type="date" id="plan-date" class="form-input" value="${Utils.sanitize(safeInitialDate)}" min="${Utils.sanitize(localToday)}" required>
           </div>
           <div class="form-group">
             <label class="form-label">Hora</label>
@@ -43,12 +47,21 @@ export function openAddPlanModal(dateStr, onSaved) {
       document.getElementById('btn-cancel-plan')?.addEventListener('click', () => UI.closeModal());
       document.getElementById('form-add-plan')?.addEventListener('submit', (e) => {
         e.preventDefault();
-        store.addPlanToActiveGroup({
+        const chosenDate = document.getElementById('plan-date')?.value || '';
+        if (chosenDate < localToday) {
+          UI.showToast('Los planes solo se pueden agendar para el día de hoy o fechas futuras 🗓️', 'error');
+          return;
+        }
+        const plan = store.addPlanToActiveGroup({
           title: document.getElementById('plan-title')?.value,
-          date: document.getElementById('plan-date')?.value,
+          date: chosenDate,
           time: document.getElementById('plan-time')?.value,
           note: document.getElementById('plan-note')?.value
         });
+        if (!plan) {
+          UI.showToast('No se pudo agendar el plan. Verifica que la fecha sea hoy o a futuro.', 'error');
+          return;
+        }
         UI.closeModal();
         UI.showToast('¡Plan agendado en el calendario del grupo! 🗓️✨', 'success');
         if (typeof onSaved === 'function') onSaved();
@@ -66,7 +79,8 @@ export function openUploadMemoryModal(group, editingMemory = null, prefillDate =
   const maxLinkedFiles = limits.maxFilesPerMemoryUpload || 30;
   const nowLocal = new Date();
   const localToday = `${nowLocal.getFullYear()}-${String(nowLocal.getMonth() + 1).padStart(2, '0')}-${String(nowLocal.getDate()).padStart(2, '0')}`;
-  const today = prefillDate || editingMemory?.date || localToday;
+  const rawDate = prefillDate || editingMemory?.date || localToday;
+  const today = rawDate > localToday ? localToday : rawDate;
   const sampleFolder = Utils.buildDriveSubfolderName(editingMemory?.title || 'Mi Recuerdo', today);
   const googleSession = isCreator ? GoogleAuth.getSession() : null;
   let hasDriveAccess = isCreator && GoogleAuth.hasDriveAccess();
@@ -137,8 +151,8 @@ export function openUploadMemoryModal(group, editingMemory = null, prefillDate =
 
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.85rem;">
           <div class="form-group">
-            <label class="form-label">Fecha del Recuerdo</label>
-            <input type="date" id="mem-date" class="form-input" value="${Utils.sanitize(today)}" required>
+            <label class="form-label">Fecha del Recuerdo (hoy o días pasados)</label>
+            <input type="date" id="mem-date" class="form-input" value="${Utils.sanitize(today)}" max="${Utils.sanitize(localToday)}" required>
           </div>
           <div class="form-group">
             <label class="form-label">Estado & Aura Luminosa</label>
@@ -516,6 +530,11 @@ export function openUploadMemoryModal(group, editingMemory = null, prefillDate =
       document.getElementById('btn-cancel-mem')?.addEventListener('click', () => UI.closeModal());
       document.getElementById('form-upload-memory')?.addEventListener('submit', (e) => {
         e.preventDefault();
+        const chosenMemDate = dateInp?.value || today;
+        if (chosenMemDate > localToday) {
+          UI.showToast('Los recuerdos solo se pueden registrar para el día de hoy o fechas pasadas 📅', 'error');
+          return;
+        }
         const coverFile = selectedCoverFile || document.getElementById('mem-cover-file')?.files?.[0] || null;
         const files = selectedLinkedFiles.length > 0
           ? [...selectedLinkedFiles]
