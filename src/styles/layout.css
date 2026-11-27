@@ -2248,3 +2248,127 @@ textarea:focus-visible,
   outline-offset: 2px;
 }
 
+
+/* ===== Búsqueda de canciones / TMDb (modales) ===== */
+.rmu-search-results { display: flex; flex-direction: column; gap: 0.55rem; }
+.rmu-search-row,
+.rtmdb-search-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  padding: 0.6rem;
+  background: var(--surface-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.rtmdb-search-row.is-added { opacity: 0.75; }
+.rmu-search-main,
+.rtmdb-search-main { display: flex; align-items: center; gap: 0.65rem; min-width: 0; flex: 1; }
+.rmu-search-art { width: 44px; height: 44px; border-radius: 8px; object-fit: cover; flex-shrink: 0; }
+.rtmdb-search-poster { width: 46px; height: 66px; border-radius: 6px; object-fit: cover; flex-shrink: 0; }
+.rmu-search-info,
+.rtmdb-search-info { min-width: 0; }
+.rmu-search-title,
+.rtmdb-search-title {
+  font-weight: 700;
+  font-size: 0.88rem;
+  color: var(--text-primary);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 1.25;
+}
+.rmu-search-sub,
+.rtmdb-search-sub {
+  font-size: 0.76rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rmu-search-actions,
+.rtmdb-search-actions { display: flex; align-items: center; gap: 0.4rem; flex-shrink: 0; }
+.rmu-search-added { font-size: 0.7rem; }
+
+@media (max-width: 540px) {
+  .rmu-search-row,
+  .rtmdb-search-row { flex-direction: column; align-items: stretch; }
+  .rmu-search-actions,
+  .rtmdb-search-actions {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: 1fr;
+  }
+  .rmu-search-actions .btn,
+  .rtmdb-search-actions .btn,
+  .rmu-search-actions .badge,
+  .rtmdb-search-actions .badge {
+    min-height: 38px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+}
+
+.ruma-collapsible-linker {
+  background: var(--surface-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.5rem 0.65rem;
+}
+.ruma-collapsible-linker-sum {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 0.82rem;
+  color: var(--text-primary);
+  min-height: 34px;
+  list-style: none;
+}
+.ruma-collapsible-linker-sum::-webkit-details-marker { display: none; }
+.ruma-collapsible-linker[open] .ruma-collapsible-linker-sum { margin-bottom: 0.4rem; }
+
+.rm-drive-badge { font-weight: 700; font-size: 0.72rem; }
+
+/* ===== Optimización Android / Redmi Note 8 ===== */
+html.ruma-native-app .ruma-topbar,
+html.ruma-native-app .ruma-modal-backdrop,
+html.ruma-native-app .ruma-mobile-bottom-nav,
+html.ruma-native-app .ruma-capsule-nav,
+html.ruma-native-app .ruma-drive-upload-pill.ruma-drive-upload-floating,
+html.ruma-native-app .rg-icon-btn {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+html.ruma-native-app .ruma-topbar,
+html.ruma-native-app .ruma-mobile-bottom-nav,
+html.ruma-native-app .ruma-capsule-nav,
+html.ruma-native-app .ruma-drive-upload-pill.ruma-drive-upload-floating,
+html.ruma-native-app .rg-icon-btn { background: rgba(18, 11, 34, 0.96); }
+html.ruma-native-app .ruma-modal-backdrop { background: rgba(8, 4, 18, 0.82); }
+html.ruma-native-app[data-theme="light"] .ruma-topbar,
+html.ruma-native-app[data-theme="light"] .ruma-mobile-bottom-nav,
+html.ruma-native-app[data-theme="light"] .ruma-capsule-nav,
+html.ruma-native-app[data-theme="light"] .ruma-drive-upload-pill.ruma-drive-upload-floating,
+html.ruma-native-app[data-theme="light"] .rg-icon-btn { background: rgba(255, 255, 255, 0.97); }
+html.ruma-native-app[data-theme="light"] .ruma-modal-backdrop { background: rgba(30, 20, 60, 0.5); }
+html.ruma-native-app .rg-card,
+html.ruma-native-app .rm-tl-card,
+html.ruma-native-app .rmu-card { contain: layout style; }
+
+html.ruma-platform-android input,
+html.ruma-platform-android textarea,
+html.ruma-platform-android select { font-size: 14.5px !important; }
+
+@media (max-width: 420px) {
+  .ruma-modal-backdrop { padding: 0.45rem; }
+  .ruma-modal-head { padding: 0.78rem 0.9rem; }
+  .ruma-modal-body { padding: 0.82rem 0.9rem 1.05rem; }
+  .ruma-topbar { padding-left: 0.6rem; padding-right: 0.6rem; }
+  .ruma-container { padding-left: 0.6rem; padding-right: 0.6rem; }
+}

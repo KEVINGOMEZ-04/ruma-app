@@ -692,7 +692,14 @@ export function openUploadMemoryModal(group, editingMemory = null, prefillDate =
               if (progBar) progBar.style.width = `${pct}%`;
               if (progPct) progPct.textContent = `${pct}%`;
               if (progText) {
-                progText.textContent = `💾 Preparando archivos (${p.fileIndex}/${p.totalFiles}): ${p.fileName || ''}`;
+                const fname = p.fileName || '';
+                if (p.stage === 'drive_folder') {
+                  progText.textContent = `📁 Creando carpeta en Drive: ${fname}`;
+                } else if (p.stage === 'drive_upload') {
+                  progText.textContent = `☁️ Subiendo a Drive (${p.fileIndex}/${p.totalFiles}): ${fname}`;
+                } else {
+                  progText.textContent = `💾 Preparando archivos (${p.fileIndex}/${p.totalFiles}): ${fname}`;
+                }
               }
             }
           });

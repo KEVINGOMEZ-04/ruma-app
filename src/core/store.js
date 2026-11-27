@@ -327,7 +327,11 @@ class RumaStore {
 
   async bootstrapCloudSync() {
     try {
-      await GoogleAuth.restoreNativeSession().catch(() => {});
+      const restoredGoogle = await GoogleAuth.restoreNativeSession().catch(() => null);
+      if (restoredGoogle?.accessToken) {
+        this.notify();
+        this.resumePendingDriveUploads();
+      }
 
       if (FirebaseAuth.isConfigured()) {
         const fbSession = await FirebaseAuth.restoreSession();
@@ -343,6 +347,7 @@ class RumaStore {
             PushService.syncTokenForCurrentUser().catch(() => {});
             RemindersService.syncAllFromGroups(this.getMyGroups()).catch(() => {});
             this.syncBillingEntitlementsAsync().catch(() => {});
+            this.resumePendingDriveUploads();
           }
         }
         return;
@@ -2226,6 +2231,7 @@ class RumaStore {
     try {
       const synced = await DriveBridge.syncExistingMemoryToDrive(group, mem, onProgress, {
         allowCreateRootFolder: isCreator,
+        userDriveFolderUrl: user?.googleDriveFolderUrl || '',
         onCheckpoint: (partial) => {
           if (!partial) return;
           if (isCreator && partial.rootDriveFolderUrl) {

@@ -508,14 +508,10 @@ export function renderSettingsInterface(container) {
     GoogleAuth.requestDriveAccess('', myCreatedGroup)
       .then(async (session) => {
         btn.textContent = '⏳ Preparando carpeta Ruma 🌷...';
-        let folderUrl = effectiveFolderUrl;
-        try {
-          const created = await DriveBridge.createGroupFolderInDrive(myCreatedGroup);
-          if (created?.webViewLink) {
-            folderUrl = created.webViewLink;
-          }
-        } catch (folderErr) {
-          console.warn('Aviso al preparar Ruma 🌷 en Drive:', folderErr);
+        const created = await DriveBridge.createGroupFolderInDrive(myCreatedGroup);
+        const folderUrl = created?.webViewLink || '';
+        if (!folderUrl) {
+          throw new Error('Google Drive no devolvió la carpeta Ruma 🌷. Inténtalo de nuevo.');
         }
 
         const userPatch = {
@@ -530,9 +526,10 @@ export function renderSettingsInterface(container) {
         }
         store.updateCurrentUser(userPatch);
 
-        if (myCreatedGroup && folderUrl) {
-          store.updateGroupSettings(myCreatedGroup.id, { driveFolderUrl: folderUrl });
-        }
+        store.getGroups().filter(g => g.creatorId === user.id).forEach((g) => {
+          store.updateGroupSettings(g.id, { driveFolderUrl: folderUrl });
+        });
+        store.resumePendingDriveUploads?.();
 
         UI.showToast('¡Cuenta sincronizada con Google y carpeta Ruma 🌷 lista! 🌷✨', 'success');
         renderSettingsInterface(container);

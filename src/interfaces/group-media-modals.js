@@ -263,7 +263,7 @@ export function openSearchTmdbModal(group, category) {
             </div>
           </div>
         ` : ''}
-        <div id="tmdb-search-results" style="display:flex;flex-direction:column;gap:0.55rem;">
+        <div id="tmdb-search-results" class="rmu-search-results">
           <div style="text-align:center;padding:1.35rem 0.75rem;color:var(--text-secondary);font-size:0.85rem;">
             Empieza a escribir para buscar títulos en TMDb...
           </div>
@@ -311,21 +311,19 @@ export function openSearchTmdbModal(group, category) {
         resultsEl.innerHTML = results.map((r, i) => {
           const alreadyAdded = r.tmdbId && existingIds.has(String(r.tmdbId));
           return `
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:0.75rem;padding:0.65rem;background:var(--bg-elevated);border-radius:var(--radius-sm);border:1px solid var(--border-subtle);${alreadyAdded ? 'opacity:0.75;' : ''}">
-            <div style="display:flex;align-items:center;gap:0.75rem;min-width:0;flex:1;">
-              <img src="${Utils.sanitize(r.poster)}" alt="poster" style="width:46px;height:66px;border-radius:6px;object-fit:cover;flex-shrink:0;">
-              <div style="min-width:0;">
-                <div style="font-weight:700;font-size:0.92rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
-                  ${Utils.sanitize(r.title)} (${Utils.sanitize(r.year || 'N/A')})
-                </div>
-                <div style="font-size:0.76rem;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
-                  ${Utils.sanitize(r.genres || '')} · <span style="color:var(--brand-gold);">⭐ TMDb ${Utils.sanitize(r.voteAverage)}</span>
-                </div>
+          <div class="rtmdb-search-row ${alreadyAdded ? 'is-added' : ''}">
+            <div class="rtmdb-search-main">
+              <img class="rtmdb-search-poster" src="${Utils.sanitize(r.poster)}" alt="poster" loading="lazy">
+              <div class="rtmdb-search-info">
+                <div class="rtmdb-search-title">${Utils.sanitize(r.title)} (${Utils.sanitize(r.year || 'N/A')})</div>
+                <div class="rtmdb-search-sub">${Utils.sanitize(r.genres || '')} · <span style="color:var(--brand-gold);">⭐ TMDb ${Utils.sanitize(r.voteAverage)}</span></div>
               </div>
             </div>
-            ${alreadyAdded
-              ? `<span class="badge badge-free" style="flex-shrink:0;">✅ En cartelera</span>`
-              : `<button type="button" class="btn btn-primary btn-sm" data-pick-tmdb="${i}">+ Añadir</button>`}
+            <div class="rtmdb-search-actions">
+              ${alreadyAdded
+                ? `<span class="badge badge-free">✅ En cartelera</span>`
+                : `<button type="button" class="btn btn-primary btn-sm" data-pick-tmdb="${i}">+ Añadir</button>`}
+            </div>
           </div>`;
         }).join('');
 
@@ -543,16 +541,12 @@ export function openLyricsModal(song) {
   });
 }
 
-function renderMemoryLinkerHtml(memories = [], selectedIds = [], prefix = 'memlink') {
+function renderMemoryLinkerHtml(memories = [], selectedIds = [], prefix = 'memlink', { collapsible = false, defaultOpen = true } = {}) {
   if (!Array.isArray(memories) || memories.length === 0) return '';
   const selectedSet = new Set(selectedIds || []);
-  return `
-    <div class="form-group" style="margin:0;" data-mem-linker="${prefix}">
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.35rem;">
-        <label class="form-label" style="margin:0;">🎴 Vincular con Recuerdos del Grupo</label>
-        <span style="font-size:0.74rem;color:var(--brand-lilac-soft);font-weight:700;" data-mem-linker-count>${selectedSet.size} vinculado${selectedSet.size === 1 ? '' : 's'}</span>
-      </div>
-      <input type="search" class="form-input" data-mem-linker-search placeholder="🔍 Buscar recuerdo por nombre, fecha o lugar..." autocomplete="off" style="margin-bottom:0.45rem;font-size:0.8rem;padding:0.45rem 0.7rem;">
+  const countHtml = `<span style="font-size:0.74rem;color:var(--brand-lilac-soft);font-weight:700;" data-mem-linker-count>${selectedSet.size} vinculado${selectedSet.size === 1 ? '' : 's'}</span>`;
+  const innerHtml = `
+      <input type="search" class="form-input" data-mem-linker-search placeholder="🔍 Buscar recuerdo..." autocomplete="off" style="margin-bottom:0.45rem;font-size:0.8rem;padding:0.45rem 0.7rem;">
       <div data-mem-linker-list style="display:flex;flex-direction:column;gap:0.4rem;max-height:165px;overflow-y:auto;padding:0.4rem;background:var(--surface-secondary);border:1px solid var(--border);border-radius:var(--radius-sm);">
         ${memories.map(m => {
           const isChecked = selectedSet.has(m.id);
@@ -572,9 +566,26 @@ function renderMemoryLinkerHtml(memories = [], selectedIds = [], prefix = 'memli
           `;
         }).join('')}
       </div>
+  `;
+  if (collapsible) {
+    return `
+      <details class="ruma-collapsible-linker" data-mem-linker="${prefix}" ${defaultOpen ? 'open' : ''}>
+        <summary class="ruma-collapsible-linker-sum"><span>🎴 Vincular con recuerdos (opcional)</span>${countHtml}</summary>
+        ${innerHtml}
+      </details>
+    `;
+  }
+  return `
+    <div class="form-group" style="margin:0;" data-mem-linker="${prefix}">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.35rem;">
+        <label class="form-label" style="margin:0;">🎴 Vincular con Recuerdos del Grupo</label>
+        ${countHtml}
+      </div>
+      ${innerHtml}
     </div>
   `;
 }
+
 
 function bindMemoryLinkerEvents(rootEl, prefix = 'memlink', onChange = null) {
   const wrap = rootEl?.querySelector(`[data-mem-linker="${prefix}"]`);
@@ -673,7 +684,7 @@ export function openAddSongModal(group) {
   });
 
   UI.openModal({
-    title: '🎵 Añadir Canción a la Playlist',
+    title: '🎵 Añadir Canción',
     size: 'lg',
     onClose: () => {
       clearTimeout(debounceTimer);
@@ -683,7 +694,7 @@ export function openAddSongModal(group) {
       <div>
         <form id="song-search-form" style="margin-bottom:0.75rem;">
           <div style="display:flex;gap:0.45rem;align-items:center;">
-            <input type="search" id="song-search-inp" class="form-input" style="flex:1;min-width:0;" placeholder="Busca por canción, artista o letra..." enterkeyhint="search" autocomplete="off" autocorrect="off" spellcheck="false">
+            <input type="search" id="song-search-inp" class="form-input" style="flex:1;min-width:0;" placeholder="Canción o artista..." enterkeyhint="search" autocomplete="off" autocorrect="off" spellcheck="false">
             <button type="submit" class="btn btn-primary btn-sm" style="flex-shrink:0;padding:0.65rem 0.9rem;">Buscar</button>
           </div>
           <div style="font-size:0.74rem;color:var(--text-secondary);margin-top:0.3rem;">
@@ -693,7 +704,7 @@ export function openAddSongModal(group) {
 
         <div class="rmu-add-meta-grid">
           <div>
-            <label class="form-label" for="song-note-inp">Dedicatoria o reseña (opcional)</label>
+            <label class="form-label" for="song-note-inp">Dedicatoria (opcional)</label>
             <input type="text" id="song-note-inp" class="form-input" placeholder="Ej: La canción de nuestro viaje 💫">
           </div>
           <div>
@@ -706,10 +717,10 @@ export function openAddSongModal(group) {
         </div>
 
         <div style="margin-bottom:0.75rem;">
-          ${renderMemoryLinkerHtml(memories, [], 'add_song')}
+          ${memories.length > 0 ? renderMemoryLinkerHtml(memories, [], 'add_song', { collapsible: true, defaultOpen: false }) : ''}
         </div>
 
-        <div id="song-search-results" style="display:flex;flex-direction:column;gap:0.55rem;">
+        <div id="song-search-results" class="rmu-search-results">
           <div style="text-align:center;padding:1.35rem 0.75rem;color:var(--text-secondary);font-size:0.85rem;">
             Empieza a escribir para buscar en vivo...
           </div>
@@ -743,7 +754,7 @@ export function openAddSongModal(group) {
         resultsEl.querySelectorAll('[data-modal-preview]').forEach(btn => {
           const item = currentList[Number(btn.getAttribute('data-modal-preview'))];
           const isNow = Boolean(item && activeId && item.id === activeId);
-          btn.textContent = isNow ? '⏸ 30s' : '▶ 30s';
+          btn.textContent = isNow ? '⏸ Pausar' : '▶ 30s';
         });
       };
       unsubModalPreview = MusicService.subscribe(syncModalPreviewBtns);
@@ -782,22 +793,22 @@ export function openAddSongModal(group) {
           const alreadyIn = (s.itunesId && existingItunes.has(String(s.itunesId))) || existingKeys.has(normKey(s.title, s.artist));
           const isPlayingNow = activeId && activeId === s.id;
           return `
-            <div style="display:flex;align-items:center;justify-content:space-between;gap:0.6rem;padding:0.6rem;background:var(--surface-secondary);border-radius:var(--radius-sm);border:1px solid var(--border);">
-              <div style="display:flex;align-items:center;gap:0.65rem;min-width:0;flex:1;">
-                <img src="${Utils.sanitize(s.artwork)}" alt="art" style="width:44px;height:44px;border-radius:8px;object-fit:cover;flex-shrink:0;">
-                <div style="min-width:0;">
-                  <div style="font-weight:700;font-size:0.88rem;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${Utils.sanitize(s.title)}</div>
-                  <div style="font-size:0.76rem;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${Utils.sanitize(s.artist)}${s.album ? ` · ${Utils.sanitize(s.album)}` : ''}</div>
+            <div class="rmu-search-row">
+              <div class="rmu-search-main">
+                <img class="rmu-search-art" src="${Utils.sanitize(s.artwork)}" alt="art" loading="lazy">
+                <div class="rmu-search-info">
+                  <div class="rmu-search-title">${Utils.sanitize(s.title)}</div>
+                  <div class="rmu-search-sub">${Utils.sanitize(s.artist)}${s.album ? ` · ${Utils.sanitize(s.album)}` : ''}</div>
                 </div>
               </div>
-              <div style="display:flex;align-items:center;gap:0.4rem;flex-shrink:0;">
+              <div class="rmu-search-actions">
                 ${s.previewUrl ? `
                   <button type="button" class="btn btn-secondary btn-sm" data-modal-preview="${i}" title="Escuchar fragmento oficial de 30 segundos">
-                    ${isPlayingNow ? '⏸ 30s' : '▶ 30s'}
+                    ${isPlayingNow ? '⏸ Pausar' : '▶ 30s'}
                   </button>
                 ` : ''}
                 ${alreadyIn
-                  ? `<span class="badge badge-free" style="font-size:0.7rem;">✓ En playlist</span>`
+                  ? `<span class="badge badge-free rmu-search-added">✓ En playlist</span>`
                   : `<button type="button" class="btn btn-primary btn-sm" data-pick-song="${i}">+ Guardar</button>`}
               </div>
             </div>

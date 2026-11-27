@@ -40,6 +40,14 @@ export class CosmicBackground {
     if (!this.reduceMotion) this.start();
   }
 
+  isCompactDevice() {
+    return window.innerWidth < 768 || document.documentElement.classList.contains('ruma-native-app');
+  }
+
+  isHeavyUiOpen() {
+    return Boolean(document.getElementById('ruma-active-modal')) || document.documentElement.classList.contains('ruma-kb-open');
+  }
+
   isLight() {
     return document.documentElement.getAttribute('data-theme') === 'light';
   }
@@ -54,18 +62,24 @@ export class CosmicBackground {
 
   handleResize() {
     if (!this.canvas) return;
-    this.canvas.width = window.innerWidth;
-    this.canvas.height = window.innerHeight;
+    // En dispositivos compactos/nativos se renderiza a media resolución (el CSS lo escala a pantalla completa)
+    if (this.isCompactDevice()) {
+      this.canvas.width = Math.max(160, Math.round(window.innerWidth * 0.5));
+      this.canvas.height = Math.max(240, Math.round(window.innerHeight * 0.5));
+    } else {
+      this.canvas.width = window.innerWidth;
+      this.canvas.height = window.innerHeight;
+    }
     this.initElements();
   }
 
   initElements() {
     const w = this.canvas.width;
     const h = this.canvas.height;
-    const isMobile = w < 768;
+    const isCompact = this.isCompactDevice();
 
     this.stars = [];
-    const count = isMobile ? 20 : 38;
+    const count = isCompact ? 12 : 38;
     for (let i = 0; i < count; i++) {
       this.stars.push({
         x: Math.random() * w,
@@ -131,8 +145,11 @@ export class CosmicBackground {
     if (!this.isRunning || !this.ctx) return;
 
     // Ahorro de batería en teléfonos: limitar a ~24 fps en móvil y 45 fps en escritorio
-    const isMobile = this.canvas.width < 768;
-    const minInterval = isMobile ? 42 : 22;
+    const minInterval = this.isCompactDevice() ? 84 : 22;
+    if (this.isHeavyUiOpen()) {
+      this.animFrame = requestAnimationFrame(this.animate);
+      return;
+    }
     if (this.lastFrameAt && (now - this.lastFrameAt) < minInterval) {
       this.animFrame = requestAnimationFrame(this.animate);
       return;

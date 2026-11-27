@@ -210,3 +210,32 @@ describe('RemindersService & FirebaseAuth token lifecycle', () => {
     }
   });
 });
+
+describe('Android 10/11 (Redmi Note 8) & Google Drive background upload resilience', () => {
+  const read = (rel) => fs.readFileSync(path.resolve(process.cwd(), rel), 'utf8');
+
+  it('DriveUploadWorker declares getForegroundInfo, result key/error constants and encrypted result storage', () => {
+    const worker = read('android/app/src/main/java/app/ruma/social/DriveUploadWorker.java');
+    expect(worker).toContain('public ForegroundInfo getForegroundInfo()');
+    expect(worker).toContain('KEY_RESULT_KEY');
+    expect(worker).toContain('KEY_ERROR_MESSAGE');
+    expect(worker).toContain('RumaKeystoreHelper.putEncrypted(getApplicationContext(), resultKey');
+  });
+
+  it('styles.xml and MainActivity configure dark system bars with light icons off', () => {
+    const styles = read('android/app/src/main/res/values/styles.xml');
+    const main = read('android/app/src/main/java/app/ruma/social/MainActivity.java');
+    expect(styles).toContain('android:statusBarColor');
+    expect(styles).toContain('android:navigationBarColor');
+    expect(styles).toContain('android:windowLightStatusBar');
+    expect(main).toContain('WindowInsetsControllerCompat');
+    expect(main).toContain('setAppearanceLightStatusBars(false)');
+  });
+
+  it('Add Song modal uses compact CSS-class results and a collapsible memory linker', () => {
+    const modals = read('src/interfaces/group-media-modals.js');
+    expect(modals).toContain('class="rmu-search-row"');
+    expect(modals).toContain('class="rtmdb-search-row');
+    expect(modals).toContain('collapsible: true, defaultOpen: false');
+  });
+});

@@ -274,28 +274,42 @@ export const DriveBridge = {
           });
         }
 
-        // Si había una carpeta configurada pero fue borrada o no fue creada por esta app (`drive.file`),
-        // verificarla primero y, si el creador tiene permiso, re-vincular automáticamente con `Ruma 🌷`
-        if (parentFolderId) {
-          try {
-            await DriveResumableUploader.verifyFolderAccess(token, parentFolderId);
-          } catch (_) {
-            if (allowCreateRootFolder) {
-              parentFolderId = '';
+        const resolveDriveFolders = async (activeToken) => {
+          // Si había una carpeta configurada pero fue borrada o no fue creada por esta app (`drive.file`),
+          // verificarla primero y, si el creador tiene permiso, re-vincular automáticamente con `Ruma 🌷`
+          if (parentFolderId) {
+            try {
+              await DriveResumableUploader.verifyFolderAccess(activeToken, parentFolderId);
+            } catch (verifyErr) {
+              if (verifyErr?.status === 401) throw verifyErr;
+              if (allowCreateRootFolder) {
+                parentFolderId = '';
+              }
             }
           }
-        }
 
-        // Si el grupo aún no tenía carpeta vinculada, buscar o crear `Ruma 🌷`
-        if (!parentFolderId) {
-          const rootFolder = await DriveResumableUploader.createRootGroupFolder(token);
-          parentFolderId = rootFolder.id;
-          rootDriveFolderUrl = rootFolder.webViewLink;
-        } else if (!group.driveFolderUrl && rawFolderUrl) {
-          rootDriveFolderUrl = this.getFolderWebUrl(rawFolderUrl);
-        }
+          // Si el grupo aún no tenía carpeta vinculada, buscar o crear `Ruma 🌷`
+          if (!parentFolderId) {
+            const rootFolder = await DriveResumableUploader.createRootGroupFolder(activeToken);
+            parentFolderId = rootFolder.id;
+            rootDriveFolderUrl = rootFolder.webViewLink;
+          } else if (!group.driveFolderUrl && rawFolderUrl) {
+            rootDriveFolderUrl = this.getFolderWebUrl(rawFolderUrl);
+          }
 
-        driveSubfolder = await DriveResumableUploader.createSubfolder(token, parentFolderId, subfolderName);
+          return DriveResumableUploader.createSubfolder(activeToken, parentFolderId, subfolderName);
+        };
+
+        try {
+          driveSubfolder = await resolveDriveFolders(token);
+        } catch (folderErr) {
+          if (folderErr?.status !== 401) throw folderErr;
+          // Token caducado: renovar una sola vez y reintentar
+          try { GoogleAuth.clearToken(); } catch (_) {}
+          token = await this.ensureAccessToken(group, true);
+          if (!token) throw folderErr;
+          driveSubfolder = await resolveDriveFolders(token);
+        }
 
         // 2a. Subida nativa en 2.º plano (Android WorkManager + UIDT/FGS dataSync) para URIs de Photo Picker
         const nativeItems = processedFiles.filter(item => item.nativeUri);
@@ -312,13 +326,19 @@ export const DriveBridge = {
             })),
             onProgress
           });
-          (bgResult.uploaded || []).forEach((u, idx) => {
-            const target = nativeItems[idx];
+          const uploadedArr = Array.isArray(bgResult?.uploaded) ? bgResult.uploaded : [];
+          const failedArr = Array.isArray(bgResult?.failed) ? bgResult.failed : [];
+          uploadedArr.forEach((u, idx) => {
+            const matchIdx = Number.isInteger(u?.index) ? u.index : idx;
+            const target = nativeItems[matchIdx];
             if (target && u?.id) {
               target.driveFileId = u.id;
               target.driveViewLink = u.webViewLink || `https://drive.google.com/file/d/${u.id}/view`;
             }
           });
+          if (failedArr.length > 0 || uploadedArr.length === 0) {
+            throw new Error(failedArr[0]?.error || 'No se pudieron transferir los archivos seleccionados a Google Drive.');
+          }
         }
 
         // 2b. Subida resumable web/iOS para objetos File/Blob estándar
@@ -409,7 +429,8 @@ export const DriveBridge = {
         isCover: Boolean(f.originalFile?.isCoverFile || (options.hasExplicitCover && idx === 0)),
         thumbnail: f.thumbnail,
         driveFileId: f.driveFileId || '',
-        driveViewLink: f.driveViewLink || ''
+        driveViewLink: f.driveViewLink || '',
+        ...(f.nativeUri && !f.driveFileId ? { nativeUri: f.nativeUri } : {})
       })),
       createdAt: new Date().toISOString()
     };
@@ -422,12 +443,12 @@ export const DriveBridge = {
     if (!group || !memory) throw new Error('Recuerdo o grupo no válido.');
     const allowCreateRootFolder = options.allowCreateRootFolder !== false;
 
-    const token = await this.ensureAccessToken(group, true);
+    let token = await this.ensureAccessToken(group, true);
     if (!token) {
       throw new Error('Debes iniciar sesión con Google primero para subir a Drive.');
     }
 
-    const rawFolderUrl = group.driveFolderUrl || group.driveFolderId || '';
+    const rawFolderUrl = group.driveFolderUrl || group.driveFolderId || options.userDriveFolderUrl || '';
     let parentFolderId = this.isRealFolderConfigured(rawFolderUrl) ? this.extractFolderId(rawFolderUrl) : '';
     let rootDriveFolderUrl = '';
     const subfolderName = memory.subfolderName || Utils.buildDriveSubfolderName(memory.title, memory.date);
@@ -450,23 +471,37 @@ export const DriveBridge = {
         driveSubfolder = null;
       }
     }
-    if (!driveSubfolder) {
+    const resolveSubfolder = async (activeToken) => {
+      let created = null;
       if (parentFolderId) {
         try {
-          driveSubfolder = await DriveResumableUploader.createSubfolder(token, parentFolderId, subfolderName);
+          created = await DriveResumableUploader.createSubfolder(activeToken, parentFolderId, subfolderName);
         } catch (subErr) {
+          if (subErr?.status === 401) throw subErr;
           if (!allowCreateRootFolder) throw subErr;
           parentFolderId = '';
         }
       }
-      if (!driveSubfolder) {
+      if (!created) {
         if (!allowCreateRootFolder) {
           throw new Error('Solo el creador del grupo (dueño de la carpeta en Google Drive) puede activar o crear la carpeta Ruma 🌷.');
         }
-        const rootFolder = await DriveResumableUploader.createRootGroupFolder(token);
+        const rootFolder = await DriveResumableUploader.createRootGroupFolder(activeToken);
         parentFolderId = rootFolder.id;
         rootDriveFolderUrl = rootFolder.webViewLink;
-        driveSubfolder = await DriveResumableUploader.createSubfolder(token, parentFolderId, subfolderName);
+        created = await DriveResumableUploader.createSubfolder(activeToken, parentFolderId, subfolderName);
+      }
+      return created;
+    };
+    if (!driveSubfolder) {
+      try {
+        driveSubfolder = await resolveSubfolder(token);
+      } catch (folderErr) {
+        if (folderErr?.status !== 401) throw folderErr;
+        try { GoogleAuth.clearToken(); } catch (_) {}
+        token = await this.ensureAccessToken(group, true);
+        if (!token) throw folderErr;
+        driveSubfolder = await resolveSubfolder(token);
       }
     }
 
@@ -518,6 +553,36 @@ export const DriveBridge = {
         const targetFileName = isCoverItem
           ? `Portada.${ext}`
           : `${cleanMemTitle} ${linkedSeq}.${ext}`;
+
+        if (fMeta?.nativeUri && NativeDriveUploader.isAvailable()) {
+          const bgRes = await NativeDriveUploader.uploadFilesInBackground({
+            accessToken: token,
+            folderId: driveSubfolder.id,
+            title: memory.title || 'Recuerdo',
+            files: [{
+              uri: fMeta.nativeUri,
+              name: targetFileName,
+              mimeType: fMeta.type || 'application/octet-stream',
+              size: fMeta.size || 0
+            }],
+            onProgress
+          });
+          const uploadedNative = Array.isArray(bgRes?.uploaded) ? bgRes.uploaded[0] : null;
+          if (!uploadedNative?.id) {
+            throw new Error(bgRes?.failed?.[0]?.error || 'No se pudo subir el archivo a Google Drive desde el dispositivo.');
+          }
+          const { nativeUri: _doneUri, ...restMeta } = fMeta;
+          updatedFiles[i] = {
+            ...restMeta,
+            name: targetFileName,
+            driveFileId: uploadedNative.id,
+            driveViewLink: uploadedNative.webViewLink || `https://drive.google.com/file/d/${uploadedNative.id}/view`,
+            driveResumeUrl: ''
+          };
+          uploadedOrAlreadySyncedCount++;
+          emitCheckpoint();
+          continue;
+        }
 
         const record = await MediaStorage.getMedia(fMeta.id);
         let fileObj = null;

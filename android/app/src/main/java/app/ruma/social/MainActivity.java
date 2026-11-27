@@ -1,8 +1,14 @@
 package app.ruma.social;
 
 import android.content.Intent;
+import android.graphics.Color;
+import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
+import android.view.Window;
+
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsControllerCompat;
 
 import com.getcapacitor.BridgeActivity;
 import com.getcapacitor.Plugin;
@@ -23,6 +29,21 @@ public class MainActivity extends BridgeActivity implements ModifiedMainActivity
         registerPlugin(RumaSecureStoragePlugin.class);
         registerPlugin(RumaDriveUploadPlugin.class);
         super.onCreate(savedInstanceState);
+        configureSystemBars();
+    }
+
+    /** Barras de sistema oscuras (MIUI / Redmi Note 8) con iconos claros. */
+    private void configureSystemBars() {
+        Window window = getWindow();
+        int darkBg = Color.parseColor("#0E071D");
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+            WindowCompat.setDecorFitsSystemWindows(window, true);
+            window.setStatusBarColor(darkBg);
+            window.setNavigationBarColor(darkBg);
+        }
+        WindowInsetsControllerCompat controller = WindowCompat.getInsetsController(window, window.getDecorView());
+        controller.setAppearanceLightStatusBars(false);
+        controller.setAppearanceLightNavigationBars(false);
     }
 
     @Override

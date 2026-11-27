@@ -44,6 +44,8 @@ public class DriveUploadWorker extends Worker {
     public static final String KEY_PROGRESS_TOTAL_FILES = "totalFiles";
     public static final String KEY_PROGRESS_FILE_NAME = "fileName";
     public static final String KEY_RESULT_JSON = "resultJson";
+    public static final String KEY_RESULT_KEY = "resultKey";
+    public static final String KEY_ERROR_MESSAGE = "errorMessage";
 
     private static final String CHANNEL_ID = "drive_uploads";
     private static final int NOTIFICATION_ID = 4102;
@@ -55,16 +57,29 @@ public class DriveUploadWorker extends Worker {
 
     @NonNull
     @Override
+    public ForegroundInfo getForegroundInfo() {
+        ensureChannel();
+        return createForegroundInfo("Google Drive", "Subiendo recuerdos a tu carpeta Ruma...", 5, 100);
+    }
+
+    private Result failWithMessage(String message) {
+        String safeMsg = message == null ? "Error al subir a Google Drive" : message;
+        if (safeMsg.length() > 260) safeMsg = safeMsg.substring(0, 260);
+        return Result.failure(new Data.Builder().putString(KEY_ERROR_MESSAGE, safeMsg).build());
+    }
+
+    @NonNull
+    @Override
     public Result doWork() {
         String jobId = getInputData().getString(KEY_JOB_ID);
         if (jobId == null || jobId.isEmpty()) {
-            return Result.failure();
+            return failWithMessage("Identificador de subida no válido.");
         }
         String vaultKey = "drive_job_" + jobId;
         try {
             String rawPayload = RumaKeystoreHelper.getDecrypted(getApplicationContext(), vaultKey);
             if (rawPayload == null || rawPayload.isEmpty()) {
-                return Result.failure();
+                return failWithMessage("No se encontraron los datos de la subida (sesión expirada).");
             }
 
             JSONObject job = new JSONObject(rawPayload);
@@ -73,11 +88,15 @@ public class DriveUploadWorker extends Worker {
             String title = job.optString("title", "Recuerdo");
             JSONArray files = job.optJSONArray("files");
             if (accessToken.isEmpty() || folderId.isEmpty() || files == null || files.length() == 0) {
-                return Result.failure();
+                return failWithMessage("Datos de subida incompletos (token, carpeta o archivos).");
             }
 
             ensureChannel();
-            setForegroundAsync(createForegroundInfo(title, "Preparando subida a Google Drive...", 5, 100));
+            try {
+                setForegroundAsync(createForegroundInfo(title, "Preparando subida a Google Drive...", 5, 100));
+            } catch (Exception ignored) {
+                // MIUI puede restringir notificaciones en primer plano
+            }
 
             JSONArray uploaded = new JSONArray();
             JSONArray failed = new JSONArray();
@@ -85,7 +104,7 @@ public class DriveUploadWorker extends Worker {
 
             for (int i = 0; i < totalFiles; i++) {
                 if (isStopped()) {
-                    return Result.failure();
+                    return failWithMessage("Subida cancelada.");
                 }
                 JSONObject fileObj = files.getJSONObject(i);
                 String uriStr = fileObj.optString("uri", "");
@@ -105,11 +124,15 @@ public class DriveUploadWorker extends Worker {
                             i,
                             totalFiles
                     );
+                    driveItem.put("index", i);
                     uploaded.put(driveItem);
                 } catch (Exception fileErr) {
                     JSONObject errEntry = new JSONObject();
                     errEntry.put("name", fileName);
-                    errEntry.put("error", fileErr.getMessage() != null ? fileErr.getMessage() : "Error al subir");
+                    errEntry.put("index", i);
+                    String errMsg = fileErr.getMessage() != null ? fileErr.getMessage() : "Error al subir";
+                    if (errMsg.length() > 220) errMsg = errMsg.substring(0, 220);
+                    errEntry.put("error", errMsg);
                     failed.put(errEntry);
                 }
             }
@@ -118,12 +141,16 @@ public class DriveUploadWorker extends Worker {
             summary.put("uploaded", uploaded);
             summary.put("failed", failed);
 
-            Data out = new Data.Builder()
-                    .putString(KEY_RESULT_JSON, summary.toString())
-                    .build();
-            return Result.success(out);
+            String summaryStr = summary.toString();
+            String resultKey = "drive_result_" + jobId;
+            RumaKeystoreHelper.putEncrypted(getApplicationContext(), resultKey, summaryStr);
+            Data.Builder outBuilder = new Data.Builder().putString(KEY_RESULT_KEY, resultKey);
+            if (summaryStr.length() < 4096) {
+                outBuilder.putString(KEY_RESULT_JSON, summaryStr);
+            }
+            return Result.success(outBuilder.build());
         } catch (Exception e) {
-            return Result.failure();
+            return failWithMessage(e.getMessage());
         } finally {
             RumaKeystoreHelper.remove(getApplicationContext(), vaultKey);
         }
@@ -271,7 +298,11 @@ public class DriveUploadWorker extends Worker {
 
     private void reportProgress(String title, String fileName, int fileIndex, int totalFiles, int percent) {
         String text = "Subiendo (" + fileIndex + "/" + totalFiles + "): " + fileName;
-        setForegroundAsync(createForegroundInfo(title, text, percent, 100));
+        try {
+            setForegroundAsync(createForegroundInfo(title, text, percent, 100));
+        } catch (Exception ignored) {
+            // MIUI puede restringir notificaciones en primer plano
+        }
         setProgressAsync(new Data.Builder()
                 .putInt(KEY_PROGRESS_PERCENT, percent)
                 .putInt(KEY_PROGRESS_FILE_INDEX, fileIndex)

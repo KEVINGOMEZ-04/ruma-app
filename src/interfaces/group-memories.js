@@ -218,6 +218,9 @@ export function renderGroupMemoriesView(viewport, group, user, isAdmin, ctx) {
                         ${hasSong ? `<span data-play-song="${Utils.sanitize(mem.id)}" title="Toca para escuchar: ${Utils.sanitize(mem.song.title)} - ${Utils.sanitize(mem.song.artist || '')}" style="display:inline-flex;align-items:center;gap:0.25rem;color:var(--brand-lilac-soft);font-weight:700;max-width:170px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;">${svg(ICO.music, 14)} ${Utils.sanitize(mem.song.title)}</span>` : ''}
                         ${hasVoice ? `<span>${svg(ICO.mic, 14)} Voz</span>` : ''}
                         <span>${svg(ICO.msg, 14)} ${commentsCount}</span>
+                        ${mem.driveSyncStatus === 'synced' ? '<span class="rm-drive-badge" title="Guardado en Google Drive">☁️ Drive</span>' : ''}
+                        ${mem.driveSyncStatus === 'uploading' ? '<span class="rm-drive-badge" title="Subiendo a Google Drive">⏳ Subiendo…</span>' : ''}
+                        ${mem.driveSyncStatus === 'error' ? `<span class="rm-drive-badge" title="${Utils.sanitize(mem.driveSyncError || 'Error al subir a Drive')}">⚠️ Error Drive</span>` : ''}
                       </div>
                       <div class="rm-tl-date">${svg(ICO.cal, 14)} <span>${Utils.sanitize(fmtLongDate(mem.date || mem.createdAt))}</span></div>
                     </div>

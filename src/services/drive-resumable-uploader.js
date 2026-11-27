@@ -32,6 +32,12 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = DEFAULT_TIMEOUT_M
   }
 }
 
+function httpError(message, status) {
+  const err = new Error(message);
+  err.status = status;
+  return err;
+}
+
 export const DriveResumableUploader = {
   /**
    * Verifica que la carpeta exista y que la cuenta de Google conectada tenga acceso a ella
@@ -52,12 +58,12 @@ export const DriveResumableUploader = {
       const err = await res.json().catch(() => ({}));
       const msg = err.error?.message || `Código ${res.status}`;
       if (res.status === 404) {
-        throw new Error('No se encontró la carpeta en Google Drive. Verifica que el enlace sea correcto y que tu cuenta de Google tenga acceso a esa carpeta.');
+        throw httpError('No se encontró la carpeta en Google Drive. Verifica que el enlace sea correcto y que tu cuenta de Google tenga acceso a esa carpeta.', 404);
       }
       if (res.status === 401 || res.status === 403) {
-        throw new Error(`Permiso denegado en Google Drive (${msg}). Vuelve a conectar tu cuenta de Google o verifica permisos de Editor en la carpeta.`);
+        throw httpError(`Permiso denegado en Google Drive (${msg}). Vuelve a conectar tu cuenta de Google o verifica permisos de Editor en la carpeta.`, res.status);
       }
-      throw new Error(`Error verificando carpeta de Drive: ${msg}`);
+      throw httpError(`Error verificando carpeta de Drive: ${msg}`, res.status);
     }
 
     const data = await res.json();
@@ -86,7 +92,7 @@ export const DriveResumableUploader = {
     if (!accessToken) throw new Error('Inicia sesión con tu cuenta de Google primero.');
     const folderName = CONFIG.googleDrive?.rootFolderName || 'Ruma 🌷';
     const escapedName = folderName.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-    const q = encodeURIComponent(`name = '${escapedName}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`);
+    const q = encodeURIComponent(`name = '${escapedName}' and mimeType = 'application/vnd.google-apps.folder' and 'root' in parents and trashed = false`);
 
     try {
       const searchRes = await fetchWithTimeout(
@@ -96,6 +102,9 @@ export const DriveResumableUploader = {
           headers: { Authorization: `Bearer ${accessToken}` }
         }
       );
+      if (searchRes.status === 401) {
+        throw httpError('Sesión de Google Drive expirada (HTTP 401).', 401);
+      }
       if (searchRes.ok) {
         const listData = await searchRes.json();
         const existing = Array.isArray(listData.files) && listData.files[0];
@@ -107,7 +116,8 @@ export const DriveResumableUploader = {
           };
         }
       }
-    } catch (_) {
+    } catch (err) {
+      if (err?.status === 401) throw err;
       // Si la búsqueda falla de forma transitoria, continuar creando la carpeta
     }
 
@@ -131,7 +141,7 @@ export const DriveResumableUploader = {
     );
 
     if (!res.ok) {
-      throw new Error(`No se pudo descargar el archivo desde Google Drive (HTTP ${res.status}).`);
+      throw httpError(`No se pudo descargar el archivo desde Google Drive (HTTP ${res.status}).`, res.status);
     }
 
     return res.blob();
@@ -163,7 +173,7 @@ export const DriveResumableUploader = {
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw new Error(err.error?.message || `No se pudo crear la subcarpeta en Google Drive (HTTP ${res.status}). Verifica que la carpeta exista y tengas permiso de Editor.`);
+      throw httpError(err.error?.message || `No se pudo crear la subcarpeta en Google Drive (HTTP ${res.status}). Verifica que la carpeta exista y tengas permiso de Editor.`, res.status);
     }
 
     const data = await res.json();
@@ -215,7 +225,7 @@ export const DriveResumableUploader = {
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw new Error(err.error?.message || `Error subiendo "${fileName}" a Google Drive (HTTP ${res.status}).`);
+      throw httpError(err.error?.message || `Error subiendo "${fileName}" a Google Drive (HTTP ${res.status}).`, res.status);
     }
 
     const data = await res.json();
@@ -304,7 +314,7 @@ export const DriveResumableUploader = {
 
       if (!initRes.ok) {
         const err = await initRes.json().catch(() => ({}));
-        throw new Error(err.error?.message || `No se pudo iniciar la sesión de subida con Google Drive (HTTP ${initRes.status}).`);
+        throw httpError(err.error?.message || `No se pudo iniciar la sesión de subida con Google Drive (HTTP ${initRes.status}).`, initRes.status);
       }
 
       uploadUrl = initRes.headers.get('Location') || '';
@@ -364,7 +374,7 @@ export const DriveResumableUploader = {
         };
       } else {
         const errData = await chunkRes.json().catch(() => ({}));
-        throw new Error(errData.error?.message || `Error durante la transferencia del archivo a Google Drive (HTTP ${chunkRes.status}).`);
+        throw httpError(errData.error?.message || `Error durante la transferencia del archivo a Google Drive (HTTP ${chunkRes.status}).`, chunkRes.status);
       }
     }
 

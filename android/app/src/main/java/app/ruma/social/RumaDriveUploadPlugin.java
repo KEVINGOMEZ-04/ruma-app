@@ -72,6 +72,23 @@ public class RumaDriveUploadPlugin extends Plugin {
         List<Uri> uris = new ActivityResultContracts.PickMultipleVisualMedia()
                 .parseResult(result.getResultCode(), result.getData());
 
+        // Fallback MIUI / Android 10–11: leer ClipData / Data directamente
+        if ((uris == null || uris.isEmpty()) && result.getData() != null) {
+            List<Uri> fallback = new java.util.ArrayList<>();
+            Intent data = result.getData();
+            if (data.getClipData() != null) {
+                android.content.ClipData clip = data.getClipData();
+                for (int i = 0; i < clip.getItemCount(); i++) {
+                    Uri u = clip.getItemAt(i).getUri();
+                    if (u != null) fallback.add(u);
+                }
+            }
+            if (fallback.isEmpty() && data.getData() != null) {
+                fallback.add(data.getData());
+            }
+            uris = fallback;
+        }
+
         JSArray files = new JSArray();
         if (uris != null) {
             ContentResolver resolver = getContext().getContentResolver();
@@ -163,7 +180,15 @@ public class RumaDriveUploadPlugin extends Plugin {
                                 JSObject ret = new JSObject();
                                 ret.put("workId", workUuid.toString());
                                 try {
-                                    String raw = info.getOutputData().getString(DriveUploadWorker.KEY_RESULT_JSON);
+                                    String raw = null;
+                                    String resultKey = info.getOutputData().getString(DriveUploadWorker.KEY_RESULT_KEY);
+                                    if (resultKey != null && !resultKey.isEmpty()) {
+                                        raw = RumaKeystoreHelper.getDecrypted(getContext(), resultKey);
+                                        RumaKeystoreHelper.remove(getContext(), resultKey);
+                                    }
+                                    if (raw == null || raw.isEmpty()) {
+                                        raw = info.getOutputData().getString(DriveUploadWorker.KEY_RESULT_JSON);
+                                    }
                                     JSONObject parsed = raw != null ? new JSONObject(raw) : new JSONObject();
                                     ret.put("uploaded", parsed.optJSONArray("uploaded") != null ? parsed.optJSONArray("uploaded") : new JSONArray());
                                     ret.put("failed", parsed.optJSONArray("failed") != null ? parsed.optJSONArray("failed") : new JSONArray());
@@ -173,7 +198,10 @@ public class RumaDriveUploadPlugin extends Plugin {
                                 }
                                 call.resolve(ret);
                             } else {
-                                call.reject("La subida a Google Drive fue cancelada o falló.");
+                                String errMsg = info.getOutputData().getString(DriveUploadWorker.KEY_ERROR_MESSAGE);
+                                call.reject(errMsg != null && !errMsg.isEmpty()
+                                        ? errMsg
+                                        : "La subida a Google Drive fue cancelada o falló.");
                             }
                         }
                     }
