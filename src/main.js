@@ -18,6 +18,7 @@ import { store } from './core/store.js';
 import { Utils } from './core/utils.js';
 import { CloudSync } from './services/cloud-sync.js';
 import { GoogleAuth } from './services/google-auth.js';
+import { AppNativeService } from './services/app-native.js';
 import { CosmicBackground } from './components/cosmic-background.js';
 
 let cosmicBg = null;
@@ -37,6 +38,7 @@ function mountInterface(name, exportKey, viewRoot) {
   const cached = interfaceCache.get(name);
   if (cached?.[exportKey]) {
     cached[exportKey](viewRoot);
+    syncDriveUploadPillDom();
     return;
   }
 
@@ -52,6 +54,7 @@ function mountInterface(name, exportKey, viewRoot) {
       const liveRoot = document.getElementById('ruma-view-root');
       if (liveRoot && mod?.[exportKey]) {
         mod[exportKey](liveRoot);
+        syncDriveUploadPillDom();
       }
     })
     .catch((err) => {
@@ -115,12 +118,10 @@ function getCloudBadgeHtml(status) {
   return `<span id="ruma-cloud-badge" class="badge badge-admin" style="font-size:0.68rem;padding:0.2rem 0.55rem;">☁️ Conectando...</span>`;
 }
 
-function getDriveUploadPillHtml(state = store.getDriveUploadState(), floating = false) {
+function getDriveUploadPillHtml(state = store.getDriveUploadState()) {
   const status = state?.status || 'idle';
-  const floatAttr = floating ? ' data-drive-pill-floating="1"' : '';
-  const floatCls = floating ? ' ruma-drive-upload-floating' : '';
   if (status === 'idle') {
-    return `<div id="ruma-drive-upload-pill" class="ruma-drive-upload-pill is-idle${floatCls}"${floatAttr} style="display:none;"></div>`;
+    return `<div id="ruma-drive-upload-pill" class="ruma-drive-upload-pill is-idle" style="display:none;"></div>`;
   }
 
   const pct = status === 'completed'
@@ -149,7 +150,7 @@ function getDriveUploadPillHtml(state = store.getDriveUploadState(), floating = 
   }
 
   return `
-    <button type="button" id="ruma-drive-upload-pill" class="ruma-drive-upload-pill ${statusClass}${floatCls}"${floatAttr} title="${Utils.sanitize(tooltip)}" aria-live="polite">
+    <button type="button" id="ruma-drive-upload-pill" class="ruma-drive-upload-pill ${statusClass}" title="${Utils.sanitize(tooltip)}" aria-live="polite">
       <span class="ruma-drive-ring-wrap" aria-hidden="true">
         <svg class="ruma-drive-ring-svg ${status === 'uploading' ? 'is-spinning' : ''}" width="28" height="28" viewBox="0 0 28 28">
           <circle class="ruma-drive-ring-track" cx="14" cy="14" r="${radius}" fill="none" stroke-width="2.5"></circle>
@@ -180,6 +181,24 @@ function bindDriveUploadPill() {
       store.resumePendingDriveUploads();
     }
   });
+}
+
+function syncDriveUploadPillDom(state = store.getDriveUploadState()) {
+  const anchor = document.getElementById('ruma-drive-upload-anchor');
+  if (anchor) {
+    anchor.innerHTML = getDriveUploadPillHtml(state).trim();
+    bindDriveUploadPill();
+    return;
+  }
+  const existing = document.getElementById('ruma-drive-upload-pill');
+  if (!existing) return;
+  const tmp = document.createElement('div');
+  tmp.innerHTML = getDriveUploadPillHtml(state).trim();
+  const nextEl = tmp.firstElementChild;
+  if (nextEl) {
+    existing.replaceWith(nextEl);
+    bindDriveUploadPill();
+  }
 }
 
 function getBottomCapsuleNavHtml(iface) {
@@ -241,6 +260,7 @@ function getBottomCapsuleNavHtml(iface) {
 
 function renderApp() {
   appRenderSeq += 1;
+  AppNativeService.init(store);
 
   if (!cosmicBg) {
     try {
@@ -264,15 +284,15 @@ function renderApp() {
   }
 
   // 2. Si está en el Home (Inicio) -> Pantalla completa de Home + Barra Cápsula Inferior (3 pestañas)
+  // La nube de subida se monta fija justo a la izquierda de la píldora de Perfil dentro del encabezado de Home
   if (iface === 'hub') {
     root.innerHTML = `
-      ${getDriveUploadPillHtml(store.getDriveUploadState(), true)}
       <main class="ruma-auth-root" id="ruma-view-root"></main>
       ${getBottomCapsuleNavHtml(iface)}
     `;
     mountInterface('hub', 'renderHomeInterface', document.getElementById('ruma-view-root'));
     bindCapsuleNav(root, user);
-    bindDriveUploadPill();
+    syncDriveUploadPillDom();
     return;
   }
 
@@ -292,16 +312,20 @@ function renderApp() {
           <span class="ruma-brand-name">ruma</span>
         </div>
         ${getCloudBadgeHtml(CloudSync.getStatus())}
-        ${getDriveUploadPillHtml(store.getDriveUploadState(), false)}
       </div>
 
-      <!-- Píldora de Usuario Actual (siempre abre Mi Perfil) -->
-      <button type="button" class="ruma-user-pill" id="nav-user-pill" title="Abrir mi Perfil">
-        <div class="avatar-wrap ${Utils.sanitize(user.frameId || 'frame-axolotl')}" style="width:30px;height:30px;">
-          <img src="${Utils.sanitize(avatarSrc)}" alt="Avatar" class="avatar-img">
-        </div>
-        <span style="font-size:0.84rem;font-weight:700;">${Utils.sanitize(user.name.split(' ')[0])}</span>
-      </button>
+      <!-- Nube de Subida fija a la izquierda de la Píldora de Perfil -->
+      <div style="display:inline-flex;align-items:center;gap:0.55rem;flex-shrink:0;">
+        <span id="ruma-drive-upload-anchor" style="display:inline-flex;align-items:center;">
+          ${getDriveUploadPillHtml(store.getDriveUploadState())}
+        </span>
+        <button type="button" class="ruma-user-pill" id="nav-user-pill" title="Abrir mi Perfil">
+          <div class="avatar-wrap ${Utils.sanitize(user.frameId || 'frame-axolotl')}" style="width:30px;height:30px;">
+            <img src="${Utils.sanitize(avatarSrc)}" alt="Avatar" class="avatar-img">
+          </div>
+          <span style="font-size:0.84rem;font-weight:700;">${Utils.sanitize(user.name.split(' ')[0])}</span>
+        </button>
+      </div>
     </header>
 
     <main class="ruma-container" id="ruma-view-root" style="padding-bottom:calc(6.5rem + env(safe-area-inset-bottom, 0px));"></main>
@@ -358,16 +382,7 @@ CloudSync.onStatusChange((status) => {
 });
 
 store.onDriveUploadChange((state) => {
-  const existing = document.getElementById('ruma-drive-upload-pill');
-  if (!existing) return;
-  const isFloating = existing.getAttribute('data-drive-pill-floating') === '1';
-  const tmp = document.createElement('div');
-  tmp.innerHTML = getDriveUploadPillHtml(state, isFloating).trim();
-  const nextEl = tmp.firstElementChild;
-  if (nextEl) {
-    existing.replaceWith(nextEl);
-    bindDriveUploadPill();
-  }
+  syncDriveUploadPillDom(state);
 });
 
 store.subscribe(renderApp);

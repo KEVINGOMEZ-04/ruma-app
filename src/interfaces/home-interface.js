@@ -71,7 +71,8 @@ export function renderHomeInterface(container) {
             </span>
           </div>
 
-          <div class="ruma-home-account-wrap" id="home-account-wrap">
+          <div class="ruma-home-account-wrap" id="home-account-wrap" style="display:inline-flex;align-items:center;gap:0.55rem;">
+            <span id="ruma-drive-upload-anchor" style="display:inline-flex;align-items:center;"></span>
             <button type="button" class="ruma-home-account-pill" id="btn-home-account-pill" title="Abrir mi Perfil">
               <img src="${Utils.sanitize(avatarSrc)}" alt="${Utils.sanitize(firstName)}" class="ruma-home-avatar">
               <div class="ruma-home-account-meta">

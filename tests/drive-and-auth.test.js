@@ -484,4 +484,48 @@ describe('Google OAuth minimal scopes, Ruma 🌷 root folder & Drive HD streamin
     expect(checkpoints.length).toBeGreaterThanOrEqual(2);
     expect(checkpoints[checkpoints.length - 1].files[1].driveFileId).toBe('file_2_drive_id');
   });
+
+  it('triggers system notifications for incoming remote chat messages and memories via AppNativeService', async () => {
+    const { AppNativeService } = await import('../src/services/app-native.js');
+    AppNativeService._seenEventIds.clear();
+    AppNativeService.updatePreferences({
+      notificationsEnabled: true,
+      notifyChat: true,
+      notifyMemories: true,
+      notifyPlans: true
+    });
+
+    const notifSpy = vi.spyOn(AppNativeService, 'sendSystemNotification').mockResolvedValue(true);
+
+    const mockStore = {
+      currentInterface: 'hub',
+      currentGroupTab: 'home',
+      getCurrentUser: () => ({ id: 'u_me', name: 'Kevin' }),
+      getActiveGroup: () => ({ id: 'g1', name: 'Grupo Ruma' })
+    };
+
+    AppNativeService.inspectRemoteUpdatesForNotifications(mockStore, [
+      {
+        id: 'g1',
+        name: 'Grupo Ruma',
+        creatorId: 'u_me',
+        members: [{ id: 'u_me' }, { id: 'u_friend' }],
+        messages: [
+          { id: 'msg_new_1', authorId: 'u_friend', authorName: 'Ana', text: '¡Hola equipo!' }
+        ],
+        memories: [
+          { id: 'mem_new_1', authorId: 'u_friend', authorName: 'Ana', title: 'Salida a la playa' }
+        ],
+        plans: []
+      }
+    ]);
+
+    expect(notifSpy).toHaveBeenCalledTimes(2);
+    expect(notifSpy).toHaveBeenCalledWith(expect.objectContaining({
+      title: expect.stringContaining('Ana en Grupo Ruma')
+    }));
+    expect(notifSpy).toHaveBeenCalledWith(expect.objectContaining({
+      title: expect.stringContaining('Nuevo recuerdo en Grupo Ruma')
+    }));
+  });
 });

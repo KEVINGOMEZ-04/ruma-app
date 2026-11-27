@@ -11,6 +11,7 @@ import { DriveBridge } from '../services/drive-bridge.js';
 import { GoogleAuth } from '../services/google-auth.js';
 import { CloudSync } from '../services/cloud-sync.js';
 import { MediaStorage } from '../services/media-storage.js';
+import { AppNativeService } from '../services/app-native.js';
 import { PRELOADED_SERIES_EPISODES } from '../services/media-api.js';
 import {
   compactAvatar,
@@ -364,6 +365,11 @@ class RumaStore {
       this._writeGroupsState(mergedGroups);
       this._refreshSnapshots(null, mergedGroups);
       changed = true;
+      if (shouldNotify) {
+        try {
+          AppNativeService.inspectRemoteUpdatesForNotifications(this, mergedGroups);
+        } catch (_) {}
+      }
     }
 
     if (changed && shouldNotify) {
