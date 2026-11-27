@@ -1357,6 +1357,10 @@ class RumaStore {
     const combinedFiles = namedCoverFile ? [namedCoverFile, ...linkedFiles] : linkedFiles;
 
     const isCreator = Entitlements.isGroupCreator(group, user.id);
+    if (isCreator && !DriveBridge.isRealFolderConfigured(group.driveFolderUrl) && DriveBridge.isRealFolderConfigured(user.googleDriveFolderUrl)) {
+      group.driveFolderUrl = user.googleDriveFolderUrl;
+    }
+
     const record = await DriveBridge.syncMemoryToDrive(group, {
       id,
       title,
@@ -1365,7 +1369,12 @@ class RumaStore {
       voiceNote,
       authorId: user.id,
       authorName: user.name
-    }, combinedFiles, onProgress, { allowCreateRootFolder: isCreator, allowDriveUpload: isCreator, hasExplicitCover: Boolean(namedCoverFile) });
+    }, combinedFiles, onProgress, {
+      allowCreateRootFolder: isCreator,
+      allowDriveUpload: isCreator,
+      hasExplicitCover: Boolean(namedCoverFile),
+      userDriveFolderUrl: user.googleDriveFolderUrl || ''
+    });
 
     const newThumbnails = (record.files || []).map(f => f.thumbnail).filter(Boolean);
     const explicitCoverThumb = namedCoverFile
@@ -1442,6 +1451,10 @@ class RumaStore {
 
     if (isCreator && record.rootDriveFolderUrl) {
       group.driveFolderUrl = record.rootDriveFolderUrl;
+      this.updateCurrentUser({
+        googleDriveSynced: true,
+        googleDriveFolderUrl: record.rootDriveFolderUrl
+      });
     }
 
     this.saveGroups(allGroups);

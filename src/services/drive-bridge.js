@@ -225,19 +225,26 @@ export const DriveBridge = {
       });
     }
 
-    // 2. Subir a Google Drive si el creador del grupo tiene token activo de `drive.file`
-    // (No abrir popup tras `await` para evitar bloqueos de Safari iOS)
+    // 2. Subir a Google Drive si el usuario es el creador del grupo (propietario de la carpeta `Ruma 🌷`)
     let driveSubfolder = null;
     let rootDriveFolderUrl = '';
     let driveSyncStatus = 'local_only'; // 'synced' | 'local_only' | 'error'
     let driveSyncError = '';
 
-    const rawFolderUrl = group.driveFolderUrl || group.driveFolderId || '';
+    const rawFolderUrl = group.driveFolderUrl || group.driveFolderId || options.userDriveFolderUrl || '';
     const hasRealFolder = this.isRealFolderConfigured(rawFolderUrl);
     let parentFolderId = hasRealFolder ? this.extractFolderId(rawFolderUrl) : '';
 
     let token = allowDriveUpload ? GoogleAuth.getDriveAccessToken() : null;
     if (token && token.startsWith('demo_')) token = null;
+    if (!token && allowDriveUpload) {
+      try {
+        token = await this.ensureAccessToken(group, true);
+      } catch (authErr) {
+        driveSyncStatus = 'error';
+        driveSyncError = authErr?.message || 'No se pudo autorizar Google Drive.';
+      }
+    }
 
     if (allowDriveUpload && token && (parentFolderId || allowCreateRootFolder)) {
       try {
@@ -261,11 +268,13 @@ export const DriveBridge = {
           }
         }
 
-        // Si el grupo aún no tenía carpeta vinculada, solo el creador del grupo puede buscar/crear `Ruma 🌷`
+        // Si el grupo aún no tenía carpeta vinculada, buscar o crear `Ruma 🌷`
         if (!parentFolderId) {
           const rootFolder = await DriveResumableUploader.createRootGroupFolder(token);
           parentFolderId = rootFolder.id;
           rootDriveFolderUrl = rootFolder.webViewLink;
+        } else if (!group.driveFolderUrl && rawFolderUrl) {
+          rootDriveFolderUrl = this.getFolderWebUrl(rawFolderUrl);
         }
 
         driveSubfolder = await DriveResumableUploader.createSubfolder(token, parentFolderId, subfolderName);

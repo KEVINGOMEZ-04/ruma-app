@@ -62,24 +62,52 @@ export function openUploadMemoryModal(group, editingMemory = null, prefillDate =
   const isCreator = isCreatorParam !== undefined
     ? Boolean(isCreatorParam && Entitlements.isGroupCreator(group, user?.id))
     : Entitlements.isGroupCreator(group, user?.id);
+  const limits = Entitlements.getGroupLimits(group);
+  const maxLinkedFiles = limits.maxFilesPerMemoryUpload || 30;
   const nowLocal = new Date();
   const localToday = `${nowLocal.getFullYear()}-${String(nowLocal.getMonth() + 1).padStart(2, '0')}-${String(nowLocal.getDate()).padStart(2, '0')}`;
   const today = prefillDate || editingMemory?.date || localToday;
   const sampleFolder = Utils.buildDriveSubfolderName(editingMemory?.title || 'Mi Recuerdo', today);
   const googleSession = isCreator ? GoogleAuth.getSession() : null;
-  const hasDriveAccess = isCreator && GoogleAuth.hasDriveAccess();
-  const hasRealFolder = DriveBridge.isRealFolderConfigured(group?.driveFolderUrl);
+  let hasDriveAccess = isCreator && GoogleAuth.hasDriveAccess();
+  const effectiveFolderUrl = group?.driveFolderUrl || user?.googleDriveFolderUrl || '';
+  const hasRealFolder = DriveBridge.isRealFolderConfigured(effectiveFolderUrl);
   let selectedSong = editingMemory?.song || null;
   let recordedVoiceDataUrl = editingMemory?.voiceNote || null;
+  let selectedCoverFile = null;
+  let coverPreviewObjectUrl = '';
+  let selectedLinkedFiles = [];
+  let linkedPreviewObjectUrls = [];
   let mediaRecorder = null;
   let activeVoiceStream = null;
   let audioChunks = [];
   let isRecording = false;
+
+  const revokePreviewUrls = () => {
+    if (coverPreviewObjectUrl) {
+      try { URL.revokeObjectURL(coverPreviewObjectUrl); } catch (_) {}
+      coverPreviewObjectUrl = '';
+    }
+    linkedPreviewObjectUrls.forEach(u => {
+      try { URL.revokeObjectURL(u); } catch (_) {}
+    });
+    linkedPreviewObjectUrls = [];
+  };
+
   const stopVoiceCapture = () => {
     isRecording = false;
     try { if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop(); } catch (_) {}
     try { activeVoiceStream?.getTracks().forEach(t => t.stop()); } catch (_) {}
     activeVoiceStream = null;
+    revokePreviewUrls();
+  };
+
+  const formatBytes = (bytes = 0) => {
+    const n = Number(bytes) || 0;
+    if (n >= 1024 * 1024 * 1024) return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+    if (n >= 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+    if (n >= 1024) return `${Math.round(n / 1024)} KB`;
+    return `${n} B`;
   };
 
   const auraColors = [
@@ -135,7 +163,7 @@ export function openUploadMemoryModal(group, editingMemory = null, prefillDate =
               ${hasDriveAccess
                 ? `🟢 Google Drive sincronizado (${Utils.sanitize(googleSession?.email || googleSession?.name || 'Drive')}) · Subirá a tu carpeta Ruma 🌷`
                 : (isCreator
-                    ? '⚠️ Ve a ⚙️ Ajustes para sincronizar tu cuenta con Google y activar tu carpeta Ruma 🌷.'
+                    ? '⚠️ Tu sesión de Google Drive expiró o no está activa. Al pulsar Guardar se conectará con Google o puedes ir a ⚙️ Ajustes.'
                     : (hasRealFolder
                         ? '👑 Carpeta Ruma 🌷 activa del creador del grupo. Tu recuerdo quedará guardado en el grupo.'
                         : '👑 Solo el creador del grupo activa la carpeta Ruma 🌷 desde sus Ajustes.'))}
@@ -143,26 +171,43 @@ export function openUploadMemoryModal(group, editingMemory = null, prefillDate =
           </div>
           ${isCreator && !hasDriveAccess ? `
             <button type="button" class="btn btn-secondary btn-sm" id="btn-mem-modal-config-drive">
-              ⚙️ Ir a Ajustes
+              ⚙️ Ajustes
             </button>
           ` : ''}
         </div>
 
+        <!-- Capacidad y límites de carga -->
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;padding:0.6rem 0.85rem;border-radius:var(--radius-sm);background:rgba(168,85,247,0.1);border:1px solid var(--border-subtle);margin-bottom:0.85rem;font-size:0.77rem;">
+          <span>📦 <strong>Capacidad de carga:</strong> 1 Portada + hasta <strong>${maxLinkedFiles} fotos/videos enlazados</strong> por recuerdo</span>
+          <span style="color:var(--brand-lilac-soft);font-weight:700;" id="mem-upload-limit-counter">0 / ${maxLinkedFiles} enlazados · Sin límite de MB/GB en Drive</span>
+        </div>
+
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.85rem;">
+          <!-- Opción 1: Portada del Recuerdo + Previsualización -->
           <div class="form-group">
             <label class="form-label">🖼️ 1. Portada del Recuerdo</label>
             <input type="file" id="mem-cover-file" class="form-input" accept="image/*,.heic,.heif">
             <small id="mem-cover-file-hint" style="display:block;font-size:0.74rem;color:var(--text-muted);margin-top:0.25rem;">
-              ${editingMemory?.coverPreview ? '✅ Portada actual guardada (sube otra si deseas cambiarla)' : 'Imagen principal que representará este recuerdo en la tarjeta y portada.'}
+              ${editingMemory?.coverPreview ? '✅ Portada actual guardada (sube otra si deseas cambiarla)' : 'Imagen principal que representará este recuerdo.'}
             </small>
+            <div id="mem-cover-preview-box" style="margin-top:0.55rem;${editingMemory?.coverPreview ? '' : 'display:none;'}">
+              ${editingMemory?.coverPreview ? `
+                <div style="position:relative;width:100%;height:125px;border-radius:var(--radius-sm);overflow:hidden;border:1px solid var(--border-strong);background:#090414;">
+                  <img src="${Utils.sanitize(Utils.safeUrl(editingMemory.coverPreview, 'assets/ruma_icon_512.png'))}" alt="Portada" style="width:100%;height:100%;object-fit:cover;">
+                  <span class="badge badge-premium" style="position:absolute;bottom:6px;left:6px;font-size:0.68rem;">🖼️ Portada actual</span>
+                </div>
+              ` : ''}
+            </div>
           </div>
 
+          <!-- Opción 2: Fotos y Videos enlazados + Previsualización -->
           <div class="form-group">
             <label class="form-label">📸 2. Fotos y Videos enlazados al Recuerdo</label>
             <input type="file" id="mem-files" class="form-input" accept="image/*,video/*,.heic,.heif,.mov,.m4v,.mp4" multiple>
             <small id="mem-linked-files-hint" style="display:block;font-size:0.74rem;color:var(--text-muted);margin-top:0.25rem;">
-              Álbum completo de fotos y videos del momento (se guardan en la subcarpeta de <strong>Ruma 🌷</strong>).
+              Puedes elegir varios archivos a la vez o ir agregando más (máx. ${maxLinkedFiles}).
             </small>
+            <div id="mem-linked-preview-grid" style="display:none;grid-template-columns:repeat(auto-fill,minmax(74px,1fr));gap:0.45rem;margin-top:0.55rem;max-height:175px;overflow-y:auto;padding:0.35rem;background:var(--bg-elevated);border-radius:var(--radius-sm);border:1px solid var(--border-subtle);"></div>
           </div>
         </div>
 
@@ -210,7 +255,7 @@ export function openUploadMemoryModal(group, editingMemory = null, prefillDate =
 
         <div style="display:flex;justify-content:flex-end;gap:0.65rem;margin-top:1.25rem;">
           <button type="button" class="btn btn-secondary" id="btn-cancel-mem">Cancelar</button>
-          <button type="submit" class="btn btn-primary" id="btn-submit-mem">${editingMemory ? 'Guardar Cambios' : (hasDriveAccess ? '☁️ Subir a Google Drive y Guardar' : '💾 Guardar Recuerdo')}</button>
+          <button type="submit" class="btn btn-primary" id="btn-submit-mem">${editingMemory ? 'Guardar Cambios' : (isCreator ? '☁️ Subir a Google Drive y Guardar' : '💾 Guardar Recuerdo')}</button>
         </div>
       </form>
     `,
@@ -336,95 +381,240 @@ export function openUploadMemoryModal(group, editingMemory = null, prefillDate =
       const linkedFilesInp = document.getElementById('mem-files');
       const coverHintEl = document.getElementById('mem-cover-file-hint');
       const linkedHintEl = document.getElementById('mem-linked-files-hint');
+      const coverPreviewBox = document.getElementById('mem-cover-preview-box');
+      const linkedPreviewGrid = document.getElementById('mem-linked-preview-grid');
+      const limitCounterEl = document.getElementById('mem-upload-limit-counter');
+
+      const updateLimitCounter = () => {
+        if (!limitCounterEl) return;
+        const totalLinkedBytes = selectedLinkedFiles.reduce((acc, f) => acc + (f.size || 0), 0) + (selectedCoverFile?.size || 0);
+        limitCounterEl.textContent = `${selectedLinkedFiles.length} / ${maxLinkedFiles} enlazados · ${formatBytes(totalLinkedBytes)} totales`;
+      };
+
+      const renderCoverPreview = () => {
+        if (!coverPreviewBox) return;
+        if (coverPreviewObjectUrl) {
+          try { URL.revokeObjectURL(coverPreviewObjectUrl); } catch (_) {}
+          coverPreviewObjectUrl = '';
+        }
+        if (!selectedCoverFile) {
+          if (editingMemory?.coverPreview) {
+            coverPreviewBox.style.display = 'block';
+            coverPreviewBox.innerHTML = `
+              <div style="position:relative;width:100%;height:125px;border-radius:var(--radius-sm);overflow:hidden;border:1px solid var(--border-strong);background:#090414;">
+                <img src="${Utils.sanitize(Utils.safeUrl(editingMemory.coverPreview, 'assets/ruma_icon_512.png'))}" alt="Portada" style="width:100%;height:100%;object-fit:cover;">
+                <span class="badge badge-premium" style="position:absolute;bottom:6px;left:6px;font-size:0.68rem;">🖼️ Portada actual</span>
+              </div>`;
+          } else {
+            coverPreviewBox.style.display = 'none';
+            coverPreviewBox.innerHTML = '';
+          }
+          return;
+        }
+        coverPreviewObjectUrl = URL.createObjectURL(selectedCoverFile);
+        coverPreviewBox.style.display = 'block';
+        coverPreviewBox.innerHTML = `
+          <div style="position:relative;width:100%;height:125px;border-radius:var(--radius-sm);overflow:hidden;border:2px solid var(--brand-lilac);background:#090414;">
+            <img src="${Utils.sanitize(coverPreviewObjectUrl)}" alt="Portada" style="width:100%;height:100%;object-fit:cover;">
+            <span class="badge badge-premium" style="position:absolute;bottom:6px;left:6px;font-size:0.68rem;">🖼️ Portada · ${Utils.sanitize(formatBytes(selectedCoverFile.size))}</span>
+            <button type="button" id="btn-remove-cover-preview" aria-label="Quitar portada" style="position:absolute;top:6px;right:6px;width:24px;height:24px;border-radius:50%;border:none;background:rgba(0,0,0,0.72);color:#fff;font-size:0.78rem;cursor:pointer;">✕</button>
+          </div>
+        `;
+        document.getElementById('btn-remove-cover-preview')?.addEventListener('click', () => {
+          selectedCoverFile = null;
+          if (coverFileInp) coverFileInp.value = '';
+          if (coverHintEl) {
+            coverHintEl.style.color = 'var(--text-muted)';
+            coverHintEl.textContent = 'Imagen principal que representará este recuerdo.';
+          }
+          renderCoverPreview();
+          updateLimitCounter();
+        });
+      };
+
+      const renderLinkedPreviews = () => {
+        if (!linkedPreviewGrid) return;
+        linkedPreviewObjectUrls.forEach(u => {
+          try { URL.revokeObjectURL(u); } catch (_) {}
+        });
+        linkedPreviewObjectUrls = [];
+
+        if (selectedLinkedFiles.length === 0) {
+          linkedPreviewGrid.style.display = 'none';
+          linkedPreviewGrid.innerHTML = '';
+          if (linkedHintEl) {
+            linkedHintEl.style.color = 'var(--text-muted)';
+            linkedHintEl.textContent = `Puedes elegir varios archivos a la vez o ir agregando más (máx. ${maxLinkedFiles}).`;
+          }
+          updateLimitCounter();
+          return;
+        }
+
+        if (linkedHintEl) {
+          linkedHintEl.style.color = '#34D399';
+          linkedHintEl.textContent = `✅ ${selectedLinkedFiles.length} ${selectedLinkedFiles.length === 1 ? 'archivo enlazado listo' : 'archivos enlazados listos'} para subir`;
+        }
+
+        linkedPreviewGrid.style.display = 'grid';
+        linkedPreviewGrid.innerHTML = selectedLinkedFiles.map((file, idx) => {
+          const objUrl = URL.createObjectURL(file);
+          linkedPreviewObjectUrls.push(objUrl);
+          const isVid = Boolean((file.type && file.type.startsWith('video/')) || /\.(mp4|mov|m4v|webm)$/i.test(file.name || ''));
+          return `
+            <div style="position:relative;height:74px;border-radius:var(--radius-xs);overflow:hidden;border:1px solid var(--border-subtle);background:#090414;" title="${Utils.sanitize(file.name)} (${Utils.sanitize(formatBytes(file.size))})">
+              ${isVid
+                ? `<video src="${Utils.sanitize(objUrl)}#t=0.001" muted playsinline webkit-playsinline preload="metadata" style="width:100%;height:100%;object-fit:cover;"></video><span class="badge badge-admin" style="position:absolute;bottom:3px;left:3px;font-size:0.62rem;padding:1px 4px;">🎬 ${Utils.sanitize(formatBytes(file.size))}</span>`
+                : `<img src="${Utils.sanitize(objUrl)}" alt="" style="width:100%;height:100%;object-fit:cover;"><span class="badge badge-free" style="position:absolute;bottom:3px;left:3px;font-size:0.62rem;padding:1px 4px;">${Utils.sanitize(formatBytes(file.size))}</span>`
+              }
+              <button type="button" data-remove-linked-idx="${idx}" aria-label="Quitar archivo" style="position:absolute;top:3px;right:3px;width:20px;height:20px;border-radius:50%;border:none;background:rgba(0,0,0,0.75);color:#fff;font-size:0.7rem;cursor:pointer;line-height:1;">✕</button>
+            </div>
+          `;
+        }).join('');
+
+        linkedPreviewGrid.querySelectorAll('[data-remove-linked-idx]').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const rmIdx = Number(btn.getAttribute('data-remove-linked-idx'));
+            if (Number.isInteger(rmIdx) && rmIdx >= 0 && rmIdx < selectedLinkedFiles.length) {
+              selectedLinkedFiles.splice(rmIdx, 1);
+              if (linkedFilesInp) linkedFilesInp.value = '';
+              renderLinkedPreviews();
+            }
+          });
+        });
+
+        updateLimitCounter();
+      };
 
       coverFileInp?.addEventListener('change', () => {
-        const f = coverFileInp.files?.[0];
-        if (!coverHintEl) return;
-        coverHintEl.style.color = f ? '#34D399' : 'var(--text-muted)';
-        coverHintEl.textContent = f
-          ? `✅ Portada seleccionada: ${f.name}`
-          : 'Imagen principal que representará este recuerdo en la tarjeta y portada.';
+        const f = coverFileInp.files?.[0] || null;
+        selectedCoverFile = f;
+        if (coverHintEl) {
+          coverHintEl.style.color = f ? '#34D399' : 'var(--text-muted)';
+          coverHintEl.textContent = f
+            ? `✅ Portada seleccionada: ${f.name} (${formatBytes(f.size)})`
+            : 'Imagen principal que representará este recuerdo.';
+        }
+        renderCoverPreview();
+        updateLimitCounter();
       });
 
       linkedFilesInp?.addEventListener('change', () => {
-        const list = Array.from(linkedFilesInp.files || []);
-        if (!linkedHintEl) return;
-        linkedHintEl.style.color = list.length ? '#34D399' : 'var(--text-muted)';
-        linkedHintEl.textContent = list.length
-          ? `✅ ${list.length} ${list.length === 1 ? 'archivo enlazado seleccionado' : 'archivos enlazados seleccionados'}`
-          : 'Álbum completo de fotos y videos del momento (se guardan en la subcarpeta de Ruma 🌷).';
+        const incoming = Array.from(linkedFilesInp.files || []);
+        if (!incoming.length) return;
+        const combined = [...selectedLinkedFiles];
+        incoming.forEach(f => {
+          const dup = combined.some(x => x.name === f.name && x.size === f.size && x.lastModified === f.lastModified);
+          if (!dup) combined.push(f);
+        });
+        if (combined.length > maxLinkedFiles) {
+          UI.showToast(`Se alcanzó el límite de ${maxLinkedFiles} archivos enlazados por carga.`, 'info');
+        }
+        selectedLinkedFiles = combined.slice(0, maxLinkedFiles);
+        renderLinkedPreviews();
       });
 
       document.getElementById('btn-cancel-mem')?.addEventListener('click', () => UI.closeModal());
-      document.getElementById('form-upload-memory')?.addEventListener('submit', async (e) => {
+      document.getElementById('form-upload-memory')?.addEventListener('submit', (e) => {
         e.preventDefault();
-        const coverFile = document.getElementById('mem-cover-file')?.files?.[0] || null;
-        const files = Array.from(document.getElementById('mem-files')?.files || []);
+        const coverFile = selectedCoverFile || document.getElementById('mem-cover-file')?.files?.[0] || null;
+        const files = selectedLinkedFiles.length > 0
+          ? [...selectedLinkedFiles]
+          : Array.from(document.getElementById('mem-files')?.files || []);
         const submitBtn = document.getElementById('btn-submit-mem');
         const progWrap = document.getElementById('mem-upload-progress-wrap');
         const progText = document.getElementById('mem-upload-progress-text');
         const progPct = document.getElementById('mem-upload-progress-pct');
         const progBar = document.getElementById('mem-upload-progress-bar');
 
-        if (submitBtn) {
-          submitBtn.disabled = true;
-          submitBtn.textContent = '⏳ Procesando y subiendo...';
-        }
-        if (progWrap) progWrap.style.display = 'block';
+        const runUploadFlow = async () => {
+          if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.textContent = '⏳ Procesando y subiendo...';
+          }
+          if (progWrap) progWrap.style.display = 'block';
 
-        const res = await store.addMemoryToActiveGroup({
-          id: editingMemory?.id,
-          title: titleInp?.value || 'Recuerdo',
-          date: dateInp?.value || today,
-          location: document.getElementById('mem-location')?.value || '',
-          description: document.getElementById('mem-desc')?.value || '',
-          auraColor: selectedAura,
-          isFeatured: document.getElementById('mem-featured')?.checked,
-          song: selectedSong,
-          voiceNote: recordedVoiceDataUrl,
-          coverFile,
-          files,
-          existingPhotos: editingMemory?.photos || (editingMemory?.coverPreview ? [editingMemory.coverPreview] : []),
-          onProgress: (p) => {
-            if (!progWrap) return;
-            const pct = Math.min(100, Math.max(5, Number(p.percent) || 15));
-            if (progBar) progBar.style.width = `${pct}%`;
-            if (progPct) progPct.textContent = `${pct}%`;
-            if (progText) {
-              if (p.stage === 'drive_folder') {
-                progText.textContent = `📁 Creando subcarpeta "${p.fileName}" en Google Drive...`;
-              } else if (p.stage === 'drive_upload') {
-                progText.textContent = `☁️ Subiendo a Google Drive (${p.fileIndex}/${p.totalFiles}): ${p.fileName || ''}`;
-              } else {
-                progText.textContent = `💾 Guardando en caché (${p.fileIndex}/${p.totalFiles}): ${p.fileName || ''}`;
+          const res = await store.addMemoryToActiveGroup({
+            id: editingMemory?.id,
+            title: titleInp?.value || 'Recuerdo',
+            date: dateInp?.value || today,
+            location: document.getElementById('mem-location')?.value || '',
+            description: document.getElementById('mem-desc')?.value || '',
+            auraColor: selectedAura,
+            isFeatured: document.getElementById('mem-featured')?.checked,
+            song: selectedSong,
+            voiceNote: recordedVoiceDataUrl,
+            coverFile,
+            files,
+            existingPhotos: editingMemory?.photos || (editingMemory?.coverPreview ? [editingMemory.coverPreview] : []),
+            onProgress: (p) => {
+              if (!progWrap) return;
+              const pct = Math.min(100, Math.max(5, Number(p.percent) || 15));
+              if (progBar) progBar.style.width = `${pct}%`;
+              if (progPct) progPct.textContent = `${pct}%`;
+              if (progText) {
+                if (p.stage === 'drive_folder') {
+                  progText.textContent = `📁 Creando subcarpeta "${p.fileName}" en Ruma 🌷 (Google Drive)...`;
+                } else if (p.stage === 'drive_upload') {
+                  progText.textContent = `☁️ Subiendo a Google Drive (${p.fileIndex}/${p.totalFiles}): ${p.fileName || ''}`;
+                } else {
+                  progText.textContent = `💾 Procesando (${p.fileIndex}/${p.totalFiles}): ${p.fileName || ''}`;
+                }
               }
             }
-          }
-        });
+          });
 
-        if (!res.ok) {
-          UI.closeModal();
-          if (res.needsUpgrade) {
-            UI.showUpgradeModal(res.error, () => store.upgradeGroupToPremium(group.id));
-          } else {
-            UI.showToast(res.error, 'error');
+          if (!res.ok) {
+            UI.closeModal();
+            if (res.needsUpgrade) {
+              UI.showUpgradeModal(res.error, () => store.upgradeGroupToPremium(group.id));
+            } else {
+              UI.showToast(res.error, 'error');
+            }
+            return;
           }
+
+          UI.closeModal();
+          if (res.driveSyncStatus === 'synced') {
+            UI.showToast(`☁️ ¡Recuerdo "${res.memory.subfolderName}" subido a tu carpeta Ruma 🌷 en Google Drive!`, 'success');
+          } else if (res.driveSyncStatus === 'error') {
+            UI.showToast(`Guardado en dispositivo. No se subió a Drive: ${res.driveSyncError}`, 'error');
+          } else {
+            UI.showToast(
+              isCreator
+                ? '💾 Recuerdo guardado en el dispositivo. Pulsa "☁️ Subir a Drive" tras conectar tu cuenta de Google.'
+                : '💾 Recuerdo guardado en el grupo ✨',
+              'success'
+            );
+          }
+        };
+
+        // Si es el creador del grupo y aún no tiene un token OAuth activo de `drive.file`,
+        // pedirlo síncronamente en el mismo clic del botón Guardar antes de cualquier `await`
+        if (isCreator && !GoogleAuth.hasDriveAccess() && GoogleAuth.hasValidClientId(group)) {
+          if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.textContent = '⏳ Autorizando Google Drive...';
+          }
+          GoogleAuth.requestDriveAccess('', group)
+            .then((session) => {
+              hasDriveAccess = true;
+              store.updateCurrentUser({
+                googleDriveSynced: true,
+                googleEmail: session.email || user?.email || ''
+              });
+              return runUploadFlow();
+            })
+            .catch((err) => {
+              if (submitBtn) {
+                submitBtn.disabled = false;
+                submitBtn.textContent = editingMemory ? 'Guardar Cambios' : '☁️ Subir a Google Drive y Guardar';
+              }
+              UI.showToast(`No se pudo conectar Google Drive: ${err?.message || 'Autoriza tu cuenta de Google para subir a Ruma 🌷.'}`, 'error');
+            });
           return;
         }
 
-        UI.closeModal();
-        if (res.driveSyncStatus === 'synced') {
-          UI.showToast(`☁️ ¡Recuerdo "${res.memory.subfolderName}" subido a tu Google Drive!`, 'success');
-        } else if (res.driveSyncStatus === 'error') {
-          UI.showToast(`Guardado en dispositivo. No se subió a Drive: ${res.driveSyncError}`, 'error');
-        } else {
-          UI.showToast(
-            isCreator
-              ? '💾 Recuerdo guardado en el dispositivo. Pulsa "☁️ Subir a Drive" tras conectar tu cuenta de Google.'
-              : '💾 Recuerdo guardado en el grupo ✨',
-            'success'
-          );
-        }
+        runUploadFlow();
       });
     }
   });
