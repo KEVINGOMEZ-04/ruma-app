@@ -505,20 +505,32 @@ export function renderGroupMemoriesView(viewport, group, user, isAdmin, ctx) {
             UI.closeModal();
             onQuoteMemory(mem);
           });
-          document.getElementById('mm-drive')?.addEventListener('click', async () => {
-            UI.closeModal();
+          document.getElementById('mm-drive')?.addEventListener('click', () => {
             if (!isCreator) {
+              UI.closeModal();
               UI.showToast('Solo el creador del grupo (dueño de la carpeta en Google Drive) puede activar y sincronizar con Google Drive 👑', 'info');
               return;
             }
             if (!GoogleAuth.hasValidClientId(group)) {
+              UI.closeModal();
               openDriveConnectModal(group, true);
               UI.showToast('Conecta Google Drive para sincronizar el recuerdo 🔑', 'info');
               return;
             }
-            UI.showToast('Subiendo recuerdo a Google Drive...', 'info');
-            const res = await store.syncExistingMemoryToDrive(mem.id);
-            UI.showToast(res.ok ? '¡Subido a Google Drive! ☁️' : (res.error || 'No se pudo subir.'), res.ok ? 'success' : 'error');
+            const runSync = async () => {
+              UI.closeModal();
+              UI.showToast('Subiendo recuerdo a Google Drive...', 'info');
+              const res = await store.syncExistingMemoryToDrive(mem.id);
+              UI.showToast(res.ok ? '¡Subido a Google Drive! ☁️' : (res.error || 'No se pudo subir.'), res.ok ? 'success' : 'error');
+            };
+            if (!GoogleAuth.hasDriveAccess()) {
+              // Llamada síncrona dentro del clic para abrir el popup en iPhone / Safari iOS sin bloqueo
+              GoogleAuth.requestDriveAccess('', group)
+                .then(() => runSync())
+                .catch((err) => UI.showToast(err?.message || 'No se pudo conectar Google Drive.', 'error'));
+              return;
+            }
+            runSync();
           });
           document.getElementById('mm-del')?.addEventListener('click', () => {
             const res = store.deleteMemoryFromActiveGroup(mem.id);

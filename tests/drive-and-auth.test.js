@@ -333,4 +333,53 @@ describe('Google OAuth minimal scopes, Ruma 🌷 root folder & Drive HD streamin
     expect(nonCreatorHtml).not.toContain('btn-drive-save-all');
     expect(nonCreatorHtml).not.toContain('btn-drive-google-login');
   });
+
+  it('auto-heals an inaccessible manual driveFolderUrl to Ruma 🌷 and saves Historia_del_Recuerdo.txt when the group creator uploads a memory', async () => {
+    const { DriveBridge } = await import('../src/services/drive-bridge.js');
+
+    localStorage.setItem(CONFIG.storageKeys.driveAuthSession, JSON.stringify({
+      accessToken: 'tok_creator_drive',
+      email: 'creator@example.com',
+      hasDriveScope: true,
+      expiresAt: Date.now() + 60_000
+    }));
+
+    vi.spyOn(DriveResumableUploader, 'verifyFolderAccess').mockRejectedValueOnce(new Error('Permiso denegado 404'));
+    const rootSpy = vi.spyOn(DriveResumableUploader, 'createRootGroupFolder').mockResolvedValueOnce({
+      id: 'ruma_root_auto_1',
+      name: 'Ruma 🌷',
+      webViewLink: 'https://drive.google.com/drive/folders/ruma_root_auto_1'
+    });
+    const subSpy = vi.spyOn(DriveResumableUploader, 'createSubfolder').mockResolvedValueOnce({
+      id: 'sub_mem_1',
+      name: 'Cena - Jueves 26 de noviembre de 2026',
+      webViewLink: 'https://drive.google.com/drive/folders/sub_mem_1'
+    });
+    const multiSpy = vi.spyOn(DriveResumableUploader, 'uploadMultipartFile').mockResolvedValue({
+      id: 'txt_1',
+      name: 'Historia_del_Recuerdo.txt',
+      webViewLink: 'https://drive.google.com/file/d/txt_1/view'
+    });
+
+    const groupWithOldUrl = {
+      id: 'g_creator',
+      name: 'Grupo',
+      creatorId: 'u_creator',
+      driveFolderUrl: 'https://drive.google.com/drive/folders/external_unaccessible_folder'
+    };
+
+    const res = await DriveBridge.syncMemory(
+      groupWithOldUrl,
+      { title: 'Cena', date: '2026-11-26', description: 'Noche especial', authorId: 'u_creator', authorName: 'Kevin' },
+      [],
+      null,
+      { allowCreateRootFolder: true, allowDriveUpload: true }
+    );
+
+    expect(rootSpy).toHaveBeenCalledWith('tok_creator_drive');
+    expect(subSpy).toHaveBeenCalledWith('tok_creator_drive', 'ruma_root_auto_1', expect.stringContaining('Cena'));
+    expect(multiSpy).toHaveBeenCalled();
+    expect(res.driveSyncStatus).toBe('synced');
+    expect(res.rootDriveFolderUrl).toBe('https://drive.google.com/drive/folders/ruma_root_auto_1');
+  });
 });

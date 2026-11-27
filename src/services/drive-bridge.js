@@ -249,6 +249,18 @@ export const DriveBridge = {
           });
         }
 
+        // Si había una carpeta configurada pero fue borrada o no fue creada por esta app (`drive.file`),
+        // verificarla primero y, si el creador tiene permiso, re-vincular automáticamente con `Ruma 🌷`
+        if (parentFolderId) {
+          try {
+            await DriveResumableUploader.verifyFolderAccess(token, parentFolderId);
+          } catch (_) {
+            if (allowCreateRootFolder) {
+              parentFolderId = '';
+            }
+          }
+        }
+
         // Si el grupo aún no tenía carpeta vinculada, solo el creador del grupo puede buscar/crear `Ruma 🌷`
         if (!parentFolderId) {
           const rootFolder = await DriveResumableUploader.createRootGroupFolder(token);
@@ -289,8 +301,25 @@ export const DriveBridge = {
             const mime = voiceBlob.type || 'audio/mp4';
             const ext = mime.includes('mp4') || mime.includes('aac') ? 'm4a' : (mime.includes('ogg') ? 'ogg' : 'webm');
             const voiceFile = new File([voiceBlob], `Nota_de_Voz.${ext}`, { type: mime });
-            await DriveResumableUploader.uploadMultipartFile(token, driveSubfolder.id, voiceFile).catch(() => {});
+            const voiceUp = await DriveResumableUploader.uploadMultipartFile(token, driveSubfolder.id, voiceFile).catch(() => null);
+            if (voiceUp?.id) {
+              memoryPayload.driveVoiceFileId = voiceUp.id;
+            }
           }
+        }
+
+        // Guardar siempre una ficha de texto con la historia, fecha y ubicación dentro de la subcarpeta del recuerdo
+        if (memoryPayload.description || memoryPayload.title) {
+          const summaryLines = [
+            `Recuerdo: ${memoryPayload.title || 'Recuerdo'}`,
+            `Fecha: ${Utils.formatFullSpanishDate(memoryPayload.date)} (${memoryPayload.date || ''})`,
+            memoryPayload.authorName ? `Autor: ${memoryPayload.authorName}` : '',
+            '',
+            memoryPayload.description || ''
+          ].filter((l, idx) => idx >= 3 || Boolean(l)).join('\n');
+          const noteBlob = new Blob([summaryLines], { type: 'text/plain;charset=utf-8' });
+          const noteFile = new File([noteBlob], 'Historia_del_Recuerdo.txt', { type: 'text/plain;charset=utf-8' });
+          await DriveResumableUploader.uploadMultipartFile(token, driveSubfolder.id, noteFile).catch(() => {});
         }
 
         driveSyncStatus = 'synced';
@@ -316,6 +345,7 @@ export const DriveBridge = {
       rootDriveFolderUrl,
       driveSubfolderId: driveSubfolder?.id || '',
       driveSubfolderUrl: driveSubfolder?.webViewLink || '',
+      driveVoiceFileId: memoryPayload.driveVoiceFileId || '',
       driveSyncStatus,
       driveSyncError,
       coverThumbnail,
@@ -369,15 +399,23 @@ export const DriveBridge = {
       }
     }
     if (!driveSubfolder) {
-      if (!parentFolderId) {
+      if (parentFolderId) {
+        try {
+          driveSubfolder = await DriveResumableUploader.createSubfolder(token, parentFolderId, subfolderName);
+        } catch (subErr) {
+          if (!allowCreateRootFolder) throw subErr;
+          parentFolderId = '';
+        }
+      }
+      if (!driveSubfolder) {
         if (!allowCreateRootFolder) {
           throw new Error('Solo el creador del grupo (dueño de la carpeta en Google Drive) puede activar o crear la carpeta Ruma 🌷.');
         }
         const rootFolder = await DriveResumableUploader.createRootGroupFolder(token);
         parentFolderId = rootFolder.id;
         rootDriveFolderUrl = rootFolder.webViewLink;
+        driveSubfolder = await DriveResumableUploader.createSubfolder(token, parentFolderId, subfolderName);
       }
-      driveSubfolder = await DriveResumableUploader.createSubfolder(token, parentFolderId, subfolderName);
     }
 
     const updatedFiles = [...(memory.files || [])];

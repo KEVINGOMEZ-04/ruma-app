@@ -1394,7 +1394,7 @@ class RumaStore {
       this.logActivity(group, user, 'memory', `${memoryData.filesCount} ${memoryData.filesCount === 1 ? 'archivo' : 'archivos'} · ${memoryData.title}`);
     }
 
-    if (isCreator && record.rootDriveFolderUrl && !DriveBridge.isRealFolderConfigured(group.driveFolderUrl)) {
+    if (isCreator && record.rootDriveFolderUrl) {
       group.driveFolderUrl = record.rootDriveFolderUrl;
     }
 
@@ -1428,7 +1428,7 @@ class RumaStore {
 
     try {
       const synced = await DriveBridge.syncExistingMemoryToDrive(group, mem, onProgress, { allowCreateRootFolder: isCreator });
-      if (isCreator && synced.rootDriveFolderUrl && !DriveBridge.isRealFolderConfigured(group.driveFolderUrl)) {
+      if (isCreator && synced.rootDriveFolderUrl) {
         group.driveFolderUrl = synced.rootDriveFolderUrl;
       }
       const { rootDriveFolderUrl: _rootUrl, ...memPatch } = synced;

@@ -141,21 +141,21 @@ export function bindDriveConnectionPanelEvents(rootEl, group, isAdmin = undefine
     feedbackEl.textContent = msg;
   };
 
-  const persistInputs = () => {
-    const cid = clientIdInput?.value.trim() || '';
-    const folderUrl = folderUrlInput?.value.trim() || '';
+  const persistInputs = ({ includeFolderUrl = false } = {}) => {
+    const cid = clientIdInput?.value.trim() || GoogleAuth.getClientId(group) || '';
+    const folderUrl = folderUrlInput ? folderUrlInput.value.trim() : (group?.driveFolderUrl || '');
     GoogleAuth.setClientId(cid);
     if (group) {
       const patch = { driveClientId: cid };
-      if (folderUrl) patch.driveFolderUrl = folderUrl;
+      if (includeFolderUrl) patch.driveFolderUrl = folderUrl;
       store.updateGroupSettings(group.id, patch);
     }
     return { cid, folderUrl };
   };
 
-  rootEl.querySelector('#btn-drive-google-login')?.addEventListener('click', async (e) => {
+  rootEl.querySelector('#btn-drive-google-login')?.addEventListener('click', (e) => {
     const btn = e.currentTarget;
-    const { cid } = persistInputs();
+    const { cid } = persistInputs({ includeFolderUrl: false });
     if (!cid || !cid.includes('.apps.googleusercontent.com')) {
       showFeedback('⚠️ La conexión con Google Drive no tiene un Client ID OAuth configurado en esta instalación.', true);
       return;
@@ -164,16 +164,19 @@ export function bindDriveConnectionPanelEvents(rootEl, group, isAdmin = undefine
     btn.disabled = true;
     const prevText = btn.textContent;
     btn.textContent = '⏳ Abriendo Google...';
-    try {
-      const session = await GoogleAuth.requestDriveAccess(cid, group);
-      UI.showToast(`¡Conectado con Google como ${session.name || session.email}! 🎉`, 'success');
-      if (typeof onUpdated === 'function') onUpdated();
-    } catch (err) {
-      showFeedback(`❌ No se pudo iniciar sesión con Google: ${err.message}`, true);
-    } finally {
-      btn.disabled = false;
-      btn.textContent = prevText;
-    }
+    // Llamada síncrona sin await previo para preservar el gesto táctil en iPhone / Safari iOS
+    GoogleAuth.requestDriveAccess(cid, group)
+      .then((session) => {
+        UI.showToast(`¡Conectado con Google como ${session.name || session.email}! 🎉`, 'success');
+        if (typeof onUpdated === 'function') onUpdated();
+      })
+      .catch((err) => {
+        showFeedback(`❌ No se pudo iniciar sesión con Google: ${err.message}`, true);
+      })
+      .finally(() => {
+        btn.disabled = false;
+        btn.textContent = prevText;
+      });
   });
 
   rootEl.querySelector('#btn-drive-google-logout')?.addEventListener('click', () => {
@@ -184,7 +187,7 @@ export function bindDriveConnectionPanelEvents(rootEl, group, isAdmin = undefine
 
   rootEl.querySelector('#btn-drive-create-auto-folder')?.addEventListener('click', async (e) => {
     const btn = e.currentTarget;
-    const { cid } = persistInputs();
+    const { cid } = persistInputs({ includeFolderUrl: false });
     if (!cid || !cid.includes('.apps.googleusercontent.com')) {
       showFeedback('⚠️ La conexión con Google Drive no tiene un Client ID OAuth configurado en esta instalación.', true);
       return;
@@ -212,7 +215,7 @@ export function bindDriveConnectionPanelEvents(rootEl, group, isAdmin = undefine
 
   rootEl.querySelector('#btn-drive-test-connection')?.addEventListener('click', async (e) => {
     const btn = e.currentTarget;
-    const { cid, folderUrl } = persistInputs();
+    const { cid, folderUrl } = persistInputs({ includeFolderUrl: true });
     if (!cid || !cid.includes('.apps.googleusercontent.com')) {
       showFeedback('⚠️ La conexión con Google Drive no tiene un Client ID OAuth configurado en esta instalación.', true);
       return;
@@ -238,7 +241,7 @@ export function bindDriveConnectionPanelEvents(rootEl, group, isAdmin = undefine
   });
 
   rootEl.querySelector('#btn-drive-save-all')?.addEventListener('click', () => {
-    const { cid, folderUrl } = persistInputs();
+    const { cid, folderUrl } = persistInputs({ includeFolderUrl: true });
     if (group) {
       const res = store.updateGroupSettings(group.id, {
         driveClientId: cid,
