@@ -148,9 +148,22 @@ export function openUploadMemoryModal(group, editingMemory = null, prefillDate =
           ` : ''}
         </div>
 
-        <div class="form-group">
-          <label class="form-label">Fotos o Videos del Álbum (Sin límite de peso en MB/GB)</label>
-          <input type="file" id="mem-files" class="form-input" accept="image/*,video/*,.heic,.heif,.mov,.m4v,.mp4" multiple>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.85rem;">
+          <div class="form-group">
+            <label class="form-label">🖼️ 1. Portada del Recuerdo</label>
+            <input type="file" id="mem-cover-file" class="form-input" accept="image/*,.heic,.heif">
+            <small id="mem-cover-file-hint" style="display:block;font-size:0.74rem;color:var(--text-muted);margin-top:0.25rem;">
+              ${editingMemory?.coverPreview ? '✅ Portada actual guardada (sube otra si deseas cambiarla)' : 'Imagen principal que representará este recuerdo en la tarjeta y portada.'}
+            </small>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">📸 2. Fotos y Videos enlazados al Recuerdo</label>
+            <input type="file" id="mem-files" class="form-input" accept="image/*,video/*,.heic,.heif,.mov,.m4v,.mp4" multiple>
+            <small id="mem-linked-files-hint" style="display:block;font-size:0.74rem;color:var(--text-muted);margin-top:0.25rem;">
+              Álbum completo de fotos y videos del momento (se guardan en la subcarpeta de <strong>Ruma 🌷</strong>).
+            </small>
+          </div>
         </div>
 
         <div class="form-group">
@@ -319,9 +332,33 @@ export function openUploadMemoryModal(group, editingMemory = null, prefillDate =
         }
       });
 
+      const coverFileInp = document.getElementById('mem-cover-file');
+      const linkedFilesInp = document.getElementById('mem-files');
+      const coverHintEl = document.getElementById('mem-cover-file-hint');
+      const linkedHintEl = document.getElementById('mem-linked-files-hint');
+
+      coverFileInp?.addEventListener('change', () => {
+        const f = coverFileInp.files?.[0];
+        if (!coverHintEl) return;
+        coverHintEl.style.color = f ? '#34D399' : 'var(--text-muted)';
+        coverHintEl.textContent = f
+          ? `✅ Portada seleccionada: ${f.name}`
+          : 'Imagen principal que representará este recuerdo en la tarjeta y portada.';
+      });
+
+      linkedFilesInp?.addEventListener('change', () => {
+        const list = Array.from(linkedFilesInp.files || []);
+        if (!linkedHintEl) return;
+        linkedHintEl.style.color = list.length ? '#34D399' : 'var(--text-muted)';
+        linkedHintEl.textContent = list.length
+          ? `✅ ${list.length} ${list.length === 1 ? 'archivo enlazado seleccionado' : 'archivos enlazados seleccionados'}`
+          : 'Álbum completo de fotos y videos del momento (se guardan en la subcarpeta de Ruma 🌷).';
+      });
+
       document.getElementById('btn-cancel-mem')?.addEventListener('click', () => UI.closeModal());
       document.getElementById('form-upload-memory')?.addEventListener('submit', async (e) => {
         e.preventDefault();
+        const coverFile = document.getElementById('mem-cover-file')?.files?.[0] || null;
         const files = Array.from(document.getElementById('mem-files')?.files || []);
         const submitBtn = document.getElementById('btn-submit-mem');
         const progWrap = document.getElementById('mem-upload-progress-wrap');
@@ -345,6 +382,7 @@ export function openUploadMemoryModal(group, editingMemory = null, prefillDate =
           isFeatured: document.getElementById('mem-featured')?.checked,
           song: selectedSong,
           voiceNote: recordedVoiceDataUrl,
+          coverFile,
           files,
           existingPhotos: editingMemory?.photos || (editingMemory?.coverPreview ? [editingMemory.coverPreview] : []),
           onProgress: (p) => {

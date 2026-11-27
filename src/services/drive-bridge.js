@@ -349,12 +349,13 @@ export const DriveBridge = {
       driveSyncStatus,
       driveSyncError,
       coverThumbnail,
-      files: processedFiles.map(f => ({
+      files: processedFiles.map((f, idx) => ({
         id: f.id,
         name: f.name,
         type: f.type,
         size: f.size,
         isVideo: f.isVideo,
+        isCover: Boolean(f.originalFile?.isCoverFile || (options.hasExplicitCover && idx === 0)),
         thumbnail: f.thumbnail,
         driveFileId: f.driveFileId || '',
         driveViewLink: f.driveViewLink || ''

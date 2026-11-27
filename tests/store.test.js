@@ -304,6 +304,58 @@ describe('Store Freemium guards, Series/Movies states & permissions (AUD-05, AUD
     expect(allowed.ok).toBe(true);
     expect(allowed.group.driveFolderUrl).toBe('https://drive.google.com/drive/folders/ruma_from_settings');
   });
+
+  it('supports uploading a dedicated coverFile alongside linked album files in addMemoryToActiveGroup', async () => {
+    const { DriveBridge } = await import('../src/services/drive-bridge.js');
+    const user = { id: 'u1', name: 'Kevin', username: 'kevin', isPremium: true };
+    const group = {
+      id: 'g_cov',
+      name: 'Grupo Portada',
+      code: 'COV001',
+      plan: 'premium',
+      creatorId: 'u1',
+      members: [{ id: 'u1', name: 'Kevin', role: 'admin' }],
+      memories: []
+    };
+    seedSession(user, [group], 'g_cov');
+
+    const spy = vi.spyOn(DriveBridge, 'syncMemoryToDrive').mockImplementationOnce(async (_grp, payload, combinedFiles) => ({
+      id: 'mem_cov_1',
+      title: payload.title,
+      date: payload.date,
+      subfolderName: 'Viaje - Jueves 26 de noviembre de 2026',
+      driveSyncStatus: 'synced',
+      coverThumbnail: 'data:image/jpeg;base64,COVER_THUMB',
+      files: combinedFiles.map((f, idx) => ({
+        id: `f_${idx}`,
+        name: f.name,
+        type: f.type,
+        size: f.size,
+        isVideo: false,
+        isCover: Boolean(f.isCoverFile),
+        thumbnail: idx === 0 ? 'data:image/jpeg;base64,COVER_THUMB' : `data:image/jpeg;base64,LINKED_${idx}`
+      }))
+    }));
+
+    const coverFile = new File(['cover'], 'mi_portada.jpg', { type: 'image/jpeg' });
+    const linked1 = new File(['img1'], 'foto1.jpg', { type: 'image/jpeg' });
+    const linked2 = new File(['img2'], 'foto2.jpg', { type: 'image/jpeg' });
+
+    const res = await store.addMemoryToActiveGroup({
+      title: 'Viaje',
+      date: '2026-11-26',
+      coverFile,
+      files: [linked1, linked2]
+    });
+
+    expect(res.ok).toBe(true);
+    expect(spy).toHaveBeenCalled();
+    expect(res.memory.coverPreview).toBe('data:image/jpeg;base64,COVER_THUMB');
+    expect(res.memory.files.length).toBe(3);
+    expect(res.memory.files[0].name).toBe('Portada_del_Recuerdo.jpg');
+    expect(res.memory.files[0].isCover).toBe(true);
+    expect(res.memory.files.slice(1).map(f => f.name)).toEqual(['foto1.jpg', 'foto2.jpg']);
+  });
 });
 
 describe('iPhone / iOS Safari QuotaExceededError resilience & Base64 deduplication', () => {

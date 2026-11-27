@@ -1320,21 +1320,41 @@ class RumaStore {
   // ==========================================================================
   // 1. RECUERDOS (Puente Google Drive + Álbum / Nota de Voz / Canción / Calendario / Planes)
   // ==========================================================================
-  async addMemoryToActiveGroup({ id, title, date, location, description, auraColor, isFeatured, song, voiceNote, files, existingPhotos, onProgress = null }) {
+  async addMemoryToActiveGroup({ id, title, date, location, description, auraColor, isFeatured, song, voiceNote, coverFile = null, files = [], existingPhotos, onProgress = null }) {
     const user = this.getCurrentUser();
     const allGroups = this.getGroups();
     const active = this.getActiveGroup();
     const group = allGroups.find(g => g.id === active?.id);
     if (!group || !user) return { ok: false, error: 'Grupo no disponible.' };
 
+    const linkedFiles = Array.isArray(files) ? files : [];
     const limits = Entitlements.getGroupLimits(group);
-    if (files && files.length > limits.maxFilesPerMemoryUpload) {
+    if (linkedFiles.length > limits.maxFilesPerMemoryUpload) {
       return {
         ok: false,
         needsUpgrade: true,
-        error: `En el Plan Gratis puedes subir hasta ${limits.maxFilesPerMemoryUpload} archivos por carga (sin límite de peso).`
+        error: `En el Plan Gratis puedes subir hasta ${limits.maxFilesPerMemoryUpload} archivos enlazados por carga (sin límite de peso).`
       };
     }
+
+    // Si el usuario eligió una Portada del Recuerdo explícita, colocarla primero y etiquetarla como Portada
+    let namedCoverFile = null;
+    if (coverFile) {
+      const rawName = String(coverFile.name || 'Portada.jpg');
+      const extMatch = rawName.match(/\.([a-zA-Z0-9]+)$/);
+      const ext = extMatch ? extMatch[1] : 'jpg';
+      try {
+        namedCoverFile = new File([coverFile], `Portada_del_Recuerdo.${ext}`, {
+          type: coverFile.type || 'image/jpeg'
+        });
+        namedCoverFile.isCoverFile = true;
+      } catch (_) {
+        namedCoverFile = coverFile;
+        namedCoverFile.isCoverFile = true;
+      }
+    }
+
+    const combinedFiles = namedCoverFile ? [namedCoverFile, ...linkedFiles] : linkedFiles;
 
     const isCreator = Entitlements.isGroupCreator(group, user.id);
     const record = await DriveBridge.syncMemoryToDrive(group, {
@@ -1345,11 +1365,16 @@ class RumaStore {
       voiceNote,
       authorId: user.id,
       authorName: user.name
-    }, files || [], onProgress, { allowCreateRootFolder: isCreator, allowDriveUpload: isCreator });
+    }, combinedFiles, onProgress, { allowCreateRootFolder: isCreator, allowDriveUpload: isCreator, hasExplicitCover: Boolean(namedCoverFile) });
 
     const newThumbnails = (record.files || []).map(f => f.thumbnail).filter(Boolean);
-    const allPhotos = [...(existingPhotos || []), ...newThumbnails];
-    const coverPreview = allPhotos[0] || record.coverThumbnail || record.coverPreview || 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?auto=format&fit=crop&w=800&q=80';
+    const explicitCoverThumb = namedCoverFile
+      ? (record.files?.[0]?.thumbnail || record.coverThumbnail || '')
+      : '';
+    const allPhotos = explicitCoverThumb
+      ? [explicitCoverThumb, ...(existingPhotos || []).filter(p => p !== explicitCoverThumb), ...newThumbnails.slice(1)]
+      : [...(existingPhotos || []), ...newThumbnails];
+    const coverPreview = explicitCoverThumb || allPhotos[0] || record.coverThumbnail || record.coverPreview || 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?auto=format&fit=crop&w=800&q=80';
     const hasVideo = (record.files || []).some(f => f.isVideo);
 
     group.memories = group.memories || [];
@@ -1374,7 +1399,7 @@ class RumaStore {
       photos: allPhotos.length > 0 ? allPhotos : [coverPreview],
       files: record.files || [],
       isVideo: hasVideo,
-      filesCount: Math.max((files && files.length) || 0, allPhotos.length, 1),
+      filesCount: Math.max(combinedFiles.length, allPhotos.length, 1),
       song: song || null,
       voiceNote: voiceNote || null,
       comments: [],
@@ -1393,10 +1418,10 @@ class RumaStore {
       if (!memoryData.driveSubfolderId && prev.driveSubfolderId) {
         memoryData.driveSubfolderId = prev.driveSubfolderId;
       }
-      if (prev.subfolderName && (!files || files.length === 0)) {
+      if (prev.subfolderName && combinedFiles.length === 0) {
         memoryData.subfolderName = prev.subfolderName;
       }
-      if (!files || files.length === 0) {
+      if (combinedFiles.length === 0) {
         memoryData.files = prev.files || [];
         memoryData.filesCount = Math.max(memoryData.files.length, allPhotos.length, prev.filesCount || 1);
         if (prev.driveSyncStatus === 'synced' && memoryData.driveSyncStatus !== 'synced') {
@@ -1404,7 +1429,9 @@ class RumaStore {
           memoryData.driveUrl = prev.driveUrl || memoryData.driveUrl;
         }
       } else if (prev.files && prev.files.length > 0) {
-        memoryData.files = [...prev.files, ...memoryData.files];
+        memoryData.files = namedCoverFile
+          ? [memoryData.files[0], ...prev.files.filter(f => !f?.isCover), ...memoryData.files.slice(1)]
+          : [...prev.files, ...memoryData.files];
         memoryData.filesCount = Math.max(memoryData.files.length, allPhotos.length, 1);
       }
       group.memories[existingIdx] = memoryData;
