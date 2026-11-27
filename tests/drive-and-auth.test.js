@@ -382,4 +382,106 @@ describe('Google OAuth minimal scopes, Ruma 🌷 root folder & Drive HD streamin
     expect(res.driveSyncStatus).toBe('synced');
     expect(res.rootDriveFolderUrl).toBe('https://drive.google.com/drive/folders/ruma_root_auto_1');
   });
+
+  it('resumes a paused large file upload from the exact byte offset using resumeUrl and persists checkpoints', async () => {
+    const { DriveBridge } = await import('../src/services/drive-bridge.js');
+    const { MediaStorage } = await import('../src/services/media-storage.js');
+
+    const fileSize = 6 * 1024 * 1024;
+    const bigFile = new Blob([new Uint8Array(fileSize)], { type: 'video/mp4' });
+    bigFile.name = 'Salida a la playa 1.mp4';
+
+    const rangesSent = [];
+    const sessionCallbacks = [];
+    let callCount = 0;
+
+    globalThis.fetch = vi.fn(async (_url, opts) => {
+      callCount++;
+      rangesSent.push(opts.headers['Content-Range']);
+      if (callCount === 1) {
+        // 1) Status probe (`bytes */6291456`) returns 308 with Range 0-5242879 (5 MB already uploaded before internet dropped)
+        return {
+          ok: false,
+          status: 308,
+          headers: new Headers({ Range: 'bytes=0-5242879' })
+        };
+      }
+      // 2) Remaining 1 MB chunk finishes the upload
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          id: 'resumed_vid_1',
+          name: 'Salida a la playa 1.mp4',
+          webViewLink: 'https://drive.google.com/file/d/resumed_vid_1/view'
+        })
+      };
+    });
+
+    const res = await DriveResumableUploader.uploadLargeFile(
+      'tok_123',
+      'folder_1',
+      bigFile,
+      null,
+      {
+        resumeUrl: 'https://upload.example/existing_session_99',
+        onSessionUrl: (u) => sessionCallbacks.push(u)
+      }
+    );
+
+    expect(res.id).toBe('resumed_vid_1');
+    expect(rangesSent[0]).toBe(`bytes */${fileSize}`);
+    expect(rangesSent[1]).toBe(`bytes 5242880-${fileSize - 1}/${fileSize}`);
+    expect(sessionCallbacks).toContain('');
+
+    // Verify DriveBridge.syncExistingMemoryToDrive emits onCheckpoint after each file so interrupted uploads resume without re-uploading completed files
+    localStorage.setItem(CONFIG.storageKeys.driveAuthSession, JSON.stringify({
+      accessToken: 'tok_creator_drive',
+      email: 'creator@example.com',
+      hasDriveScope: true,
+      expiresAt: Date.now() + 60_000
+    }));
+
+    vi.spyOn(DriveResumableUploader, 'verifyFolderAccess').mockResolvedValue({
+      id: 'sub_playa',
+      name: 'Salida a la playa',
+      webViewLink: 'https://drive.google.com/drive/folders/sub_playa'
+    });
+    vi.spyOn(MediaStorage, 'getMedia').mockResolvedValue({
+      blob: new Blob(['img-bytes'], { type: 'image/jpeg' })
+    });
+    vi.spyOn(DriveResumableUploader, 'uploadLargeFile').mockResolvedValueOnce({
+      id: 'file_2_drive_id',
+      name: 'Salida a la playa 1.jpg',
+      webViewLink: 'https://drive.google.com/file/d/file_2_drive_id/view'
+    });
+    vi.spyOn(DriveResumableUploader, 'uploadMultipartFile').mockResolvedValue({
+      id: 'txt_id',
+      name: 'Historia_del_Recuerdo.txt'
+    });
+
+    const checkpoints = [];
+    const group = { id: 'g1', creatorId: 'u1', driveFolderUrl: 'https://drive.google.com/drive/folders/root_1' };
+    const mem = {
+      id: 'm_playa',
+      title: 'Salida a la playa',
+      date: '2026-11-26',
+      driveSubfolderId: 'sub_playa',
+      files: [
+        { id: 'loc_cover', name: 'Portada.jpg', isCover: true, driveFileId: 'already_uploaded_cover' },
+        { id: 'loc_1', name: 'Salida a la playa 1.jpg', isCover: false, driveFileId: '' }
+      ]
+    };
+
+    const synced = await DriveBridge.syncExistingMemoryToDrive(group, mem, null, {
+      allowCreateRootFolder: true,
+      onCheckpoint: (cp) => checkpoints.push(JSON.parse(JSON.stringify(cp)))
+    });
+
+    expect(synced.driveSyncStatus).toBe('synced');
+    expect(synced.files[0].driveFileId).toBe('already_uploaded_cover');
+    expect(synced.files[1].driveFileId).toBe('file_2_drive_id');
+    expect(checkpoints.length).toBeGreaterThanOrEqual(2);
+    expect(checkpoints[checkpoints.length - 1].files[1].driveFileId).toBe('file_2_drive_id');
+  });
 });

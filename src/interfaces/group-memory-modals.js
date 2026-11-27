@@ -629,7 +629,7 @@ export function openUploadMemoryModal(group, editingMemory = null, prefillDate =
         const runUploadFlow = async () => {
           if (submitBtn) {
             submitBtn.disabled = true;
-            submitBtn.textContent = '⏳ Procesando y subiendo...';
+            submitBtn.textContent = '⏳ Guardando y enviando a la nube...';
           }
           if (progWrap) progWrap.style.display = 'block';
 
@@ -646,19 +646,14 @@ export function openUploadMemoryModal(group, editingMemory = null, prefillDate =
             coverFile,
             files,
             existingPhotos: editingMemory?.photos || (editingMemory?.coverPreview ? [editingMemory.coverPreview] : []),
+            backgroundDrive: true,
             onProgress: (p) => {
               if (!progWrap) return;
               const pct = Math.min(100, Math.max(5, Number(p.percent) || 15));
               if (progBar) progBar.style.width = `${pct}%`;
               if (progPct) progPct.textContent = `${pct}%`;
               if (progText) {
-                if (p.stage === 'drive_folder') {
-                  progText.textContent = `📁 Creando subcarpeta "${p.fileName}" en Ruma 🌷 (Google Drive)...`;
-                } else if (p.stage === 'drive_upload') {
-                  progText.textContent = `☁️ Subiendo a Google Drive (${p.fileIndex}/${p.totalFiles}): ${p.fileName || ''}`;
-                } else {
-                  progText.textContent = `💾 Procesando (${p.fileIndex}/${p.totalFiles}): ${p.fileName || ''}`;
-                }
+                progText.textContent = `💾 Preparando archivos (${p.fileIndex}/${p.totalFiles}): ${p.fileName || ''}`;
               }
             }
           });
@@ -674,7 +669,11 @@ export function openUploadMemoryModal(group, editingMemory = null, prefillDate =
           }
 
           UI.closeModal();
-          if (res.driveSyncStatus === 'synced') {
+          if (res.driveSyncStatus === 'uploading') {
+            UI.showToast(`☁️ Subiendo "${res.memory.title}" en segundo plano · Puedes seguir navegando`, 'info');
+          } else if (res.driveSyncStatus === 'paused') {
+            UI.showToast('⏸ Carga en pausa · Se reanudará sola en cuanto vuelva internet', 'info');
+          } else if (res.driveSyncStatus === 'synced') {
             UI.showToast(`☁️ ¡Recuerdo "${res.memory.subfolderName}" subido a tu carpeta Ruma 🌷 en Google Drive!`, 'success');
           } else if (res.driveSyncStatus === 'error') {
             UI.showToast(`Guardado en dispositivo. No se subió a Drive: ${res.driveSyncError}`, 'error');
@@ -912,30 +911,38 @@ export async function openMemoryDetailModal(group, mem, user) {
         });
       });
 
-      document.getElementById('btn-mem-detail-sync-drive')?.addEventListener('click', async (e) => {
-        const btn = e.currentTarget;
+      document.getElementById('btn-mem-detail-sync-drive')?.addEventListener('click', () => {
         if (!isCreator) {
           UI.showToast('Solo el creador del grupo (dueño de la carpeta en Google Drive) puede activar y sincronizar con Google Drive 👑', 'info');
           return;
         }
         if (!GoogleAuth.hasDriveAccess()) {
+          if (GoogleAuth.hasValidClientId(group)) {
+            GoogleAuth.requestDriveAccess('', group)
+              .then((session) => {
+                store.updateCurrentUser({
+                  googleDriveSynced: true,
+                  googleEmail: session.email || user?.email || ''
+                });
+                UI.closeModal();
+                store.enqueueMemoryDriveUpload(mem.id, group.id);
+                UI.showToast(`☁️ Subiendo "${mem.title}" en segundo plano · Puedes seguir navegando`, 'info');
+              })
+              .catch(() => {
+                UI.closeModal();
+                store.navigate('settings');
+                UI.showToast('Sincroniza tu cuenta con Google en ⚙️ Ajustes para subir el recuerdo a Ruma 🌷', 'info');
+              });
+            return;
+          }
           UI.closeModal();
           store.navigate('settings');
           UI.showToast('Sincroniza tu cuenta con Google en ⚙️ Ajustes para subir el recuerdo a Ruma 🌷', 'info');
           return;
         }
-        btn.disabled = true;
-        btn.textContent = '⏳ Subiendo a Drive...';
-        const res = await store.syncExistingMemoryToDrive(mem.id);
-        if (!res.ok) {
-          btn.disabled = false;
-          btn.textContent = '☁️ Subir a Google Drive';
-          UI.showToast(res.error || 'No se pudo subir a Google Drive.', 'error');
-          return;
-        }
-        UI.showToast(`¡Recuerdo "${res.memory.subfolderName}" subido a tu Google Drive! ☁️✨`, 'success');
-        const updated = (store.getActiveGroup()?.memories || []).find(m => m.id === mem.id);
-        if (updated) openMemoryDetailModal(store.getActiveGroup(), updated, user);
+        UI.closeModal();
+        store.enqueueMemoryDriveUpload(mem.id, group.id);
+        UI.showToast(`☁️ Subiendo "${mem.title}" en segundo plano · Puedes seguir navegando`, 'info');
       });
 
       document.getElementById('btn-mem-detail-feature')?.addEventListener('click', () => {

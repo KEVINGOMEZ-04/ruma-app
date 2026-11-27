@@ -17,6 +17,7 @@ import './styles/profile.css';
 import { store } from './core/store.js';
 import { Utils } from './core/utils.js';
 import { CloudSync } from './services/cloud-sync.js';
+import { GoogleAuth } from './services/google-auth.js';
 import { CosmicBackground } from './components/cosmic-background.js';
 
 let cosmicBg = null;
@@ -114,6 +115,73 @@ function getCloudBadgeHtml(status) {
   return `<span id="ruma-cloud-badge" class="badge badge-admin" style="font-size:0.68rem;padding:0.2rem 0.55rem;">☁️ Conectando...</span>`;
 }
 
+function getDriveUploadPillHtml(state = store.getDriveUploadState(), floating = false) {
+  const status = state?.status || 'idle';
+  const floatAttr = floating ? ' data-drive-pill-floating="1"' : '';
+  const floatCls = floating ? ' ruma-drive-upload-floating' : '';
+  if (status === 'idle') {
+    return `<div id="ruma-drive-upload-pill" class="ruma-drive-upload-pill is-idle${floatCls}"${floatAttr} style="display:none;"></div>`;
+  }
+
+  const pct = status === 'completed'
+    ? 100
+    : Math.min(99, Math.max(6, Math.round(Number(state?.percent) || 10)));
+  const radius = 12;
+  const circumference = +(2 * Math.PI * radius).toFixed(2);
+  const offset = +(circumference * (1 - pct / 100)).toFixed(2);
+
+  let statusClass = 'is-uploading';
+  let labelText = `${pct}%`;
+  let tooltip = `Subiendo "${state?.title || 'Recuerdo'}" a Google Drive (${pct}%)`;
+
+  if (status === 'completed') {
+    statusClass = 'is-completed';
+    labelText = 'Carga completada';
+    tooltip = `¡Carga completada en Google Drive! (${state?.title || 'Recuerdo'})`;
+  } else if (status === 'paused') {
+    statusClass = 'is-paused';
+    labelText = `En pausa · ${pct}%`;
+    tooltip = state?.error || 'Carga en pausa por desconexión. Se reanudará al volver internet (toca para reanudar).';
+  } else if (status === 'error') {
+    statusClass = 'is-error';
+    labelText = 'Reintentar';
+    tooltip = state?.error || 'La subida se detuvo. Toca para reanudar.';
+  }
+
+  return `
+    <button type="button" id="ruma-drive-upload-pill" class="ruma-drive-upload-pill ${statusClass}${floatCls}"${floatAttr} title="${Utils.sanitize(tooltip)}" aria-live="polite">
+      <span class="ruma-drive-ring-wrap" aria-hidden="true">
+        <svg class="ruma-drive-ring-svg ${status === 'uploading' ? 'is-spinning' : ''}" width="28" height="28" viewBox="0 0 28 28">
+          <circle class="ruma-drive-ring-track" cx="14" cy="14" r="${radius}" fill="none" stroke-width="2.5"></circle>
+          <circle class="ruma-drive-ring-fill" cx="14" cy="14" r="${radius}" fill="none" stroke-width="2.5" stroke-dasharray="${circumference}" stroke-dashoffset="${offset}" stroke-linecap="round"></circle>
+        </svg>
+        <svg class="ruma-drive-cloud-ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/>
+        </svg>
+      </span>
+      <span class="ruma-drive-upload-label">${Utils.sanitize(labelText)}</span>
+    </button>
+  `;
+}
+
+function bindDriveUploadPill() {
+  const pill = document.getElementById('ruma-drive-upload-pill');
+  if (!pill) return;
+  pill.addEventListener('click', () => {
+    const st = store.getDriveUploadState();
+    if (st.status === 'paused' || st.status === 'error') {
+      const grp = store.getGroups().find(g => g.id === st.groupId) || store.getActiveGroup();
+      if (!GoogleAuth.hasDriveAccess() && GoogleAuth.hasValidClientId(grp)) {
+        GoogleAuth.requestDriveAccess('', grp)
+          .then(() => store.resumePendingDriveUploads())
+          .catch(() => {});
+        return;
+      }
+      store.resumePendingDriveUploads();
+    }
+  });
+}
+
 function getBottomCapsuleNavHtml(iface) {
   const inGroup = iface === 'group';
   const isChatActive = inGroup && store.currentGroupTab === 'chat';
@@ -198,11 +266,13 @@ function renderApp() {
   // 2. Si está en el Home (Inicio) -> Pantalla completa de Home + Barra Cápsula Inferior (3 pestañas)
   if (iface === 'hub') {
     root.innerHTML = `
+      ${getDriveUploadPillHtml(store.getDriveUploadState(), true)}
       <main class="ruma-auth-root" id="ruma-view-root"></main>
       ${getBottomCapsuleNavHtml(iface)}
     `;
     mountInterface('hub', 'renderHomeInterface', document.getElementById('ruma-view-root'));
     bindCapsuleNav(root, user);
+    bindDriveUploadPill();
     return;
   }
 
@@ -213,7 +283,7 @@ function renderApp() {
 
   root.innerHTML = `
     <header class="ruma-topbar">
-      <div style="display:flex;align-items:center;gap:0.65rem;">
+      <div style="display:flex;align-items:center;gap:0.65rem;flex-wrap:wrap;">
         <button type="button" class="btn btn-secondary btn-sm" id="nav-back-home" style="border-radius:9999px;padding:0.4rem 0.85rem;">
           ${iface === 'group' ? (store.currentGroupTab && store.currentGroupTab !== 'home' ? '← Grupo' : '← Mis Grupos') : '← Inicio'}
         </button>
@@ -222,6 +292,7 @@ function renderApp() {
           <span class="ruma-brand-name">ruma</span>
         </div>
         ${getCloudBadgeHtml(CloudSync.getStatus())}
+        ${getDriveUploadPillHtml(store.getDriveUploadState(), false)}
       </div>
 
       <!-- Píldora de Usuario Actual (siempre abre Mi Perfil) -->
@@ -251,6 +322,7 @@ function renderApp() {
   });
 
   bindCapsuleNav(root, user);
+  bindDriveUploadPill();
 
   const viewRoot = document.getElementById('ruma-view-root');
   if (!viewRoot) return;
@@ -282,6 +354,19 @@ CloudSync.onStatusChange((status) => {
     const tmp = document.createElement('div');
     tmp.innerHTML = getCloudBadgeHtml(status);
     badge.replaceWith(tmp.firstElementChild);
+  }
+});
+
+store.onDriveUploadChange((state) => {
+  const existing = document.getElementById('ruma-drive-upload-pill');
+  if (!existing) return;
+  const isFloating = existing.getAttribute('data-drive-pill-floating') === '1';
+  const tmp = document.createElement('div');
+  tmp.innerHTML = getDriveUploadPillHtml(state, isFloating).trim();
+  const nextEl = tmp.firstElementChild;
+  if (nextEl) {
+    existing.replaceWith(nextEl);
+    bindDriveUploadPill();
   }
 });
 

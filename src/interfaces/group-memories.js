@@ -505,20 +505,35 @@ export function renderGroupMemoriesView(viewport, group, user, isAdmin, ctx) {
             UI.closeModal();
             onQuoteMemory(mem);
           });
-          document.getElementById('mm-drive')?.addEventListener('click', async () => {
+          document.getElementById('mm-drive')?.addEventListener('click', () => {
             UI.closeModal();
             if (!isCreator) {
               UI.showToast('Solo el creador del grupo (dueño de la carpeta en Google Drive) puede activar y sincronizar con Google Drive 👑', 'info');
               return;
             }
             if (!GoogleAuth.hasDriveAccess()) {
+              if (GoogleAuth.hasValidClientId(group)) {
+                GoogleAuth.requestDriveAccess('', group)
+                  .then((session) => {
+                    store.updateCurrentUser({
+                      googleDriveSynced: true,
+                      googleEmail: session.email || user?.email || ''
+                    });
+                    store.enqueueMemoryDriveUpload(mem.id, group.id);
+                    UI.showToast(`☁️ Subiendo "${mem.title}" en segundo plano · Puedes seguir navegando`, 'info');
+                  })
+                  .catch(() => {
+                    store.navigate('settings');
+                    UI.showToast('Sincroniza tu cuenta con Google en ⚙️ Ajustes para subir recuerdos a Ruma 🌷', 'info');
+                  });
+                return;
+              }
               store.navigate('settings');
               UI.showToast('Sincroniza tu cuenta con Google en ⚙️ Ajustes para subir recuerdos a Ruma 🌷', 'info');
               return;
             }
-            UI.showToast('Subiendo recuerdo a Google Drive...', 'info');
-            const res = await store.syncExistingMemoryToDrive(mem.id);
-            UI.showToast(res.ok ? '¡Subido a Google Drive! ☁️' : (res.error || 'No se pudo subir.'), res.ok ? 'success' : 'error');
+            store.enqueueMemoryDriveUpload(mem.id, group.id);
+            UI.showToast(`☁️ Subiendo "${mem.title}" en segundo plano · Puedes seguir navegando`, 'info');
           });
           document.getElementById('mm-del')?.addEventListener('click', () => {
             const res = store.deleteMemoryFromActiveGroup(mem.id);

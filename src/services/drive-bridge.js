@@ -185,7 +185,7 @@ export const DriveBridge = {
   async syncMemory(group, memoryPayload, files = [], onProgress = null, options = {}) {
     if (!group) throw new Error('Grupo no especificado.');
     const allowCreateRootFolder = options.allowCreateRootFolder !== false;
-    const allowDriveUpload = options.allowDriveUpload !== false;
+    const allowDriveUpload = options.allowDriveUpload !== false && !options.localOnly;
 
     const subfolderName = Utils.buildDriveSubfolderName(memoryPayload.title, memoryPayload.date);
     const memoryId = memoryPayload.id || Utils.generateId('mem');
@@ -429,6 +429,21 @@ export const DriveBridge = {
     }
 
     const updatedFiles = [...(memory.files || [])];
+    const emitCheckpoint = () => {
+      if (typeof options.onCheckpoint === 'function') {
+        try {
+          options.onCheckpoint({
+            subfolderName,
+            rootDriveFolderUrl,
+            driveSubfolderId: driveSubfolder?.id || memory.driveSubfolderId || '',
+            driveUrl: driveSubfolder?.webViewLink || memory.driveUrl || '',
+            files: updatedFiles
+          });
+        } catch (_) {}
+      }
+    };
+    emitCheckpoint();
+
     let uploadedOrAlreadySyncedCount = 0;
     let missingOriginalCount = 0;
 
@@ -436,7 +451,7 @@ export const DriveBridge = {
       .replace(/[\\/:*?"<>|]/g, '')
       .trim() || 'Recuerdo';
 
-    // 1. Si hay archivos en IndexedDB, subir solo los que aún no tienen driveFileId
+    // 1. Si hay archivos en IndexedDB, subir solo los que aún no tienen driveFileId (reanudando desde el punto exacto)
     if (updatedFiles.length > 0) {
       let linkedSeq = 0;
       for (let i = 0; i < updatedFiles.length; i++) {
@@ -445,6 +460,15 @@ export const DriveBridge = {
         if (!isCoverItem) linkedSeq++;
         if (fMeta?.driveFileId) {
           uploadedOrAlreadySyncedCount++;
+          if (typeof onProgress === 'function') {
+            onProgress({
+              stage: 'drive_upload',
+              fileIndex: i + 1,
+              totalFiles: updatedFiles.length,
+              percent: Math.round(((i + 1) / Math.max(updatedFiles.length, 1)) * 100),
+              fileName: fMeta.name || ''
+            });
+          }
           continue;
         }
         const rawExtMatch = String(fMeta?.name || '').match(/\.([a-zA-Z0-9]+)$/);
@@ -474,23 +498,40 @@ export const DriveBridge = {
           continue;
         }
 
-        const uploaded = await DriveResumableUploader.uploadLargeFile(token, driveSubfolder.id, fileObj, (p) => {
-          if (typeof onProgress === 'function') {
-            onProgress({
-              stage: 'drive_upload',
-              fileIndex: i + 1,
-              totalFiles: updatedFiles.length,
-              ...p
-            });
+        const uploaded = await DriveResumableUploader.uploadLargeFile(
+          token,
+          driveSubfolder.id,
+          fileObj,
+          (p) => {
+            if (typeof onProgress === 'function') {
+              const fileWeight = 1 / Math.max(updatedFiles.length, 1);
+              const overallPct = Math.min(99, Math.max(15, Math.round((i * fileWeight + ((Number(p.percent) || 0) / 100) * fileWeight) * 100)));
+              onProgress({
+                stage: 'drive_upload',
+                fileIndex: i + 1,
+                totalFiles: updatedFiles.length,
+                ...p,
+                percent: overallPct
+              });
+            }
+          },
+          {
+            resumeUrl: fMeta.driveResumeUrl || '',
+            onSessionUrl: (sessionUrl) => {
+              updatedFiles[i] = { ...updatedFiles[i], driveResumeUrl: sessionUrl || '' };
+              emitCheckpoint();
+            }
           }
-        });
+        );
         updatedFiles[i] = {
           ...fMeta,
           name: fileObj.name,
           driveFileId: uploaded.id,
-          driveViewLink: uploaded.webViewLink
+          driveViewLink: uploaded.webViewLink,
+          driveResumeUrl: ''
         };
         uploadedOrAlreadySyncedCount++;
+        emitCheckpoint();
       }
 
       if (uploadedOrAlreadySyncedCount === 0 && missingOriginalCount > 0) {
@@ -518,6 +559,7 @@ export const DriveBridge = {
             driveFileId: uploaded.id,
             driveViewLink: uploaded.webViewLink
           });
+          emitCheckpoint();
         }
       }
     }
@@ -532,6 +574,22 @@ export const DriveBridge = {
         if (voiceUp?.id) {
           memory.driveVoiceFileId = voiceUp.id;
         }
+      }
+    }
+
+    if ((memory.description || memory.title) && !memory.driveNoteUploaded) {
+      const summaryLines = [
+        `Recuerdo: ${memory.title || 'Recuerdo'}`,
+        `Fecha: ${Utils.formatFullSpanishDate(memory.date)} (${memory.date || ''})`,
+        memory.authorName ? `Autor: ${memory.authorName}` : '',
+        '',
+        memory.description || ''
+      ].filter((l, idx) => idx >= 3 || Boolean(l)).join('\n');
+      const noteBlob = new Blob([summaryLines], { type: 'text/plain;charset=utf-8' });
+      const noteFile = new File([noteBlob], 'Historia_del_Recuerdo.txt', { type: 'text/plain;charset=utf-8' });
+      const noteUp = await DriveResumableUploader.uploadMultipartFile(token, driveSubfolder.id, noteFile).catch(() => null);
+      if (noteUp?.id) {
+        memory.driveNoteUploaded = true;
       }
     }
 

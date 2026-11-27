@@ -138,6 +138,126 @@ html, body {
   background: var(--surface-secondary);
 }
 
+/* Indicador superior de subida a Google Drive en segundo plano (Nube con círculo giratorio) */
+.ruma-drive-upload-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.18rem 0.65rem 0.18rem 0.22rem;
+  border-radius: 9999px;
+  border: 1px solid var(--border-strong, rgba(168, 85, 247, 0.45));
+  background: var(--bg-elevated, rgba(19, 10, 38, 0.92));
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 0.72rem;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+  transition: transform 0.18s ease, border-color 0.2s ease, background 0.2s ease;
+}
+
+.ruma-drive-upload-pill:hover {
+  transform: translateY(-1px);
+}
+
+.ruma-drive-upload-pill.ruma-drive-upload-floating {
+  position: fixed;
+  top: calc(0.75rem + env(safe-area-inset-top, 0px));
+  right: calc(0.95rem + env(safe-area-inset-right, 0px));
+  z-index: 250;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.ruma-drive-ring-wrap {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.ruma-drive-ring-svg {
+  width: 28px;
+  height: 28px;
+  transform: rotate(-90deg);
+}
+
+.ruma-drive-ring-svg.is-spinning {
+  animation: rumaDriveRingSpin 1.35s linear infinite;
+}
+
+@keyframes rumaDriveRingSpin {
+  0% {
+    transform: rotate(-90deg);
+  }
+  100% {
+    transform: rotate(270deg);
+  }
+}
+
+.ruma-drive-ring-track {
+  stroke: rgba(192, 132, 252, 0.22);
+}
+
+.ruma-drive-ring-fill {
+  stroke: var(--brand-lilac, #A855F7);
+  transition: stroke-dashoffset 0.28s ease, stroke 0.25s ease;
+}
+
+.ruma-drive-cloud-ico {
+  position: absolute;
+  color: var(--brand-lilac-soft, #E9D5FF);
+  pointer-events: none;
+}
+
+.ruma-drive-upload-pill.is-completed {
+  border-color: rgba(52, 211, 153, 0.65);
+  background: rgba(6, 78, 59, 0.35);
+  color: #6EE7B7;
+}
+
+.ruma-drive-upload-pill.is-completed .ruma-drive-ring-track {
+  stroke: rgba(52, 211, 153, 0.25);
+}
+
+.ruma-drive-upload-pill.is-completed .ruma-drive-ring-fill {
+  stroke: #34D399;
+}
+
+.ruma-drive-upload-pill.is-completed .ruma-drive-cloud-ico {
+  color: #34D399;
+}
+
+.ruma-drive-upload-pill.is-paused {
+  border-color: rgba(251, 191, 36, 0.65);
+  color: #FCD34D;
+}
+
+.ruma-drive-upload-pill.is-paused .ruma-drive-ring-fill,
+.ruma-drive-upload-pill.is-paused .ruma-drive-cloud-ico {
+  stroke: #FBBF24;
+  color: #FBBF24;
+}
+
+.ruma-drive-upload-pill.is-error {
+  border-color: rgba(248, 113, 113, 0.65);
+  color: #FCA5A5;
+}
+
+.ruma-drive-upload-pill.is-error .ruma-drive-ring-fill,
+.ruma-drive-upload-pill.is-error .ruma-drive-cloud-ico {
+  stroke: #F87171;
+  color: #F87171;
+}
+
+.ruma-drive-upload-label {
+  white-space: nowrap;
+  letter-spacing: 0.01em;
+}
+
 /* ==========================================================================
    CONTAINER & CARDS
    ========================================================================== */

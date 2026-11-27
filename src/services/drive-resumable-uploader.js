@@ -234,9 +234,10 @@ export const DriveResumableUploader = {
   /**
    * Sube un archivo de cualquier tamaño:
    * - Si pesa <= 4.5 MB, usa Multipart directo (`multipart/related`)
-   * - Si pesa > 4.5 MB, usa protocolo Resumible por chunks de 5 MB (sin degradar a multipart en archivos grandes)
+   * - Si pesa > 4.5 MB, usa protocolo Resumible por chunks de 5 MB con capacidad de pausa/reanudación
+   *   desde el último byte confirmado (cabecera Range) si se cae el internet.
    */
-  async uploadLargeFile(accessToken, folderId, file, onProgress = null) {
+  async uploadLargeFile(accessToken, folderId, file, onProgress = null, options = {}) {
     if (!accessToken) throw new Error('Token de acceso requerido.');
     if (!file) throw new Error('Archivo no válido.');
 
@@ -247,38 +248,75 @@ export const DriveResumableUploader = {
 
     const fileMime = file.type || 'application/octet-stream';
     const fileName = file.name || `archivo_${Date.now()}`;
-
-    // 1. Iniciar la sesión de subida resumible en Google
-    const initRes = await fetchWithTimeout(
-      'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&supportsAllDrives=true&fields=id,name,webViewLink',
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          'Content-Type': 'application/json; charset=UTF-8',
-          'X-Upload-Content-Type': fileMime,
-          'X-Upload-Content-Length': String(fileSize)
-        },
-        body: JSON.stringify({
-          name: fileName,
-          parents: folderId ? [folderId] : []
-        })
-      }
-    );
-
-    if (!initRes.ok) {
-      const err = await initRes.json().catch(() => ({}));
-      throw new Error(err.error?.message || `No se pudo iniciar la sesión de subida con Google Drive (HTTP ${initRes.status}).`);
-    }
-
-    const uploadUrl = initRes.headers.get('Location');
-    if (!uploadUrl) {
-      throw new Error('Google Drive no devolvió la URL de sesión resumible para este archivo grande.');
-    }
-
-    // 2. Subir el archivo en fragmentos (chunks)
+    let uploadUrl = options.resumeUrl || '';
     let startByte = 0;
 
+    // Si existía una sesión resumible previa (por corte de internet), consultar en qué byte quedó
+    if (uploadUrl) {
+      try {
+        const probeRes = await fetchWithTimeout(uploadUrl, {
+          method: 'PUT',
+          headers: {
+            'Content-Range': `bytes */${fileSize}`
+          }
+        });
+        if (probeRes.status === 308) {
+          const rangeHeader = probeRes.headers?.get?.('Range') || '';
+          const match = rangeHeader.match(/bytes=0-(\d+)/i);
+          startByte = match ? Math.min(fileSize, Number(match[1]) + 1) : 0;
+        } else if (probeRes.ok) {
+          const doneData = await probeRes.json();
+          return {
+            id: doneData.id,
+            name: doneData.name || fileName,
+            size: fileSize,
+            webViewLink: doneData.webViewLink || `https://drive.google.com/file/d/${doneData.id}/view`
+          };
+        } else {
+          // Sesión expirada o inválida -> iniciar sesión nueva desde 0
+          uploadUrl = '';
+          startByte = 0;
+        }
+      } catch (_) {
+        // Si falla la red durante la sonda, propagar para pausar y reanudar cuando vuelva internet
+        throw new Error('Conexión interrumpida. La carga se reanudará automáticamente cuando vuelva internet.');
+      }
+    }
+
+    // 1. Iniciar la sesión de subida resumible en Google si no hay una sesión activa reutilizable
+    if (!uploadUrl) {
+      const initRes = await fetchWithTimeout(
+        'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&supportsAllDrives=true&fields=id,name,webViewLink',
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json; charset=UTF-8',
+            'X-Upload-Content-Type': fileMime,
+            'X-Upload-Content-Length': String(fileSize)
+          },
+          body: JSON.stringify({
+            name: fileName,
+            parents: folderId ? [folderId] : []
+          })
+        }
+      );
+
+      if (!initRes.ok) {
+        const err = await initRes.json().catch(() => ({}));
+        throw new Error(err.error?.message || `No se pudo iniciar la sesión de subida con Google Drive (HTTP ${initRes.status}).`);
+      }
+
+      uploadUrl = initRes.headers.get('Location') || '';
+      if (!uploadUrl) {
+        throw new Error('Google Drive no devolvió la URL de sesión resumible para este archivo grande.');
+      }
+      if (typeof options.onSessionUrl === 'function') {
+        try { options.onSessionUrl(uploadUrl); } catch (_) {}
+      }
+    }
+
+    // 2. Subir el archivo en fragmentos (chunks) desde startByte
     while (startByte < fileSize) {
       const endByte = Math.min(startByte + CHUNK_SIZE, fileSize);
       const chunk = file.slice(startByte, endByte);
@@ -306,6 +344,9 @@ export const DriveResumableUploader = {
           });
         }
       } else if (chunkRes.ok) {
+        if (typeof options.onSessionUrl === 'function') {
+          try { options.onSessionUrl(''); } catch (_) {}
+        }
         const finalData = await chunkRes.json();
         if (typeof onProgress === 'function') {
           onProgress({

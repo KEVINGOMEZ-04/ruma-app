@@ -110,6 +110,20 @@ class RumaStore {
     this._memGroupsJson = null;
     this._lastGroupsStorageRaw = undefined;
     this._groupsQuotaOwner = undefined;
+    this.driveUploadState = {
+      status: 'idle', // 'idle' | 'uploading' | 'paused' | 'completed' | 'error'
+      percent: 0,
+      title: '',
+      fileName: '',
+      fileIndex: 0,
+      totalFiles: 0,
+      error: '',
+      memoryId: '',
+      groupId: ''
+    };
+    this.driveUploadListeners = [];
+    this._driveUploadRunning = false;
+    this._driveUploadCompleteTimer = null;
     this.init();
   }
 
@@ -124,10 +138,50 @@ class RumaStore {
     const savedTheme = safeGetStorage(CONFIG.storageKeys.theme) || 'dark';
     this.setTheme(savedTheme, false);
 
+    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+      window.addEventListener('online', () => {
+        this.resumePendingDriveUploads();
+      });
+      window.addEventListener('offline', () => {
+        if (this.driveUploadState.status === 'uploading') {
+          this._emitDriveUploadState({
+            status: 'paused',
+            error: 'En pausa · esperando conexión a internet'
+          });
+        }
+      });
+    }
+
     // Restaurar respaldo local de IndexedDB (crucial en iPhone cuando un grupo supera 5 MB de localStorage)
     // e iniciar sincronización en la nube en tiempo real
     this.restoreStateFromIndexedDB().finally(() => {
       this.bootstrapCloudSync();
+      this.resumePendingDriveUploads();
+    });
+  }
+
+  getDriveUploadState() {
+    return { ...this.driveUploadState };
+  }
+
+  onDriveUploadChange(fn) {
+    if (typeof fn !== 'function') return () => {};
+    this.driveUploadListeners.push(fn);
+    return () => {
+      this.driveUploadListeners = this.driveUploadListeners.filter(l => l !== fn);
+    };
+  }
+
+  _emitDriveUploadState(patch = {}) {
+    this.driveUploadState = {
+      ...this.driveUploadState,
+      ...patch
+    };
+    const snapshot = this.getDriveUploadState();
+    this.driveUploadListeners.forEach(fn => {
+      try {
+        fn(snapshot);
+      } catch (_) {}
     });
   }
 
@@ -1320,7 +1374,7 @@ class RumaStore {
   // ==========================================================================
   // 1. RECUERDOS (Puente Google Drive + Álbum / Nota de Voz / Canción / Calendario / Planes)
   // ==========================================================================
-  async addMemoryToActiveGroup({ id, title, date, location, description, auraColor, isFeatured, song, voiceNote, coverFile = null, files = [], existingPhotos, onProgress = null }) {
+  async addMemoryToActiveGroup({ id, title, date, location, description, auraColor, isFeatured, song, voiceNote, coverFile = null, files = [], existingPhotos, onProgress = null, backgroundDrive = false }) {
     const user = this.getCurrentUser();
     const allGroups = this.getGroups();
     const active = this.getActiveGroup();
@@ -1406,6 +1460,14 @@ class RumaStore {
       group.driveFolderUrl = user.googleDriveFolderUrl;
     }
 
+    const hasMediaToUploadToDrive = combinedFiles.length > 0 || Boolean(voiceNote);
+    const shouldQueueBackgroundDrive = Boolean(
+      backgroundDrive &&
+      isCreator &&
+      hasMediaToUploadToDrive &&
+      GoogleAuth.hasDriveAccess()
+    );
+
     const record = await DriveBridge.syncMemoryToDrive(group, {
       id,
       title,
@@ -1416,7 +1478,8 @@ class RumaStore {
       authorName: user.name
     }, combinedFiles, onProgress, {
       allowCreateRootFolder: isCreator,
-      allowDriveUpload: isCreator,
+      allowDriveUpload: isCreator && !shouldQueueBackgroundDrive,
+      localOnly: shouldQueueBackgroundDrive,
       hasExplicitCover: Boolean(namedCoverFile),
       userDriveFolderUrl: user.googleDriveFolderUrl || ''
     });
@@ -1433,6 +1496,10 @@ class RumaStore {
 
     group.memories = group.memories || [];
 
+    const initialSyncStatus = shouldQueueBackgroundDrive
+      ? 'uploading'
+      : (record.driveSyncStatus || 'local_only');
+
     const memoryData = {
       id: id || record.id,
       title: record.title,
@@ -1443,7 +1510,7 @@ class RumaStore {
       subfolderName: record.subfolderName,
       driveSubfolderId: record.driveSubfolderId || '',
       driveUrl: record.driveSubfolderUrl || (DriveBridge.isRealFolderConfigured(group.driveFolderUrl) ? group.driveFolderUrl : ''),
-      driveSyncStatus: record.driveSyncStatus || 'local_only',
+      driveSyncStatus: initialSyncStatus,
       driveSyncError: record.driveSyncError || '',
       description: record.description,
       authorId: user.id,
@@ -1478,7 +1545,7 @@ class RumaStore {
       if (combinedFiles.length === 0) {
         memoryData.files = prev.files || [];
         memoryData.filesCount = Math.max(memoryData.files.length, allPhotos.length, prev.filesCount || 1);
-        if (prev.driveSyncStatus === 'synced' && memoryData.driveSyncStatus !== 'synced') {
+        if (prev.driveSyncStatus === 'synced' && memoryData.driveSyncStatus !== 'synced' && !shouldQueueBackgroundDrive) {
           memoryData.driveSyncStatus = 'synced';
           memoryData.driveUrl = prev.driveUrl || memoryData.driveUrl;
         }
@@ -1504,19 +1571,232 @@ class RumaStore {
 
     this.saveGroups(allGroups);
     this.notify();
+
+    if (shouldQueueBackgroundDrive) {
+      this.enqueueMemoryDriveUpload(memoryData.id, group.id);
+    }
+
     return {
       ok: true,
       memory: memoryData,
-      driveSyncStatus: record.driveSyncStatus,
-      driveSyncError: record.driveSyncError
+      driveSyncStatus: memoryData.driveSyncStatus,
+      driveSyncError: memoryData.driveSyncError
     };
   }
 
-  async syncExistingMemoryToDrive(memoryId, onProgress = null) {
+  _isTransientNetworkError(err) {
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return true;
+    const msg = String(err?.message || err || '').toLowerCase();
+    return (
+      msg.includes('failed to fetch') ||
+      msg.includes('networkerror') ||
+      msg.includes('network request failed') ||
+      msg.includes('load failed') ||
+      msg.includes('tiempo de espera agotado') ||
+      msg.includes('offline') ||
+      msg.includes('conexión') ||
+      msg.includes('internet')
+    );
+  }
+
+  enqueueMemoryDriveUpload(memoryId, groupId = null) {
+    const targetGroupId = groupId || this.getActiveGroup()?.id || '';
+    const allGroups = this.getGroups();
+    const group = allGroups.find(g => g.id === targetGroupId) || allGroups.find(g => (g.memories || []).some(m => m.id === memoryId));
+    const mem = (group?.memories || []).find(m => m.id === memoryId);
+    if (mem && mem.driveSyncStatus !== 'synced') {
+      mem.driveSyncStatus = (typeof navigator !== 'undefined' && navigator.onLine === false) ? 'paused' : 'uploading';
+      mem.driveSyncError = '';
+      this.saveGroups(allGroups, false);
+    }
+
+    if (this._driveUploadCompleteTimer) {
+      clearTimeout(this._driveUploadCompleteTimer);
+      this._driveUploadCompleteTimer = null;
+    }
+
+    const totalFiles = Math.max((mem?.files || []).length, 1);
+    const doneFiles = (mem?.files || []).filter(f => Boolean(f?.driveFileId)).length;
+    const initialPct = Math.min(95, Math.max(8, Math.round((doneFiles / totalFiles) * 100) || 8));
+
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      this._emitDriveUploadState({
+        status: 'paused',
+        percent: initialPct,
+        title: mem?.title || 'Recuerdo',
+        fileName: '',
+        fileIndex: doneFiles,
+        totalFiles,
+        error: 'En pausa · esperando conexión a internet',
+        memoryId: memoryId || '',
+        groupId: group?.id || targetGroupId
+      });
+      return;
+    }
+
+    this._emitDriveUploadState({
+      status: 'uploading',
+      percent: initialPct,
+      title: mem?.title || 'Recuerdo',
+      fileName: mem?.subfolderName || mem?.title || '',
+      fileIndex: Math.min(totalFiles, doneFiles + 1),
+      totalFiles,
+      error: '',
+      memoryId: memoryId || '',
+      groupId: group?.id || targetGroupId
+    });
+
+    this.resumePendingDriveUploads();
+  }
+
+  async resumePendingDriveUploads() {
+    if (this._driveUploadRunning) return;
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      if (this.driveUploadState.status === 'uploading') {
+        this._emitDriveUploadState({
+          status: 'paused',
+          error: 'En pausa · esperando conexión a internet'
+        });
+      }
+      return;
+    }
+
+    const user = this.getCurrentUser();
+    if (!user) return;
+
+    const findNextPending = () => {
+      const groups = this.getGroups();
+      for (const g of groups) {
+        if (!Entitlements.isGroupCreator(g, user.id)) continue;
+        for (const m of (g.memories || [])) {
+          if (m && (m.driveSyncStatus === 'uploading' || m.driveSyncStatus === 'paused')) {
+            return { groupId: g.id, memoryId: m.id, title: m.title || 'Recuerdo', totalFiles: Math.max((m.files || []).length, 1) };
+          }
+        }
+      }
+      return null;
+    };
+
+    const firstPending = findNextPending();
+    if (!firstPending) return;
+
+    if (!GoogleAuth.hasDriveAccess()) {
+      // Si la pestaña se recargó y el token OAuth en memoria expiró, dejar en pausa listo para reanudar al tocar la nube
+      this._emitDriveUploadState({
+        status: 'paused',
+        percent: this.driveUploadState.percent || 15,
+        title: firstPending.title,
+        totalFiles: firstPending.totalFiles,
+        memoryId: firstPending.memoryId,
+        groupId: firstPending.groupId,
+        error: 'Toca la nube para continuar la carga a Google Drive'
+      });
+      return;
+    }
+
+    this._driveUploadRunning = true;
+    let lastCompletedTitle = '';
+    try {
+      let next = findNextPending();
+      while (next) {
+        if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+          this._emitDriveUploadState({
+            status: 'paused',
+            error: 'En pausa · esperando conexión a internet'
+          });
+          return;
+        }
+
+        lastCompletedTitle = next.title;
+        this._emitDriveUploadState({
+          status: 'uploading',
+          percent: Math.max(this.driveUploadState.percent || 10, 10),
+          title: next.title,
+          totalFiles: next.totalFiles,
+          memoryId: next.memoryId,
+          groupId: next.groupId,
+          error: ''
+        });
+
+        const res = await this.syncExistingMemoryToDrive(
+          next.memoryId,
+          (p) => {
+            const pct = Math.min(99, Math.max(10, Number(p?.percent) || 15));
+            this._emitDriveUploadState({
+              status: 'uploading',
+              percent: pct,
+              title: next.title,
+              fileName: p?.fileName || '',
+              fileIndex: Number(p?.fileIndex) || 1,
+              totalFiles: Number(p?.totalFiles) || next.totalFiles,
+              memoryId: next.memoryId,
+              groupId: next.groupId,
+              error: ''
+            });
+          },
+          next.groupId
+        );
+
+        if (!res.ok) {
+          if (res.paused) {
+            this._emitDriveUploadState({
+              status: 'paused',
+              title: next.title,
+              memoryId: next.memoryId,
+              groupId: next.groupId,
+              error: res.error || 'En pausa · esperando conexión a internet'
+            });
+          } else {
+            this._emitDriveUploadState({
+              status: 'error',
+              title: next.title,
+              memoryId: next.memoryId,
+              groupId: next.groupId,
+              error: res.error || 'Error al subir a Google Drive'
+            });
+          }
+          return;
+        }
+
+        next = findNextPending();
+      }
+
+      this._emitDriveUploadState({
+        status: 'completed',
+        percent: 100,
+        title: lastCompletedTitle || this.driveUploadState.title || 'Recuerdo',
+        fileName: '',
+        error: ''
+      });
+
+      if (this._driveUploadCompleteTimer) {
+        clearTimeout(this._driveUploadCompleteTimer);
+      }
+      this._driveUploadCompleteTimer = setTimeout(() => {
+        if (this.driveUploadState.status === 'completed') {
+          this._emitDriveUploadState({
+            status: 'idle',
+            percent: 0,
+            title: '',
+            fileName: '',
+            fileIndex: 0,
+            totalFiles: 0,
+            error: '',
+            memoryId: '',
+            groupId: ''
+          });
+        }
+      }, 4800);
+    } finally {
+      this._driveUploadRunning = false;
+    }
+  }
+
+  async syncExistingMemoryToDrive(memoryId, onProgress = null, explicitGroupId = null) {
     const user = this.getCurrentUser();
     const allGroups = this.getGroups();
-    const active = this.getActiveGroup();
-    const group = allGroups.find(g => g.id === active?.id);
+    const targetGroupId = explicitGroupId || this.getActiveGroup()?.id;
+    const group = allGroups.find(g => g.id === targetGroupId) || allGroups.find(g => (g.memories || []).some(m => m.id === memoryId));
     if (!group) return { ok: false, error: 'Grupo no encontrado.' };
 
     const mem = (group.memories || []).find(m => m.id === memoryId);
@@ -1530,10 +1810,31 @@ class RumaStore {
       };
     }
 
+    if (isCreator && !DriveBridge.isRealFolderConfigured(group.driveFolderUrl) && DriveBridge.isRealFolderConfigured(user?.googleDriveFolderUrl)) {
+      group.driveFolderUrl = user.googleDriveFolderUrl;
+    }
+
     try {
-      const synced = await DriveBridge.syncExistingMemoryToDrive(group, mem, onProgress, { allowCreateRootFolder: isCreator });
+      const synced = await DriveBridge.syncExistingMemoryToDrive(group, mem, onProgress, {
+        allowCreateRootFolder: isCreator,
+        onCheckpoint: (partial) => {
+          if (!partial) return;
+          if (isCreator && partial.rootDriveFolderUrl) {
+            group.driveFolderUrl = partial.rootDriveFolderUrl;
+          }
+          if (partial.driveSubfolderId) mem.driveSubfolderId = partial.driveSubfolderId;
+          if (partial.driveUrl) mem.driveUrl = partial.driveUrl;
+          if (partial.subfolderName) mem.subfolderName = partial.subfolderName;
+          if (Array.isArray(partial.files)) mem.files = partial.files;
+          this.saveGroups(allGroups, false);
+        }
+      });
       if (isCreator && synced.rootDriveFolderUrl) {
         group.driveFolderUrl = synced.rootDriveFolderUrl;
+        this.updateCurrentUser({
+          googleDriveSynced: true,
+          googleDriveFolderUrl: synced.rootDriveFolderUrl
+        });
       }
       const { rootDriveFolderUrl: _rootUrl, ...memPatch } = synced;
       Object.assign(mem, memPatch);
@@ -1541,11 +1842,14 @@ class RumaStore {
       this.notify();
       return { ok: true, memory: mem };
     } catch (err) {
-      mem.driveSyncStatus = 'error';
-      mem.driveSyncError = err.message || 'Error al sincronizar con Google Drive.';
+      const isNetworkDrop = this._isTransientNetworkError(err);
+      mem.driveSyncStatus = isNetworkDrop ? 'paused' : 'error';
+      mem.driveSyncError = isNetworkDrop
+        ? 'Carga en pausa por desconexión. Se reanudará automáticamente al volver internet.'
+        : (err.message || 'Error al sincronizar con Google Drive.');
       this.saveGroups(allGroups);
       this.notify();
-      return { ok: false, error: mem.driveSyncError };
+      return { ok: false, paused: isNetworkDrop, error: mem.driveSyncError };
     }
   }
 
