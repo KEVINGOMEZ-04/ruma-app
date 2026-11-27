@@ -4,7 +4,6 @@ import { Utils } from '../core/utils.js';
 import { UI } from '../components/ui.js';
 import { GoogleAuth } from '../services/google-auth.js';
 import { DriveBridge } from '../services/drive-bridge.js';
-import { openDriveConnectModal } from '../components/drive-connect-modal.js';
 import { MusicService } from '../services/music-service.js';
 
 const MONTH_SHORT = ['ENE', 'FEB', 'MAR', 'ABR', 'MAY', 'JUN', 'JUL', 'AGO', 'SEP', 'OCT', 'NOV', 'DIC'];
@@ -216,8 +215,8 @@ export function renderGroupMemoriesView(viewport, group, user, isAdmin, ctx) {
                       </div>
                       <div class="rm-tl-stats">
                         <span>${svg(ICO.camera, 14)} ${photosCount}</span>
-                        ${hasSong ? `<span data-play-song="${Utils.sanitize(mem.id)}" title="Escuchar canción">${svg(ICO.music, 14)} 1</span>` : ''}
-                        ${hasVoice ? `<span>${svg(ICO.mic, 14)} 1</span>` : ''}
+                        ${hasSong ? `<span data-play-song="${Utils.sanitize(mem.id)}" title="Toca para escuchar: ${Utils.sanitize(mem.song.title)} - ${Utils.sanitize(mem.song.artist || '')}" style="display:inline-flex;align-items:center;gap:0.25rem;color:var(--brand-lilac-soft);font-weight:700;max-width:170px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;">${svg(ICO.music, 14)} ${Utils.sanitize(mem.song.title)}</span>` : ''}
+                        ${hasVoice ? `<span>${svg(ICO.mic, 14)} Voz</span>` : ''}
                         <span>${svg(ICO.msg, 14)} ${commentsCount}</span>
                       </div>
                       <div class="rm-tl-date">${svg(ICO.cal, 14)} <span>${Utils.sanitize(fmtLongDate(mem.date || mem.createdAt))}</span></div>
@@ -252,6 +251,8 @@ export function renderGroupMemoriesView(viewport, group, user, isAdmin, ctx) {
     rerender();
   });
 
+  const isCreator = group?.creatorId === user?.id;
+
   // Selector rápido de Mes / Año
   viewport.querySelector('#rm-cal-picker')?.addEventListener('click', () => {
     UI.openModal({
@@ -267,10 +268,10 @@ export function renderGroupMemoriesView(viewport, group, user, isAdmin, ctx) {
             <button type="button" class="btn ${idx === month ? 'btn-primary' : 'btn-secondary'} btn-sm" data-pk-m="${idx}">${mName}</button>
           `).join('')}
         </div>
-        ${isAdmin ? `
+        ${isCreator ? `
         <div style="margin-top:.9rem;padding-top:.8rem;border-top:1px solid var(--border-subtle);display:flex;justify-content:space-between;align-items:center;">
-          <span style="font-size:.8rem;color:var(--text-secondary);">Google Drive del grupo</span>
-          <button type="button" class="btn btn-secondary btn-sm" id="pk-drive">☁️ Configurar Drive</button>
+          <span style="font-size:.8rem;color:var(--text-secondary);">Google Drive del grupo (Ajustes)</span>
+          <button type="button" class="btn btn-secondary btn-sm" id="pk-drive">⚙️ Ir a Ajustes</button>
         </div>` : ''}`,
       onMount: () => {
         document.getElementById('pk-yr-prev')?.addEventListener('click', () => { memFilterState.calYear -= 1; UI.closeModal(); rerender(); });
@@ -281,10 +282,10 @@ export function renderGroupMemoriesView(viewport, group, user, isAdmin, ctx) {
           UI.closeModal();
           rerender();
         }));
-        if (isAdmin) {
+        if (isCreator) {
           document.getElementById('pk-drive')?.addEventListener('click', () => {
             UI.closeModal();
-            openDriveConnectModal(group, true);
+            store.navigate('settings');
           });
         }
       }
@@ -307,6 +308,7 @@ export function renderGroupMemoriesView(viewport, group, user, isAdmin, ctx) {
     const dayMems = allMemories.filter(m => m.date === dateStr);
     const dayPlans = plans.filter(p => p.date === dateStr);
     const isFuture = dateStr > todayStr;
+    const isPast = dateStr < todayStr;
 
     UI.openModal({
       title: `📅 ${fmtLongDate(dateStr)}`,
@@ -335,7 +337,7 @@ export function renderGroupMemoriesView(viewport, group, user, isAdmin, ctx) {
           ${dayMems.length === 0 && dayPlans.length === 0 ? `<p style="color:var(--text-secondary);font-size:.88rem;margin:0;">No hay recuerdos ni planes registrados en esta fecha.</p>` : ''}
           <div style="display:flex;gap:.5rem;flex-wrap:wrap;justify-content:flex-end;margin-top:.3rem;">
             ${!isFuture ? `<button type="button" class="btn btn-primary btn-sm" id="day-add-mem">+ Añadir Recuerdo aquí</button>` : ''}
-            <button type="button" class="btn ${isFuture ? 'btn-primary' : 'btn-secondary'} btn-sm" id="day-add-plan">+ Agendar Plan 🗓️</button>
+            ${!isPast ? `<button type="button" class="btn ${isFuture ? 'btn-primary' : 'btn-secondary'} btn-sm" id="day-add-plan">+ Agendar Plan 🗓️</button>` : ''}
           </div>
         </div>`,
       onMount: () => {
@@ -346,7 +348,7 @@ export function renderGroupMemoriesView(viewport, group, user, isAdmin, ctx) {
         }));
         document.getElementById('day-add-mem')?.addEventListener('click', () => {
           UI.closeModal();
-          openUploadMemoryModal(group, null, dateStr, isAdmin);
+          openUploadMemoryModal(group, null, dateStr, isCreator);
         });
         document.getElementById('day-add-plan')?.addEventListener('click', () => {
           UI.closeModal();
@@ -387,7 +389,7 @@ export function renderGroupMemoriesView(viewport, group, user, isAdmin, ctx) {
 
   // Botón principal "+ Añadir Recuerdo"
   viewport.querySelector('#rm-add-memory')?.addEventListener('click', () => {
-    openUploadMemoryModal(group, null, null, isAdmin);
+    openUploadMemoryModal(group, null, null, isCreator);
   });
 
   // Limpiar filtros
@@ -488,12 +490,12 @@ export function renderGroupMemoriesView(viewport, group, user, isAdmin, ctx) {
             <button type="button" class="btn btn-secondary" id="mm-quote">💬 Citar en el chat</button>
             ${isSynced && safeDriveUrl
               ? `<a href="${Utils.sanitize(safeDriveUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary" style="text-align:center;">☁️ Abrir en Google Drive ↗</a>`
-              : `<button type="button" class="btn btn-secondary" id="mm-drive">☁️ Subir a Google Drive</button>`}
+              : (isCreator ? `<button type="button" class="btn btn-secondary" id="mm-drive">☁️ Subir a Google Drive</button>` : '')}
             ${canDelete ? `<button type="button" class="btn" id="mm-del" style="background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.5);color:var(--error);">🗑️ Eliminar recuerdo</button>` : ''}
           </div>`,
         onMount: () => {
           document.getElementById('mm-view')?.addEventListener('click', () => { UI.closeModal(); openMemoryDetailModal(group, mem, user); });
-          document.getElementById('mm-edit')?.addEventListener('click', () => { UI.closeModal(); openUploadMemoryModal(group, mem, null, isAdmin); });
+          document.getElementById('mm-edit')?.addEventListener('click', () => { UI.closeModal(); openUploadMemoryModal(group, mem, null, isCreator); });
           document.getElementById('mm-feat')?.addEventListener('click', () => {
             store.toggleMemoryFeatured(mem.id);
             UI.closeModal();
@@ -503,24 +505,35 @@ export function renderGroupMemoriesView(viewport, group, user, isAdmin, ctx) {
             UI.closeModal();
             onQuoteMemory(mem);
           });
-          document.getElementById('mm-drive')?.addEventListener('click', async () => {
+          document.getElementById('mm-drive')?.addEventListener('click', () => {
             UI.closeModal();
-            if (!DriveBridge.isRealFolderConfigured(group.driveFolderUrl) && !isAdmin) {
-              UI.showToast('Solo los administradores pueden configurar la carpeta de Google Drive del grupo 🛡️', 'info');
+            if (!isCreator) {
+              UI.showToast('Solo el creador del grupo (dueño de la carpeta en Google Drive) puede activar y sincronizar con Google Drive 👑', 'info');
               return;
             }
-            if (!GoogleAuth.hasValidClientId(group)) {
-              if (isAdmin) {
-                openDriveConnectModal(group, true);
-                UI.showToast('Conecta Google Drive para sincronizar el recuerdo 🔑', 'info');
-              } else {
-                UI.showToast('Solo los administradores pueden configurar la carpeta de Google Drive del grupo 🛡️', 'info');
+            if (!GoogleAuth.hasDriveAccess()) {
+              if (GoogleAuth.hasValidClientId(group)) {
+                GoogleAuth.requestDriveAccess('', group)
+                  .then((session) => {
+                    store.updateCurrentUser({
+                      googleDriveSynced: true,
+                      googleEmail: session.email || user?.email || ''
+                    });
+                    store.enqueueMemoryDriveUpload(mem.id, group.id);
+                    UI.showToast(`☁️ Subiendo "${mem.title}" en segundo plano · Puedes seguir navegando`, 'info');
+                  })
+                  .catch(() => {
+                    store.navigate('settings');
+                    UI.showToast('Sincroniza tu cuenta con Google en ⚙️ Ajustes para subir recuerdos a Ruma 🌷', 'info');
+                  });
+                return;
               }
+              store.navigate('settings');
+              UI.showToast('Sincroniza tu cuenta con Google en ⚙️ Ajustes para subir recuerdos a Ruma 🌷', 'info');
               return;
             }
-            UI.showToast('Subiendo recuerdo a Google Drive...', 'info');
-            const res = await store.syncExistingMemoryToDrive(mem.id);
-            UI.showToast(res.ok ? '¡Subido a Google Drive! ☁️' : (res.error || 'No se pudo subir.'), res.ok ? 'success' : 'error');
+            store.enqueueMemoryDriveUpload(mem.id, group.id);
+            UI.showToast(`☁️ Subiendo "${mem.title}" en segundo plano · Puedes seguir navegando`, 'info');
           });
           document.getElementById('mm-del')?.addEventListener('click', () => {
             const res = store.deleteMemoryFromActiveGroup(mem.id);

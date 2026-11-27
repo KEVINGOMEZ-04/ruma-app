@@ -15,15 +15,15 @@ import { GoogleAuth } from '../services/google-auth.js';
 import { DriveBridge } from '../services/drive-bridge.js';
 import { UI } from './ui.js';
 
-function resolveCanManageDrive(group, isAdminParam) {
+function resolveCanManageDrive(group, isCreatorParam) {
   const user = store.getCurrentUser();
   if (!group || !user) return false;
-  const isRealAdmin = Entitlements.isGroupAdmin(group, user.id);
-  return isAdminParam === undefined ? isRealAdmin : Boolean(isAdminParam && isRealAdmin);
+  const isRealCreator = Entitlements.isGroupCreator(group, user.id);
+  return isCreatorParam === undefined ? isRealCreator : Boolean(isCreatorParam && isRealCreator);
 }
 
-export function renderDriveConnectionPanelHtml(group, isAdmin = undefined) {
-  const canManage = resolveCanManageDrive(group, isAdmin);
+export function renderDriveConnectionPanelHtml(group, isCreator = undefined) {
+  const canManage = resolveCanManageDrive(group, isCreator);
   const hasRealFolder = DriveBridge.isRealFolderConfigured(group?.driveFolderUrl);
   const safeFolderUrl = hasRealFolder ? Utils.safeUrl(group.driveFolderUrl, '') : '';
 
@@ -32,13 +32,13 @@ export function renderDriveConnectionPanelHtml(group, isAdmin = undefined) {
       <div style="display:flex;flex-direction:column;gap:0.9rem;">
         <div style="padding:1rem;border-radius:var(--radius-md);background:var(--bg-elevated);border:1px solid var(--border-subtle);display:flex;flex-direction:column;gap:0.65rem;">
           <div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;flex-wrap:wrap;">
-            <strong style="font-size:0.95rem;">🛡️ Solo administradores</strong>
+            <strong style="font-size:0.95rem;">👑 Solo el creador del grupo</strong>
             <span class="badge ${hasRealFolder ? 'badge-free' : 'badge-admin'}">
               ${hasRealFolder ? '📁 Carpeta Ruma 🌷 vinculada' : 'Pendiente de configurar'}
             </span>
           </div>
           <p style="margin:0;font-size:0.84rem;color:var(--text-secondary);line-height:1.45;">
-            Solo los miembros con rango de <strong>Administrador</strong> pueden conectar, crear, cambiar o desconectar la sincronización de la carpeta <strong>Ruma 🌷</strong> de Google Drive en este grupo.
+            Solo el <strong>Creador del grupo</strong> (dueño de la carpeta en Google Drive) puede iniciar sesión con Google Drive y activar, crear, cambiar o desconectar la carpeta <strong>Ruma 🌷</strong> de este grupo.
           </p>
           ${safeFolderUrl ? `
             <div style="display:flex;justify-content:flex-end;margin-top:0.25rem;">
@@ -141,21 +141,21 @@ export function bindDriveConnectionPanelEvents(rootEl, group, isAdmin = undefine
     feedbackEl.textContent = msg;
   };
 
-  const persistInputs = () => {
-    const cid = clientIdInput?.value.trim() || '';
-    const folderUrl = folderUrlInput?.value.trim() || '';
+  const persistInputs = ({ includeFolderUrl = false } = {}) => {
+    const cid = clientIdInput?.value.trim() || GoogleAuth.getClientId(group) || '';
+    const folderUrl = folderUrlInput ? folderUrlInput.value.trim() : (group?.driveFolderUrl || '');
     GoogleAuth.setClientId(cid);
     if (group) {
       const patch = { driveClientId: cid };
-      if (folderUrl) patch.driveFolderUrl = folderUrl;
+      if (includeFolderUrl) patch.driveFolderUrl = folderUrl;
       store.updateGroupSettings(group.id, patch);
     }
     return { cid, folderUrl };
   };
 
-  rootEl.querySelector('#btn-drive-google-login')?.addEventListener('click', async (e) => {
+  rootEl.querySelector('#btn-drive-google-login')?.addEventListener('click', (e) => {
     const btn = e.currentTarget;
-    const { cid } = persistInputs();
+    const { cid } = persistInputs({ includeFolderUrl: false });
     if (!cid || !cid.includes('.apps.googleusercontent.com')) {
       showFeedback('⚠️ La conexión con Google Drive no tiene un Client ID OAuth configurado en esta instalación.', true);
       return;
@@ -164,16 +164,19 @@ export function bindDriveConnectionPanelEvents(rootEl, group, isAdmin = undefine
     btn.disabled = true;
     const prevText = btn.textContent;
     btn.textContent = '⏳ Abriendo Google...';
-    try {
-      const session = await GoogleAuth.requestDriveAccess(cid, group);
-      UI.showToast(`¡Conectado con Google como ${session.name || session.email}! 🎉`, 'success');
-      if (typeof onUpdated === 'function') onUpdated();
-    } catch (err) {
-      showFeedback(`❌ No se pudo iniciar sesión con Google: ${err.message}`, true);
-    } finally {
-      btn.disabled = false;
-      btn.textContent = prevText;
-    }
+    // Llamada síncrona sin await previo para preservar el gesto táctil en iPhone / Safari iOS
+    GoogleAuth.requestDriveAccess(cid, group)
+      .then((session) => {
+        UI.showToast(`¡Conectado con Google como ${session.name || session.email}! 🎉`, 'success');
+        if (typeof onUpdated === 'function') onUpdated();
+      })
+      .catch((err) => {
+        showFeedback(`❌ No se pudo iniciar sesión con Google: ${err.message}`, true);
+      })
+      .finally(() => {
+        btn.disabled = false;
+        btn.textContent = prevText;
+      });
   });
 
   rootEl.querySelector('#btn-drive-google-logout')?.addEventListener('click', () => {
@@ -184,7 +187,7 @@ export function bindDriveConnectionPanelEvents(rootEl, group, isAdmin = undefine
 
   rootEl.querySelector('#btn-drive-create-auto-folder')?.addEventListener('click', async (e) => {
     const btn = e.currentTarget;
-    const { cid } = persistInputs();
+    const { cid } = persistInputs({ includeFolderUrl: false });
     if (!cid || !cid.includes('.apps.googleusercontent.com')) {
       showFeedback('⚠️ La conexión con Google Drive no tiene un Client ID OAuth configurado en esta instalación.', true);
       return;
@@ -198,7 +201,7 @@ export function bindDriveConnectionPanelEvents(rootEl, group, isAdmin = undefine
       if (folderUrlInput) folderUrlInput.value = created.webViewLink;
       if (group) {
         const res = store.updateGroupSettings(group.id, { driveFolderUrl: created.webViewLink, driveClientId: cid });
-        if (!res?.ok) throw new Error(res?.error || 'Solo los administradores pueden actualizar la carpeta.');
+        if (!res?.ok) throw new Error(res?.error || 'Solo el creador del grupo puede actualizar la carpeta.');
       }
       showFeedback(`✅ Carpeta "${created.name}" creada en tu Google Drive y vinculada automáticamente.`, false);
       UI.showToast('¡Carpeta creada y vinculada en tu Google Drive! 📁✨', 'success');
@@ -212,7 +215,7 @@ export function bindDriveConnectionPanelEvents(rootEl, group, isAdmin = undefine
 
   rootEl.querySelector('#btn-drive-test-connection')?.addEventListener('click', async (e) => {
     const btn = e.currentTarget;
-    const { cid, folderUrl } = persistInputs();
+    const { cid, folderUrl } = persistInputs({ includeFolderUrl: true });
     if (!cid || !cid.includes('.apps.googleusercontent.com')) {
       showFeedback('⚠️ La conexión con Google Drive no tiene un Client ID OAuth configurado en esta instalación.', true);
       return;
@@ -238,14 +241,14 @@ export function bindDriveConnectionPanelEvents(rootEl, group, isAdmin = undefine
   });
 
   rootEl.querySelector('#btn-drive-save-all')?.addEventListener('click', () => {
-    const { cid, folderUrl } = persistInputs();
+    const { cid, folderUrl } = persistInputs({ includeFolderUrl: true });
     if (group) {
       const res = store.updateGroupSettings(group.id, {
         driveClientId: cid,
         driveFolderUrl: folderUrl
       });
       if (!res?.ok) {
-        showFeedback(`❌ ${res?.error || 'Solo los administradores pueden guardar la configuración de Drive.'}`, true);
+        showFeedback(`❌ ${res?.error || 'Solo el creador del grupo puede guardar la configuración de Drive.'}`, true);
         return;
       }
     }

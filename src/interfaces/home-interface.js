@@ -71,7 +71,8 @@ export function renderHomeInterface(container) {
             </span>
           </div>
 
-          <div class="ruma-home-account-wrap" id="home-account-wrap">
+          <div class="ruma-home-account-wrap" id="home-account-wrap" style="display:inline-flex;align-items:center;gap:0.55rem;">
+            <span id="ruma-drive-upload-anchor" style="display:inline-flex;align-items:center;"></span>
             <button type="button" class="ruma-home-account-pill" id="btn-home-account-pill" title="Abrir mi Perfil">
               <img src="${Utils.sanitize(avatarSrc)}" alt="${Utils.sanitize(firstName)}" class="ruma-home-avatar">
               <div class="ruma-home-account-meta">
@@ -373,6 +374,35 @@ export function openCreateGroupModal(defaultPlan = 'free') {
     return;
   }
 
+  // Regla de producto: Para crear un grupo propio, el usuario debe estar sincronizado con Google desde Ajustes
+  if (!store.isUserGoogleDriveSynced(user)) {
+    UI.openModal({
+      title: '🔑 Sincroniza tu cuenta con Google en Ajustes',
+      contentHtml: `
+        <div style="display:flex;flex-direction:column;gap:0.95rem;">
+          <p style="color:var(--text-secondary);font-size:0.92rem;line-height:1.55;margin:0;">
+            Para crear un grupo en <strong>ruma</strong> (y ser el dueño de la carpeta de recuerdos <strong>Ruma 🌷</strong> en Google Drive), primero debes sincronizar tu cuenta con Google desde <strong>⚙️ Ajustes</strong>.
+          </p>
+          <div style="padding:0.85rem 1rem;border-radius:var(--radius-md);background:var(--bg-elevated);border:1px solid var(--border-subtle);font-size:0.83rem;color:var(--text-secondary);line-height:1.45;">
+            🌷 En Ajustes solo tendrás que pulsar <strong>«🔑 Sincronizar con Google»</strong> una vez y tu carpeta <strong>Ruma 🌷</strong> quedará lista automáticamente.
+          </div>
+          <div style="display:flex;justify-content:flex-end;gap:0.65rem;flex-wrap:wrap;margin-top:0.25rem;">
+            <button type="button" class="btn btn-secondary" id="btn-cancel-need-google">Cancelar</button>
+            <button type="button" class="btn btn-primary" id="btn-go-settings-google">⚙️ Ir a Ajustes ahora</button>
+          </div>
+        </div>
+      `,
+      onMount: () => {
+        document.getElementById('btn-cancel-need-google')?.addEventListener('click', () => UI.closeModal());
+        document.getElementById('btn-go-settings-google')?.addEventListener('click', () => {
+          UI.closeModal();
+          store.navigate('settings');
+        });
+      }
+    });
+    return;
+  }
+
   let selectedPlan = effectiveDefaultPlan;
 
   UI.openModal({
@@ -395,7 +425,7 @@ export function openCreateGroupModal(defaultPlan = 'free') {
             <div class="ruma-plan-option ${selectedPlan === 'free' ? 'selected' : ''}" data-select-plan="free">
               <div class="ruma-plan-option-title">🌱 Grupo Gratis</div>
               <div class="ruma-plan-option-desc">
-                Hasta 5 películas, 5 series y 5 canciones · Recuerdos en Drive · Cupo total: 2 grupos (1 creado + 1 unido).
+                Hasta 5 películas, 5 series y 5 canciones · Recuerdos en tu carpeta Ruma 🌷 · Cupo total: 2 grupos (1 creado + 1 unido).
               </div>
             </div>
             <div class="ruma-plan-option ${selectedPlan === 'premium' ? 'selected' : ''}" data-select-plan="premium" ${!allowSelfUpgrade ? 'style="opacity:0.62;"' : ''}>
@@ -407,12 +437,8 @@ export function openCreateGroupModal(defaultPlan = 'free') {
           </div>
         </div>
 
-        <div class="form-group" style="margin-bottom:0.5rem;">
-          <label class="form-label">Carpeta de Google Drive del grupo (opcional)</label>
-          <input type="url" id="create-grp-drive" class="form-input" placeholder="https://drive.google.com/drive/folders/...">
-          <small style="color:var(--text-muted);font-size:0.74rem;margin-top:0.25rem;display:block;">
-            Puedes pegarla ahora o vincularla después desde Ajustes cuando activen los Recuerdos.
-          </small>
+        <div style="padding:0.75rem 0.9rem;border-radius:var(--radius-sm);background:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.35);font-size:0.8rem;color:#34D399;margin-bottom:0.5rem;">
+          🟢 Tu cuenta de Google está sincronizada desde Ajustes · Los recuerdos se respaldarán en tu carpeta <strong>Ruma 🌷</strong>.
         </div>
 
         <div style="display:flex;justify-content:flex-end;gap:0.7rem;margin-top:1.35rem;">
@@ -441,7 +467,6 @@ export function openCreateGroupModal(defaultPlan = 'free') {
         const btn = document.getElementById('btn-submit-create-grp');
         const name = document.getElementById('create-grp-name')?.value;
         const description = document.getElementById('create-grp-desc')?.value;
-        const driveFolderUrl = document.getElementById('create-grp-drive')?.value;
 
         if (btn) {
           btn.disabled = true;
@@ -450,8 +475,9 @@ export function openCreateGroupModal(defaultPlan = 'free') {
         const res = await store.createGroupAsync({
           name,
           description,
-          driveFolderUrl,
-          plan: selectedPlan
+          driveFolderUrl: user?.googleDriveFolderUrl || '',
+          plan: selectedPlan,
+          requireGoogleSync: true
         });
         if (btn) {
           btn.disabled = false;

@@ -158,9 +158,19 @@ export async function openMovieDetailModal(group, movie, user, onQuote = null) {
             </div>
           </div>
         ` : ''}
+
+        <!-- Recuerdos vinculados con esta Película (Buscador con miniatura de portada y fecha) -->
+        ${(grp.memories || []).length > 0 ? `
+          <div style="padding:0.85rem 1rem;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:var(--radius-md);">
+            ${renderMemoryLinkerHtml(grp.memories || [], movie.linkedMemories || [], 'movie_detail')}
+          </div>
+        ` : ''}
       </div>
     `,
     onMount: (modalEl) => {
+      bindMemoryLinkerEvents(modalEl, 'movie_detail', (selectedIds) => {
+        store.updateMediaItem('movies', movie.id, { linkedMemories: selectedIds }, { silent: true });
+      });
       modalEl.querySelectorAll('[data-detail-mv-st]').forEach(btn => {
         btn.addEventListener('click', () => {
           const st = btn.getAttribute('data-detail-mv-st');
@@ -533,10 +543,80 @@ export function openLyricsModal(song) {
   });
 }
 
+function renderMemoryLinkerHtml(memories = [], selectedIds = [], prefix = 'memlink') {
+  if (!Array.isArray(memories) || memories.length === 0) return '';
+  const selectedSet = new Set(selectedIds || []);
+  return `
+    <div class="form-group" style="margin:0;" data-mem-linker="${prefix}">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.35rem;">
+        <label class="form-label" style="margin:0;">🎴 Vincular con Recuerdos del Grupo</label>
+        <span style="font-size:0.74rem;color:var(--brand-lilac-soft);font-weight:700;" data-mem-linker-count>${selectedSet.size} vinculado${selectedSet.size === 1 ? '' : 's'}</span>
+      </div>
+      <input type="search" class="form-input" data-mem-linker-search placeholder="🔍 Buscar recuerdo por nombre, fecha o lugar..." autocomplete="off" style="margin-bottom:0.45rem;font-size:0.8rem;padding:0.45rem 0.7rem;">
+      <div data-mem-linker-list style="display:flex;flex-direction:column;gap:0.4rem;max-height:165px;overflow-y:auto;padding:0.4rem;background:var(--surface-secondary);border:1px solid var(--border);border-radius:var(--radius-sm);">
+        ${memories.map(m => {
+          const isChecked = selectedSet.has(m.id);
+          const thumb = Utils.safeUrl(m.coverPreview || (m.photos && m.photos[0]) || 'assets/ruma_default_avatar.png', 'assets/ruma_default_avatar.png');
+          const searchBlob = `${m.title || ''} ${m.date || ''} ${m.location || ''} ${m.subfolderName || ''}`.toLowerCase();
+          return `
+            <label data-mem-linker-row data-search-blob="${Utils.sanitize(searchBlob)}" style="display:flex;align-items:center;justify-content:space-between;gap:0.6rem;padding:0.4rem 0.55rem;border-radius:var(--radius-xs);background:${isChecked ? 'rgba(168,85,247,0.16)' : 'var(--surface)'};border:1px solid ${isChecked ? 'var(--border-strong)' : 'var(--border)'};cursor:pointer;">
+              <div style="display:flex;align-items:center;gap:0.55rem;min-width:0;flex:1;">
+                <img src="${Utils.sanitize(thumb)}" alt="" style="width:36px;height:36px;border-radius:6px;object-fit:cover;flex-shrink:0;">
+                <div style="min-width:0;">
+                  <div style="font-weight:700;font-size:0.82rem;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${Utils.sanitize(m.title)}</div>
+                  <div style="font-size:0.72rem;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">📅 ${Utils.sanitize(m.date || '')}${m.location ? ` · 📍 ${Utils.sanitize(m.location)}` : ''}</div>
+                </div>
+              </div>
+              <input type="checkbox" data-mem-linker-cb value="${Utils.sanitize(m.id)}" ${isChecked ? 'checked' : ''} style="width:17px;height:17px;flex-shrink:0;accent-color:var(--brand-lilac);">
+            </label>
+          `;
+        }).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function bindMemoryLinkerEvents(rootEl, prefix = 'memlink', onChange = null) {
+  const wrap = rootEl?.querySelector(`[data-mem-linker="${prefix}"]`);
+  if (!wrap) return () => [];
+  const searchInp = wrap.querySelector('[data-mem-linker-search]');
+  const countEl = wrap.querySelector('[data-mem-linker-count]');
+  const rows = Array.from(wrap.querySelectorAll('[data-mem-linker-row]'));
+  const getSelectedIds = () =>
+    Array.from(wrap.querySelectorAll('[data-mem-linker-cb]:checked')).map(cb => cb.value);
+
+  const refreshStyles = () => {
+    const selected = getSelectedIds();
+    if (countEl) {
+      countEl.textContent = `${selected.length} vinculado${selected.length === 1 ? '' : 's'}`;
+    }
+    rows.forEach(row => {
+      const cb = row.querySelector('[data-mem-linker-cb]');
+      const on = Boolean(cb?.checked);
+      row.style.background = on ? 'rgba(168,85,247,0.16)' : 'var(--surface)';
+      row.style.borderColor = on ? 'var(--border-strong)' : 'var(--border)';
+    });
+    if (typeof onChange === 'function') onChange(selected);
+  };
+
+  wrap.querySelectorAll('[data-mem-linker-cb]').forEach(cb => {
+    cb.addEventListener('change', refreshStyles);
+  });
+
+  searchInp?.addEventListener('input', () => {
+    const q = (searchInp.value || '').trim().toLowerCase();
+    rows.forEach(row => {
+      const blob = row.getAttribute('data-search-blob') || '';
+      row.style.display = (!q || blob.includes(q)) ? 'flex' : 'none';
+    });
+  });
+
+  return getSelectedIds;
+}
+
 export function openEditSongModal(group, song) {
   if (!group || !song) return;
   const memories = group.memories || [];
-  const linkedSet = new Set(song.linkedMemories || []);
 
   UI.openModal({
     title: `✏️ Editar · ${song.title}`,
@@ -555,19 +635,7 @@ export function openEditSongModal(group, song) {
           <input type="text" id="edit-song-note" class="form-input" value="${Utils.sanitize(song.note || '')}" placeholder="Ej: La canción de nuestro viaje a la montaña 💫">
         </div>
 
-        ${memories.length > 0 ? `
-          <div class="form-group" style="margin:0;">
-            <label class="form-label">🎴 Recuerdos vinculados</label>
-            <div style="display:flex;gap:0.45rem;flex-wrap:wrap;max-height:130px;overflow-y:auto;padding:0.5rem;background:var(--surface-secondary);border:1px solid var(--border);border-radius:var(--radius-sm);">
-              ${memories.map(m => `
-                <label style="display:inline-flex;align-items:center;gap:0.35rem;font-size:0.78rem;cursor:pointer;background:var(--surface);border:1px solid var(--border);padding:0.28rem 0.58rem;border-radius:var(--radius-xs);color:var(--text-primary);">
-                  <input type="checkbox" name="edit_song_linked_memory" value="${Utils.sanitize(m.id)}" ${linkedSet.has(m.id) ? 'checked' : ''}>
-                  <span>📸 ${Utils.sanitize(m.title)}</span>
-                </label>
-              `).join('')}
-            </div>
-          </div>
-        ` : ''}
+        ${renderMemoryLinkerHtml(memories, song.linkedMemories || [], 'edit_song')}
 
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.55rem;">
           <button type="button" class="btn btn-secondary btn-sm" id="btn-cancel-edit-song" style="justify-content:center;">Cancelar</button>
@@ -576,11 +644,12 @@ export function openEditSongModal(group, song) {
       </form>
     `,
     onMount: (modalEl) => {
+      const getCheckedMems = bindMemoryLinkerEvents(modalEl, 'edit_song');
       document.getElementById('btn-cancel-edit-song')?.addEventListener('click', () => UI.closeModal());
       document.getElementById('form-edit-song')?.addEventListener('submit', (e) => {
         e.preventDefault();
         const note = document.getElementById('edit-song-note')?.value.trim() || '';
-        const checkedMems = Array.from(modalEl.querySelectorAll('input[name="edit_song_linked_memory"]:checked')).map(cb => cb.value);
+        const checkedMems = getCheckedMems();
         store.updateMediaItem('songs', song.id, { note, linkedMemories: checkedMems });
         UI.closeModal();
         UI.showToast('Canción actualizada 🎵', 'success');
@@ -636,19 +705,9 @@ export function openAddSongModal(group) {
           </div>
         </div>
 
-        ${memories.length > 0 ? `
-          <div class="form-group">
-            <label class="form-label">🎴 Vincular a Recuerdos del Grupo (Opcional)</label>
-            <div style="display:flex;gap:0.45rem;flex-wrap:wrap;max-height:85px;overflow-y:auto;padding:0.45rem;background:var(--surface-secondary);border:1px solid var(--border);border-radius:var(--radius-sm);">
-              ${memories.map(m => `
-                <label style="display:inline-flex;align-items:center;gap:0.35rem;font-size:0.78rem;cursor:pointer;background:var(--surface);border:1px solid var(--border);padding:0.25rem 0.55rem;border-radius:var(--radius-xs);color:var(--text-primary);">
-                  <input type="checkbox" name="song_linked_memory" value="${Utils.sanitize(m.id)}">
-                  <span>📸 ${Utils.sanitize(m.title)}</span>
-                </label>
-              `).join('')}
-            </div>
-          </div>
-        ` : ''}
+        <div style="margin-bottom:0.75rem;">
+          ${renderMemoryLinkerHtml(memories, [], 'add_song')}
+        </div>
 
         <div id="song-search-results" style="display:flex;flex-direction:column;gap:0.55rem;">
           <div style="text-align:center;padding:1.35rem 0.75rem;color:var(--text-secondary);font-size:0.85rem;">
@@ -661,6 +720,7 @@ export function openAddSongModal(group) {
       const form = document.getElementById('song-search-form');
       const inp = document.getElementById('song-search-inp');
       const resultsEl = document.getElementById('song-search-results');
+      const getAddSongCheckedMems = bindMemoryLinkerEvents(modalEl, 'add_song');
       let currentList = [];
 
       const paintStars = () => {
@@ -758,7 +818,7 @@ export function openAddSongModal(group) {
             const picked = list[Number(btn.getAttribute('data-pick-song'))];
             if (!picked) return;
             const note = document.getElementById('song-note-inp')?.value.trim() || '';
-            const checkedMems = Array.from(modalEl.querySelectorAll('input[name="song_linked_memory"]:checked')).map(cb => cb.value);
+            const checkedMems = getAddSongCheckedMems();
             const currentUser = store.getCurrentUser();
             const { id: rawItunesId, ...songMeta } = picked;
 

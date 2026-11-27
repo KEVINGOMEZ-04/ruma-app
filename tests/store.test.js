@@ -250,6 +250,141 @@ describe('Store Freemium guards, Series/Movies states & permissions (AUD-05, AUD
     expect(store.deleteMemoryFromActiveGroup('mem_laura').ok).toBe(true);
     expect(store.getActiveGroup().memories.map(m => m.id)).toEqual(['mem_kevin']);
   });
+
+  it('restricts Google Drive settings and Drive memory sync exclusively to the group creator (even if user is a promoted admin)', async () => {
+    const promotedAdmin = { id: 'u2', name: 'Laura Admin', username: 'laura', isPremium: false };
+    const creator = { id: 'u1', name: 'Kevin Creador', username: 'kevin', isPremium: false };
+    const group = {
+      id: 'g1',
+      name: 'Grupo',
+      code: 'DRV001',
+      plan: 'free',
+      creatorId: 'u1',
+      driveFolderUrl: '',
+      members: [
+        { id: 'u1', name: 'Kevin Creador', role: 'admin' },
+        { id: 'u2', name: 'Laura Admin', role: 'admin' }
+      ],
+      memories: [{ id: 'mem1', title: 'Paseo', date: '2026-11-26', authorId: 'u2', files: [] }]
+    };
+
+    // Promoted admin can edit group name/description, but NOT driveFolderUrl/driveClientId or sync to Drive
+    seedSession(promotedAdmin, [group], 'g1');
+    expect(store.updateGroupSettings('g1', { name: 'Nuevo Nombre' }).ok).toBe(true);
+    const blockedDrivePatch = store.updateGroupSettings('g1', { driveFolderUrl: 'https://drive.google.com/drive/folders/123456789' });
+    expect(blockedDrivePatch.ok).toBe(false);
+    expect(blockedDrivePatch.error).toMatch(/creador del grupo/i);
+
+    const blockedSync = await store.syncExistingMemoryToDrive('mem1');
+    expect(blockedSync.ok).toBe(false);
+    expect(blockedSync.error).toMatch(/creador del grupo/i);
+
+    // Group creator CAN update driveFolderUrl
+    seedSession(creator, [group], 'g1');
+    const allowedDrivePatch = store.updateGroupSettings('g1', { driveFolderUrl: 'https://drive.google.com/drive/folders/123456789' });
+    expect(allowedDrivePatch.ok).toBe(true);
+    expect(store.getActiveGroup().driveFolderUrl).toBe('https://drive.google.com/drive/folders/123456789');
+  });
+
+  it('requires Google synchronization from Settings before creating a group when requireGoogleSync is true', () => {
+    const unsyncedUser = { id: 'u_new', name: 'Nuevo', username: 'nuevo', isPremium: false };
+    seedSession(unsyncedUser, [], '');
+
+    const blocked = store.createGroup({ name: 'Grupo Sin Google', plan: 'free', requireGoogleSync: true });
+    expect(blocked.ok).toBe(false);
+    expect(blocked.needsGoogleSync).toBe(true);
+    expect(blocked.reason).toMatch(/Ajustes/i);
+
+    // Once user syncs Google in Settings -> creating group succeeds and inherits googleDriveFolderUrl
+    store.updateCurrentUser({
+      googleDriveSynced: true,
+      googleDriveFolderUrl: 'https://drive.google.com/drive/folders/ruma_from_settings'
+    });
+    const allowed = store.createGroup({ name: 'Grupo Con Google', plan: 'free', requireGoogleSync: true });
+    expect(allowed.ok).toBe(true);
+    expect(allowed.group.driveFolderUrl).toBe('https://drive.google.com/drive/folders/ruma_from_settings');
+  });
+
+  it('supports uploading a dedicated coverFile alongside linked album files in addMemoryToActiveGroup', async () => {
+    const { DriveBridge } = await import('../src/services/drive-bridge.js');
+    const user = { id: 'u1', name: 'Kevin', username: 'kevin', isPremium: true };
+    const group = {
+      id: 'g_cov',
+      name: 'Grupo Portada',
+      code: 'COV001',
+      plan: 'premium',
+      creatorId: 'u1',
+      members: [{ id: 'u1', name: 'Kevin', role: 'admin' }],
+      memories: []
+    };
+    seedSession(user, [group], 'g_cov');
+
+    const spy = vi.spyOn(DriveBridge, 'syncMemoryToDrive').mockImplementationOnce(async (_grp, payload, combinedFiles) => ({
+      id: 'mem_cov_1',
+      title: payload.title,
+      date: payload.date,
+      subfolderName: 'Viaje - Jueves 26 de noviembre de 2026',
+      driveSyncStatus: 'synced',
+      coverThumbnail: 'data:image/jpeg;base64,COVER_THUMB',
+      files: combinedFiles.map((f, idx) => ({
+        id: `f_${idx}`,
+        name: f.name,
+        type: f.type,
+        size: f.size,
+        isVideo: false,
+        isCover: Boolean(f.isCoverFile),
+        thumbnail: idx === 0 ? 'data:image/jpeg;base64,COVER_THUMB' : `data:image/jpeg;base64,LINKED_${idx}`
+      }))
+    }));
+
+    const coverFile = new File(['cover'], 'mi_portada.jpg', { type: 'image/jpeg' });
+    const linked1 = new File(['img1'], 'foto1.jpg', { type: 'image/jpeg' });
+    const linked2 = new File(['img2'], 'foto2.jpg', { type: 'image/jpeg' });
+
+    const res = await store.addMemoryToActiveGroup({
+      title: 'Salida a la playa',
+      date: '2026-11-26',
+      coverFile,
+      files: [linked1, linked2]
+    });
+
+    expect(res.ok).toBe(true);
+    expect(spy).toHaveBeenCalled();
+    expect(res.memory.coverPreview).toBe('data:image/jpeg;base64,COVER_THUMB');
+    expect(res.memory.files.length).toBe(3);
+    expect(res.memory.files[0].name).toBe('Portada.jpg');
+    expect(res.memory.files[0].isCover).toBe(true);
+    expect(res.memory.files.slice(1).map(f => f.name)).toEqual(['Salida a la playa 1.jpg', 'Salida a la playa 2.jpg']);
+  });
+
+  it('restricts memories to past/today dates and plans to today/future dates', async () => {
+    const user = { id: 'u1', name: 'Kevin', username: 'kevin', isPremium: true };
+    const group = {
+      id: 'g_dates',
+      name: 'Calendario',
+      code: 'CAL001',
+      plan: 'premium',
+      creatorId: 'u1',
+      members: [{ id: 'u1', name: 'Kevin', role: 'admin' }],
+      memories: [],
+      plans: []
+    };
+    seedSession(user, [group], 'g_dates');
+
+    const nowLocal = new Date();
+    const localToday = `${nowLocal.getFullYear()}-${String(nowLocal.getMonth() + 1).padStart(2, '0')}-${String(nowLocal.getDate()).padStart(2, '0')}`;
+
+    // Plan in the past -> rejected (null)
+    expect(store.addPlanToActiveGroup({ title: 'Plan Pasado', date: '2020-01-01', time: '18:00' })).toBeNull();
+    // Plan today and in the future -> allowed
+    expect(store.addPlanToActiveGroup({ title: 'Plan Hoy', date: localToday, time: '18:00' })?.title).toBe('Plan Hoy');
+    expect(store.addPlanToActiveGroup({ title: 'Plan Futuro', date: '2099-12-31', time: '20:00' })?.title).toBe('Plan Futuro');
+
+    // Memory in the future -> rejected
+    const futureMem = await store.addMemoryToActiveGroup({ title: 'Recuerdo Futuro', date: '2099-12-31', files: [] });
+    expect(futureMem.ok).toBe(false);
+    expect(futureMem.error).toMatch(/pasados o el día de hoy/i);
+  });
 });
 
 describe('iPhone / iOS Safari QuotaExceededError resilience & Base64 deduplication', () => {

@@ -23,7 +23,7 @@ export const PLAN_LIMITS = {
     maxSeriesPerGroup: 5,
     maxSongsPerGroup: 5,
     maxBooksPerGroup: 5,
-    maxFilesPerMemoryUpload: 10, // Sin límite de MB/GB porque va a Google Drive
+    maxFilesPerMemoryUpload: 30, // 1 Portada + hasta 30 fotos/videos enlazados por carga (sin límite de MB/GB en Drive)
     customThemes: false,
     premiumFrames: false
   },
@@ -35,7 +35,7 @@ export const PLAN_LIMITS = {
     maxSeriesPerGroup: Infinity,
     maxSongsPerGroup: Infinity,
     maxBooksPerGroup: Infinity,
-    maxFilesPerMemoryUpload: 50,
+    maxFilesPerMemoryUpload: 100, // 1 Portada + hasta 100 fotos/videos enlazados por carga
     customThemes: true,
     premiumFrames: true
   }
@@ -164,6 +164,14 @@ export const Entitlements = {
       current: currentList.length,
       max
     };
+  },
+
+  /**
+   * Verifica si un miembro es el Creador principal del grupo (propietario de la carpeta Ruma 🌷 en Google Drive)
+   */
+  isGroupCreator(group, userId) {
+    if (!group || !userId) return false;
+    return group.creatorId === userId;
   },
 
   /**

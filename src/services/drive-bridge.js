@@ -186,6 +186,7 @@ export const DriveBridge = {
   async syncMemory(group, memoryPayload, files = [], onProgress = null, options = {}) {
     if (!group) throw new Error('Grupo no especificado.');
     const allowCreateRootFolder = options.allowCreateRootFolder !== false;
+    const allowDriveUpload = options.allowDriveUpload !== false && !options.localOnly;
 
     const subfolderName = Utils.buildDriveSubfolderName(memoryPayload.title, memoryPayload.date);
     const memoryId = memoryPayload.id || Utils.generateId('mem');
@@ -242,20 +243,28 @@ export const DriveBridge = {
       });
     }
 
-    // 2. Subir a Google Drive si ya existe token activo de `drive.file`
+    // 2. Subir a Google Drive si el usuario es el creador del grupo (propietario de la carpeta `Ruma 🌷`)
     let driveSubfolder = null;
     let rootDriveFolderUrl = '';
     let driveSyncStatus = 'local_only'; // 'synced' | 'local_only' | 'error'
     let driveSyncError = '';
 
-    const rawFolderUrl = group.driveFolderUrl || group.driveFolderId || '';
+    const rawFolderUrl = group.driveFolderUrl || group.driveFolderId || options.userDriveFolderUrl || '';
     const hasRealFolder = this.isRealFolderConfigured(rawFolderUrl);
     let parentFolderId = hasRealFolder ? this.extractFolderId(rawFolderUrl) : '';
 
-    let token = GoogleAuth.getDriveAccessToken();
+    let token = allowDriveUpload ? GoogleAuth.getDriveAccessToken() : null;
     if (token && token.startsWith('demo_')) token = null;
+    if (!token && allowDriveUpload) {
+      try {
+        token = await this.ensureAccessToken(group, true);
+      } catch (authErr) {
+        driveSyncStatus = 'error';
+        driveSyncError = authErr?.message || 'No se pudo autorizar Google Drive.';
+      }
+    }
 
-    if (token && (parentFolderId || allowCreateRootFolder)) {
+    if (allowDriveUpload && token && (parentFolderId || allowCreateRootFolder)) {
       try {
         if (typeof onProgress === 'function') {
           onProgress({
@@ -265,10 +274,25 @@ export const DriveBridge = {
           });
         }
 
+        // Si había una carpeta configurada pero fue borrada o no fue creada por esta app (`drive.file`),
+        // verificarla primero y, si el creador tiene permiso, re-vincular automáticamente con `Ruma 🌷`
+        if (parentFolderId) {
+          try {
+            await DriveResumableUploader.verifyFolderAccess(token, parentFolderId);
+          } catch (_) {
+            if (allowCreateRootFolder) {
+              parentFolderId = '';
+            }
+          }
+        }
+
+        // Si el grupo aún no tenía carpeta vinculada, buscar o crear `Ruma 🌷`
         if (!parentFolderId) {
           const rootFolder = await DriveResumableUploader.createRootGroupFolder(token);
           parentFolderId = rootFolder.id;
           rootDriveFolderUrl = rootFolder.webViewLink;
+        } else if (!group.driveFolderUrl && rawFolderUrl) {
+          rootDriveFolderUrl = this.getFolderWebUrl(rawFolderUrl);
         }
 
         driveSubfolder = await DriveResumableUploader.createSubfolder(token, parentFolderId, subfolderName);
@@ -328,8 +352,25 @@ export const DriveBridge = {
             const mime = voiceBlob.type || 'audio/mp4';
             const ext = mime.includes('mp4') || mime.includes('aac') ? 'm4a' : (mime.includes('ogg') ? 'ogg' : 'webm');
             const voiceFile = new File([voiceBlob], `Nota_de_Voz.${ext}`, { type: mime });
-            await DriveResumableUploader.uploadMultipartFile(token, driveSubfolder.id, voiceFile).catch(() => {});
+            const voiceUp = await DriveResumableUploader.uploadMultipartFile(token, driveSubfolder.id, voiceFile).catch(() => null);
+            if (voiceUp?.id) {
+              memoryPayload.driveVoiceFileId = voiceUp.id;
+            }
           }
+        }
+
+        // Guardar siempre una ficha de texto con la historia, fecha y ubicación dentro de la subcarpeta del recuerdo
+        if (memoryPayload.description || memoryPayload.title) {
+          const summaryLines = [
+            `Recuerdo: ${memoryPayload.title || 'Recuerdo'}`,
+            `Fecha: ${Utils.formatFullSpanishDate(memoryPayload.date)} (${memoryPayload.date || ''})`,
+            memoryPayload.authorName ? `Autor: ${memoryPayload.authorName}` : '',
+            '',
+            memoryPayload.description || ''
+          ].filter((l, idx) => idx >= 3 || Boolean(l)).join('\n');
+          const noteBlob = new Blob([summaryLines], { type: 'text/plain;charset=utf-8' });
+          const noteFile = new File([noteBlob], 'Historia_del_Recuerdo.txt', { type: 'text/plain;charset=utf-8' });
+          await DriveResumableUploader.uploadMultipartFile(token, driveSubfolder.id, noteFile).catch(() => {});
         }
 
         driveSyncStatus = 'synced';
@@ -355,15 +396,17 @@ export const DriveBridge = {
       rootDriveFolderUrl,
       driveSubfolderId: driveSubfolder?.id || '',
       driveSubfolderUrl: driveSubfolder?.webViewLink || '',
+      driveVoiceFileId: memoryPayload.driveVoiceFileId || '',
       driveSyncStatus,
       driveSyncError,
       coverThumbnail,
-      files: processedFiles.map(f => ({
+      files: processedFiles.map((f, idx) => ({
         id: f.id,
         name: f.name,
         type: f.type,
         size: f.size,
         isVideo: f.isVideo,
+        isCover: Boolean(f.originalFile?.isCoverFile || (options.hasExplicitCover && idx === 0)),
         thumbnail: f.thumbnail,
         driveFileId: f.driveFileId || '',
         driveViewLink: f.driveViewLink || ''
@@ -408,42 +451,87 @@ export const DriveBridge = {
       }
     }
     if (!driveSubfolder) {
-      if (!parentFolderId) {
+      if (parentFolderId) {
+        try {
+          driveSubfolder = await DriveResumableUploader.createSubfolder(token, parentFolderId, subfolderName);
+        } catch (subErr) {
+          if (!allowCreateRootFolder) throw subErr;
+          parentFolderId = '';
+        }
+      }
+      if (!driveSubfolder) {
         if (!allowCreateRootFolder) {
-          throw new Error('Solo los Administradores del grupo pueden crear o vincular la carpeta Ruma 🌷 de Google Drive.');
+          throw new Error('Solo el creador del grupo (dueño de la carpeta en Google Drive) puede activar o crear la carpeta Ruma 🌷.');
         }
         const rootFolder = await DriveResumableUploader.createRootGroupFolder(token);
         parentFolderId = rootFolder.id;
         rootDriveFolderUrl = rootFolder.webViewLink;
+        driveSubfolder = await DriveResumableUploader.createSubfolder(token, parentFolderId, subfolderName);
       }
-      driveSubfolder = await DriveResumableUploader.createSubfolder(token, parentFolderId, subfolderName);
     }
 
     const updatedFiles = [...(memory.files || [])];
+    const emitCheckpoint = () => {
+      if (typeof options.onCheckpoint === 'function') {
+        try {
+          options.onCheckpoint({
+            subfolderName,
+            rootDriveFolderUrl,
+            driveSubfolderId: driveSubfolder?.id || memory.driveSubfolderId || '',
+            driveUrl: driveSubfolder?.webViewLink || memory.driveUrl || '',
+            files: updatedFiles
+          });
+        } catch (_) {}
+      }
+    };
+    emitCheckpoint();
+
     let uploadedOrAlreadySyncedCount = 0;
     let missingOriginalCount = 0;
 
-    // 1. Si hay archivos en IndexedDB, subir solo los que aún no tienen driveFileId
+    const cleanMemTitle = String(memory.title || 'Recuerdo')
+      .replace(/[\\/:*?"<>|]/g, '')
+      .trim() || 'Recuerdo';
+
+    // 1. Si hay archivos en IndexedDB, subir solo los que aún no tienen driveFileId (reanudando desde el punto exacto)
     if (updatedFiles.length > 0) {
+      let linkedSeq = 0;
       for (let i = 0; i < updatedFiles.length; i++) {
         const fMeta = updatedFiles[i];
+        const isCoverItem = Boolean(fMeta?.isCover || /^Portada(\.|_)/i.test(String(fMeta?.name || '')));
+        if (!isCoverItem) linkedSeq++;
         if (fMeta?.driveFileId) {
           uploadedOrAlreadySyncedCount++;
+          if (typeof onProgress === 'function') {
+            onProgress({
+              stage: 'drive_upload',
+              fileIndex: i + 1,
+              totalFiles: updatedFiles.length,
+              percent: Math.round(((i + 1) / Math.max(updatedFiles.length, 1)) * 100),
+              fileName: fMeta.name || ''
+            });
+          }
           continue;
         }
+        const rawExtMatch = String(fMeta?.name || '').match(/\.([a-zA-Z0-9]+)$/);
+        const ext = rawExtMatch ? rawExtMatch[1] : (fMeta?.isVideo ? 'mp4' : 'jpg');
+        const targetFileName = isCoverItem
+          ? `Portada.${ext}`
+          : `${cleanMemTitle} ${linkedSeq}.${ext}`;
+
         const record = await MediaStorage.getMedia(fMeta.id);
         let fileObj = null;
         if (record?.blob) {
-          fileObj = record.blob instanceof File
-            ? record.blob
-            : new File([record.blob], fMeta.name || `Archivo_${i + 1}`, { type: fMeta.type || record.blob.type || 'application/octet-stream' });
+          fileObj = new File([record.blob], targetFileName, {
+            type: fMeta.type || record.blob.type || 'application/octet-stream'
+          });
         } else if (fMeta.thumbnail && !fMeta.isVideo) {
           // Solo usar miniatura como respaldo para imágenes (nunca disfrazar un JPEG como vídeo .mp4)
           const thumbBlob = this.dataUrlToBlob(fMeta.thumbnail);
           if (thumbBlob) {
-            const safeBaseName = String(fMeta.name || `Foto_${i + 1}`).replace(/\.[^.]+$/, '');
-            const ext = (thumbBlob.type || '').includes('png') ? 'png' : 'jpg';
-            fileObj = new File([thumbBlob], `${safeBaseName}.${ext}`, { type: thumbBlob.type || 'image/jpeg' });
+            const thumbExt = (thumbBlob.type || '').includes('png') ? 'png' : 'jpg';
+            const thumbName = isCoverItem ? `Portada.${thumbExt}` : `${cleanMemTitle} ${linkedSeq}.${thumbExt}`;
+            fileObj = new File([thumbBlob], thumbName, { type: thumbBlob.type || 'image/jpeg' });
           }
         }
 
@@ -452,22 +540,40 @@ export const DriveBridge = {
           continue;
         }
 
-        const uploaded = await DriveResumableUploader.uploadLargeFile(token, driveSubfolder.id, fileObj, (p) => {
-          if (typeof onProgress === 'function') {
-            onProgress({
-              stage: 'drive_upload',
-              fileIndex: i + 1,
-              totalFiles: updatedFiles.length,
-              ...p
-            });
+        const uploaded = await DriveResumableUploader.uploadLargeFile(
+          token,
+          driveSubfolder.id,
+          fileObj,
+          (p) => {
+            if (typeof onProgress === 'function') {
+              const fileWeight = 1 / Math.max(updatedFiles.length, 1);
+              const overallPct = Math.min(99, Math.max(15, Math.round((i * fileWeight + ((Number(p.percent) || 0) / 100) * fileWeight) * 100)));
+              onProgress({
+                stage: 'drive_upload',
+                fileIndex: i + 1,
+                totalFiles: updatedFiles.length,
+                ...p,
+                percent: overallPct
+              });
+            }
+          },
+          {
+            resumeUrl: fMeta.driveResumeUrl || '',
+            onSessionUrl: (sessionUrl) => {
+              updatedFiles[i] = { ...updatedFiles[i], driveResumeUrl: sessionUrl || '' };
+              emitCheckpoint();
+            }
           }
-        });
+        );
         updatedFiles[i] = {
           ...fMeta,
+          name: fileObj.name,
           driveFileId: uploaded.id,
-          driveViewLink: uploaded.webViewLink
+          driveViewLink: uploaded.webViewLink,
+          driveResumeUrl: ''
         };
         uploadedOrAlreadySyncedCount++;
+        emitCheckpoint();
       }
 
       if (uploadedOrAlreadySyncedCount === 0 && missingOriginalCount > 0) {
@@ -480,7 +586,10 @@ export const DriveBridge = {
         const blob = this.dataUrlToBlob(photoStr);
         if (blob) {
           const ext = (blob.type || '').includes('png') ? 'png' : 'jpg';
-          const fileObj = new File([blob], `Foto_${i + 1}.${ext}`, { type: blob.type || 'image/jpeg' });
+          const photoName = i === 0 && memory.photos.length > 1
+            ? `Portada.${ext}`
+            : `${cleanMemTitle} ${i + 1}.${ext}`;
+          const fileObj = new File([blob], photoName, { type: blob.type || 'image/jpeg' });
           const uploaded = await DriveResumableUploader.uploadMultipartFile(token, driveSubfolder.id, fileObj);
           updatedFiles.push({
             id: Utils.generateId('blob'),
@@ -492,6 +601,7 @@ export const DriveBridge = {
             driveFileId: uploaded.id,
             driveViewLink: uploaded.webViewLink
           });
+          emitCheckpoint();
         }
       }
     }
@@ -506,6 +616,22 @@ export const DriveBridge = {
         if (voiceUp?.id) {
           memory.driveVoiceFileId = voiceUp.id;
         }
+      }
+    }
+
+    if ((memory.description || memory.title) && !memory.driveNoteUploaded) {
+      const summaryLines = [
+        `Recuerdo: ${memory.title || 'Recuerdo'}`,
+        `Fecha: ${Utils.formatFullSpanishDate(memory.date)} (${memory.date || ''})`,
+        memory.authorName ? `Autor: ${memory.authorName}` : '',
+        '',
+        memory.description || ''
+      ].filter((l, idx) => idx >= 3 || Boolean(l)).join('\n');
+      const noteBlob = new Blob([summaryLines], { type: 'text/plain;charset=utf-8' });
+      const noteFile = new File([noteBlob], 'Historia_del_Recuerdo.txt', { type: 'text/plain;charset=utf-8' });
+      const noteUp = await DriveResumableUploader.uploadMultipartFile(token, driveSubfolder.id, noteFile).catch(() => null);
+      if (noteUp?.id) {
+        memory.driveNoteUploaded = true;
       }
     }
 

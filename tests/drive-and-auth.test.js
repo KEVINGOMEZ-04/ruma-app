@@ -291,11 +291,12 @@ describe('Google OAuth minimal scopes, Ruma 🌷 root folder & Drive HD streamin
     URL.revokeObjectURL(hdRes.url);
   });
 
-  it('blocks non-admin members from creating/linking the group Drive folder or rendering Drive config controls', async () => {
+  it('allows only the group creator to activate/manage the group Google Drive folder and blocks non-creator admins/members', async () => {
     const { DriveBridge } = await import('../src/services/drive-bridge.js');
     const { renderDriveConnectionPanelHtml } = await import('../src/components/drive-connect-modal.js');
+    const { Entitlements } = await import('../src/core/entitlements.js');
 
-    // Non-admin cannot auto-create Ruma 🌷 root folder via syncExistingMemoryToDrive
+    // Non-creator cannot auto-create Ruma 🌷 root folder via syncExistingMemoryToDrive
     localStorage.setItem(CONFIG.storageKeys.driveAuthSession, JSON.stringify({
       accessToken: 'tok_drive_member',
       email: 'member@example.com',
@@ -303,19 +304,228 @@ describe('Google OAuth minimal scopes, Ruma 🌷 root folder & Drive HD streamin
       expiresAt: Date.now() + 60_000
     }));
 
-    const unlinkedGroup = { id: 'g_no_drive', name: 'Grupo Sin Drive', driveFolderUrl: '', creatorId: 'u_admin', admins: ['u_admin'], members: [{ id: 'u_admin', role: 'admin' }, { id: 'u_member', role: 'member' }] };
+    const unlinkedGroup = {
+      id: 'g_no_drive',
+      name: 'Grupo Sin Drive',
+      driveFolderUrl: '',
+      creatorId: 'u_creator',
+      members: [
+        { id: 'u_creator', role: 'admin' },
+        { id: 'u_promoted_admin', role: 'admin' },
+        { id: 'u_member', role: 'member' }
+      ]
+    };
     const mem = { id: 'm1', title: 'Foto', date: '2026-11-26', files: [] };
+
+    expect(Entitlements.isGroupCreator(unlinkedGroup, 'u_creator')).toBe(true);
+    expect(Entitlements.isGroupCreator(unlinkedGroup, 'u_promoted_admin')).toBe(false);
+    expect(Entitlements.isGroupAdmin(unlinkedGroup, 'u_promoted_admin')).toBe(true);
 
     await expect(
       DriveBridge.syncExistingMemoryToDrive(unlinkedGroup, mem, null, { allowCreateRootFolder: false })
-    ).rejects.toThrow(/Administradores/i);
+    ).rejects.toThrow(/creador del grupo/i);
 
-    // Non-admin panel HTML is strictly read-only with zero config inputs/buttons
-    const nonAdminHtml = renderDriveConnectionPanelHtml(unlinkedGroup, false);
-    expect(nonAdminHtml).toContain('Solo administradores');
-    expect(nonAdminHtml).not.toContain('inp-drive-folder-url');
-    expect(nonAdminHtml).not.toContain('btn-drive-create-auto-folder');
-    expect(nonAdminHtml).not.toContain('btn-drive-save-all');
-    expect(nonAdminHtml).not.toContain('btn-drive-google-login');
+    // Non-creator panel HTML is strictly read-only with zero config inputs/buttons
+    const nonCreatorHtml = renderDriveConnectionPanelHtml(unlinkedGroup, false);
+    expect(nonCreatorHtml).toContain('Solo el creador del grupo');
+    expect(nonCreatorHtml).not.toContain('inp-drive-folder-url');
+    expect(nonCreatorHtml).not.toContain('btn-drive-create-auto-folder');
+    expect(nonCreatorHtml).not.toContain('btn-drive-save-all');
+    expect(nonCreatorHtml).not.toContain('btn-drive-google-login');
+  });
+
+  it('auto-heals an inaccessible manual driveFolderUrl to Ruma 🌷 and saves Historia_del_Recuerdo.txt when the group creator uploads a memory', async () => {
+    const { DriveBridge } = await import('../src/services/drive-bridge.js');
+
+    localStorage.setItem(CONFIG.storageKeys.driveAuthSession, JSON.stringify({
+      accessToken: 'tok_creator_drive',
+      email: 'creator@example.com',
+      hasDriveScope: true,
+      expiresAt: Date.now() + 60_000
+    }));
+
+    vi.spyOn(DriveResumableUploader, 'verifyFolderAccess').mockRejectedValueOnce(new Error('Permiso denegado 404'));
+    const rootSpy = vi.spyOn(DriveResumableUploader, 'createRootGroupFolder').mockResolvedValueOnce({
+      id: 'ruma_root_auto_1',
+      name: 'Ruma 🌷',
+      webViewLink: 'https://drive.google.com/drive/folders/ruma_root_auto_1'
+    });
+    const subSpy = vi.spyOn(DriveResumableUploader, 'createSubfolder').mockResolvedValueOnce({
+      id: 'sub_mem_1',
+      name: 'Cena - Jueves 26 de noviembre de 2026',
+      webViewLink: 'https://drive.google.com/drive/folders/sub_mem_1'
+    });
+    const multiSpy = vi.spyOn(DriveResumableUploader, 'uploadMultipartFile').mockResolvedValue({
+      id: 'txt_1',
+      name: 'Historia_del_Recuerdo.txt',
+      webViewLink: 'https://drive.google.com/file/d/txt_1/view'
+    });
+
+    const groupWithOldUrl = {
+      id: 'g_creator',
+      name: 'Grupo',
+      creatorId: 'u_creator',
+      driveFolderUrl: 'https://drive.google.com/drive/folders/external_unaccessible_folder'
+    };
+
+    const res = await DriveBridge.syncMemory(
+      groupWithOldUrl,
+      { title: 'Cena', date: '2026-11-26', description: 'Noche especial', authorId: 'u_creator', authorName: 'Kevin' },
+      [],
+      null,
+      { allowCreateRootFolder: true, allowDriveUpload: true }
+    );
+
+    expect(rootSpy).toHaveBeenCalledWith('tok_creator_drive');
+    expect(subSpy).toHaveBeenCalledWith('tok_creator_drive', 'ruma_root_auto_1', expect.stringContaining('Cena'));
+    expect(multiSpy).toHaveBeenCalled();
+    expect(res.driveSyncStatus).toBe('synced');
+    expect(res.rootDriveFolderUrl).toBe('https://drive.google.com/drive/folders/ruma_root_auto_1');
+  });
+
+  it('resumes a paused large file upload from the exact byte offset using resumeUrl and persists checkpoints', async () => {
+    const { DriveBridge } = await import('../src/services/drive-bridge.js');
+    const { MediaStorage } = await import('../src/services/media-storage.js');
+
+    const fileSize = 6 * 1024 * 1024;
+    const bigFile = new Blob([new Uint8Array(fileSize)], { type: 'video/mp4' });
+    bigFile.name = 'Salida a la playa 1.mp4';
+
+    const rangesSent = [];
+    const sessionCallbacks = [];
+    let callCount = 0;
+
+    globalThis.fetch = vi.fn(async (_url, opts) => {
+      callCount++;
+      rangesSent.push(opts.headers['Content-Range']);
+      if (callCount === 1) {
+        // 1) Status probe (`bytes */6291456`) returns 308 with Range 0-5242879 (5 MB already uploaded before internet dropped)
+        return {
+          ok: false,
+          status: 308,
+          headers: new Headers({ Range: 'bytes=0-5242879' })
+        };
+      }
+      // 2) Remaining 1 MB chunk finishes the upload
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          id: 'resumed_vid_1',
+          name: 'Salida a la playa 1.mp4',
+          webViewLink: 'https://drive.google.com/file/d/resumed_vid_1/view'
+        })
+      };
+    });
+
+    const res = await DriveResumableUploader.uploadLargeFile(
+      'tok_123',
+      'folder_1',
+      bigFile,
+      null,
+      {
+        resumeUrl: 'https://upload.example/existing_session_99',
+        onSessionUrl: (u) => sessionCallbacks.push(u)
+      }
+    );
+
+    expect(res.id).toBe('resumed_vid_1');
+    expect(rangesSent[0]).toBe(`bytes */${fileSize}`);
+    expect(rangesSent[1]).toBe(`bytes 5242880-${fileSize - 1}/${fileSize}`);
+    expect(sessionCallbacks).toContain('');
+
+    // Verify DriveBridge.syncExistingMemoryToDrive emits onCheckpoint after each file so interrupted uploads resume without re-uploading completed files
+    localStorage.setItem(CONFIG.storageKeys.driveAuthSession, JSON.stringify({
+      accessToken: 'tok_creator_drive',
+      email: 'creator@example.com',
+      hasDriveScope: true,
+      expiresAt: Date.now() + 60_000
+    }));
+
+    vi.spyOn(DriveResumableUploader, 'verifyFolderAccess').mockResolvedValue({
+      id: 'sub_playa',
+      name: 'Salida a la playa',
+      webViewLink: 'https://drive.google.com/drive/folders/sub_playa'
+    });
+    vi.spyOn(MediaStorage, 'getMedia').mockResolvedValue({
+      blob: new Blob(['img-bytes'], { type: 'image/jpeg' })
+    });
+    vi.spyOn(DriveResumableUploader, 'uploadLargeFile').mockResolvedValueOnce({
+      id: 'file_2_drive_id',
+      name: 'Salida a la playa 1.jpg',
+      webViewLink: 'https://drive.google.com/file/d/file_2_drive_id/view'
+    });
+    vi.spyOn(DriveResumableUploader, 'uploadMultipartFile').mockResolvedValue({
+      id: 'txt_id',
+      name: 'Historia_del_Recuerdo.txt'
+    });
+
+    const checkpoints = [];
+    const group = { id: 'g1', creatorId: 'u1', driveFolderUrl: 'https://drive.google.com/drive/folders/root_1' };
+    const mem = {
+      id: 'm_playa',
+      title: 'Salida a la playa',
+      date: '2026-11-26',
+      driveSubfolderId: 'sub_playa',
+      files: [
+        { id: 'loc_cover', name: 'Portada.jpg', isCover: true, driveFileId: 'already_uploaded_cover' },
+        { id: 'loc_1', name: 'Salida a la playa 1.jpg', isCover: false, driveFileId: '' }
+      ]
+    };
+
+    const synced = await DriveBridge.syncExistingMemoryToDrive(group, mem, null, {
+      allowCreateRootFolder: true,
+      onCheckpoint: (cp) => checkpoints.push(JSON.parse(JSON.stringify(cp)))
+    });
+
+    expect(synced.driveSyncStatus).toBe('synced');
+    expect(synced.files[0].driveFileId).toBe('already_uploaded_cover');
+    expect(synced.files[1].driveFileId).toBe('file_2_drive_id');
+    expect(checkpoints.length).toBeGreaterThanOrEqual(2);
+    expect(checkpoints[checkpoints.length - 1].files[1].driveFileId).toBe('file_2_drive_id');
+  });
+
+  it('triggers system notifications for incoming remote chat messages and memories via AppNativeService', async () => {
+    const { AppNativeService } = await import('../src/services/app-native.js');
+    AppNativeService._seenEventIds.clear();
+    AppNativeService.updatePreferences({
+      notificationsEnabled: true,
+      notifyChat: true,
+      notifyMemories: true,
+      notifyPlans: true
+    });
+
+    const notifSpy = vi.spyOn(AppNativeService, 'sendSystemNotification').mockResolvedValue(true);
+
+    const mockStore = {
+      currentInterface: 'hub',
+      currentGroupTab: 'home',
+      getCurrentUser: () => ({ id: 'u_me', name: 'Kevin' }),
+      getActiveGroup: () => ({ id: 'g1', name: 'Grupo Ruma' })
+    };
+
+    AppNativeService.inspectRemoteUpdatesForNotifications(mockStore, [
+      {
+        id: 'g1',
+        name: 'Grupo Ruma',
+        creatorId: 'u_me',
+        members: [{ id: 'u_me' }, { id: 'u_friend' }],
+        messages: [
+          { id: 'msg_new_1', authorId: 'u_friend', authorName: 'Ana', text: '¡Hola equipo!' }
+        ],
+        memories: [
+          { id: 'mem_new_1', authorId: 'u_friend', authorName: 'Ana', title: 'Salida a la playa' }
+        ],
+        plans: []
+      }
+    ]);
+
+    expect(notifSpy).toHaveBeenCalledTimes(2);
+    expect(notifSpy).toHaveBeenCalledWith(expect.objectContaining({
+      title: expect.stringContaining('Ana en Grupo Ruma')
+    }));
+    expect(notifSpy).toHaveBeenCalledWith(expect.objectContaining({
+      title: expect.stringContaining('Nuevo recuerdo en Grupo Ruma')
+    }));
   });
 });
