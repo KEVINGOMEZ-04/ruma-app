@@ -167,6 +167,14 @@ export const Entitlements = {
   },
 
   /**
+   * Verifica si un miembro es el Creador principal del grupo (propietario de la carpeta Ruma 🌷 en Google Drive)
+   */
+  isGroupCreator(group, userId) {
+    if (!group || !userId) return false;
+    return group.creatorId === userId;
+  },
+
+  /**
    * Verifica si un miembro tiene rango Administrador en el grupo
    */
   isGroupAdmin(group, userId) {

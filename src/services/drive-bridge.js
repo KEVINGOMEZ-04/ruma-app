@@ -185,6 +185,7 @@ export const DriveBridge = {
   async syncMemory(group, memoryPayload, files = [], onProgress = null, options = {}) {
     if (!group) throw new Error('Grupo no especificado.');
     const allowCreateRootFolder = options.allowCreateRootFolder !== false;
+    const allowDriveUpload = options.allowDriveUpload !== false;
 
     const subfolderName = Utils.buildDriveSubfolderName(memoryPayload.title, memoryPayload.date);
     const memoryId = memoryPayload.id || Utils.generateId('mem');
@@ -224,7 +225,7 @@ export const DriveBridge = {
       });
     }
 
-    // 2. Subir a Google Drive si ya existe token activo de `drive.file`
+    // 2. Subir a Google Drive si el creador del grupo tiene token activo de `drive.file`
     // (No abrir popup tras `await` para evitar bloqueos de Safari iOS)
     let driveSubfolder = null;
     let rootDriveFolderUrl = '';
@@ -235,10 +236,10 @@ export const DriveBridge = {
     const hasRealFolder = this.isRealFolderConfigured(rawFolderUrl);
     let parentFolderId = hasRealFolder ? this.extractFolderId(rawFolderUrl) : '';
 
-    let token = GoogleAuth.getDriveAccessToken();
+    let token = allowDriveUpload ? GoogleAuth.getDriveAccessToken() : null;
     if (token && token.startsWith('demo_')) token = null;
 
-    if (token && (parentFolderId || allowCreateRootFolder)) {
+    if (allowDriveUpload && token && (parentFolderId || allowCreateRootFolder)) {
       try {
         if (typeof onProgress === 'function') {
           onProgress({
@@ -248,7 +249,7 @@ export const DriveBridge = {
           });
         }
 
-        // Si el grupo aún no tenía carpeta vinculada, solo un administrador puede buscar/crear `Ruma 🌷`
+        // Si el grupo aún no tenía carpeta vinculada, solo el creador del grupo puede buscar/crear `Ruma 🌷`
         if (!parentFolderId) {
           const rootFolder = await DriveResumableUploader.createRootGroupFolder(token);
           parentFolderId = rootFolder.id;
@@ -370,7 +371,7 @@ export const DriveBridge = {
     if (!driveSubfolder) {
       if (!parentFolderId) {
         if (!allowCreateRootFolder) {
-          throw new Error('Solo los Administradores del grupo pueden crear o vincular la carpeta Ruma 🌷 de Google Drive.');
+          throw new Error('Solo el creador del grupo (dueño de la carpeta en Google Drive) puede activar o crear la carpeta Ruma 🌷.');
         }
         const rootFolder = await DriveResumableUploader.createRootGroupFolder(token);
         parentFolderId = rootFolder.id;

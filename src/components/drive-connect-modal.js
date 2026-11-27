@@ -15,15 +15,15 @@ import { GoogleAuth } from '../services/google-auth.js';
 import { DriveBridge } from '../services/drive-bridge.js';
 import { UI } from './ui.js';
 
-function resolveCanManageDrive(group, isAdminParam) {
+function resolveCanManageDrive(group, isCreatorParam) {
   const user = store.getCurrentUser();
   if (!group || !user) return false;
-  const isRealAdmin = Entitlements.isGroupAdmin(group, user.id);
-  return isAdminParam === undefined ? isRealAdmin : Boolean(isAdminParam && isRealAdmin);
+  const isRealCreator = Entitlements.isGroupCreator(group, user.id);
+  return isCreatorParam === undefined ? isRealCreator : Boolean(isCreatorParam && isRealCreator);
 }
 
-export function renderDriveConnectionPanelHtml(group, isAdmin = undefined) {
-  const canManage = resolveCanManageDrive(group, isAdmin);
+export function renderDriveConnectionPanelHtml(group, isCreator = undefined) {
+  const canManage = resolveCanManageDrive(group, isCreator);
   const hasRealFolder = DriveBridge.isRealFolderConfigured(group?.driveFolderUrl);
   const safeFolderUrl = hasRealFolder ? Utils.safeUrl(group.driveFolderUrl, '') : '';
 
@@ -32,13 +32,13 @@ export function renderDriveConnectionPanelHtml(group, isAdmin = undefined) {
       <div style="display:flex;flex-direction:column;gap:0.9rem;">
         <div style="padding:1rem;border-radius:var(--radius-md);background:var(--bg-elevated);border:1px solid var(--border-subtle);display:flex;flex-direction:column;gap:0.65rem;">
           <div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;flex-wrap:wrap;">
-            <strong style="font-size:0.95rem;">🛡️ Solo administradores</strong>
+            <strong style="font-size:0.95rem;">👑 Solo el creador del grupo</strong>
             <span class="badge ${hasRealFolder ? 'badge-free' : 'badge-admin'}">
               ${hasRealFolder ? '📁 Carpeta Ruma 🌷 vinculada' : 'Pendiente de configurar'}
             </span>
           </div>
           <p style="margin:0;font-size:0.84rem;color:var(--text-secondary);line-height:1.45;">
-            Solo los miembros con rango de <strong>Administrador</strong> pueden conectar, crear, cambiar o desconectar la sincronización de la carpeta <strong>Ruma 🌷</strong> de Google Drive en este grupo.
+            Solo el <strong>Creador del grupo</strong> (dueño de la carpeta en Google Drive) puede iniciar sesión con Google Drive y activar, crear, cambiar o desconectar la carpeta <strong>Ruma 🌷</strong> de este grupo.
           </p>
           ${safeFolderUrl ? `
             <div style="display:flex;justify-content:flex-end;margin-top:0.25rem;">
@@ -198,7 +198,7 @@ export function bindDriveConnectionPanelEvents(rootEl, group, isAdmin = undefine
       if (folderUrlInput) folderUrlInput.value = created.webViewLink;
       if (group) {
         const res = store.updateGroupSettings(group.id, { driveFolderUrl: created.webViewLink, driveClientId: cid });
-        if (!res?.ok) throw new Error(res?.error || 'Solo los administradores pueden actualizar la carpeta.');
+        if (!res?.ok) throw new Error(res?.error || 'Solo el creador del grupo puede actualizar la carpeta.');
       }
       showFeedback(`✅ Carpeta "${created.name}" creada en tu Google Drive y vinculada automáticamente.`, false);
       UI.showToast('¡Carpeta creada y vinculada en tu Google Drive! 📁✨', 'success');
@@ -245,7 +245,7 @@ export function bindDriveConnectionPanelEvents(rootEl, group, isAdmin = undefine
         driveFolderUrl: folderUrl
       });
       if (!res?.ok) {
-        showFeedback(`❌ ${res?.error || 'Solo los administradores pueden guardar la configuración de Drive.'}`, true);
+        showFeedback(`❌ ${res?.error || 'Solo el creador del grupo puede guardar la configuración de Drive.'}`, true);
         return;
       }
     }

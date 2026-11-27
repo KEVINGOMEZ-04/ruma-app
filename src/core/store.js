@@ -1016,6 +1016,7 @@ class RumaStore {
       driveFolderUrl: (driveFolderUrl || '').trim(),
       accentColor: 'purple',
       createdAt: new Date().toISOString(),
+      memberIds: { [user.id]: true },
       members: [
         {
           id: user.id,
@@ -1135,6 +1136,7 @@ class RumaStore {
       role: 'member',
       joinedAt: new Date().toISOString()
     });
+    target.memberIds = { ...(target.memberIds || {}), [user.id]: true };
     target.updatedAt = new Date().toISOString();
     this.logActivity(target, user, 'join');
 
@@ -1174,8 +1176,18 @@ class RumaStore {
     const group = allGroups.find(g => g.id === groupId);
     if (!group) return { ok: false, error: 'Grupo no encontrado.' };
 
+    const touchesDrive = patch && (
+      Object.prototype.hasOwnProperty.call(patch, 'driveFolderUrl') ||
+      Object.prototype.hasOwnProperty.call(patch, 'driveFolderId') ||
+      Object.prototype.hasOwnProperty.call(patch, 'driveClientId')
+    );
+
+    if (touchesDrive && !Entitlements.isGroupCreator(group, user?.id)) {
+      return { ok: false, error: 'Solo el creador del grupo (dueño de la carpeta en Google Drive) puede activar o modificar la sincronización con Google Drive.' };
+    }
+
     if (!Entitlements.isGroupAdmin(group, user?.id)) {
-      return { ok: false, error: 'Solo los Administradores del grupo pueden modificar la carpeta de Google Drive y los ajustes del grupo.' };
+      return { ok: false, error: 'Solo los Administradores del grupo pueden modificar los ajustes del grupo.' };
     }
 
     Object.assign(group, patch);
@@ -1250,6 +1262,9 @@ class RumaStore {
     }
 
     group.members = remaining;
+    const nextMemberIds = {};
+    remaining.forEach(m => { if (m?.id) nextMemberIds[m.id] = true; });
+    group.memberIds = nextMemberIds;
     group.leftMembers = { ...(group.leftMembers || {}), [user.id]: now };
     group.updatedAt = now;
 
@@ -1302,7 +1317,7 @@ class RumaStore {
       };
     }
 
-    const isAdmin = Entitlements.isGroupAdmin(group, user.id);
+    const isCreator = Entitlements.isGroupCreator(group, user.id);
     const record = await DriveBridge.syncMemoryToDrive(group, {
       id,
       title,
@@ -1311,7 +1326,7 @@ class RumaStore {
       voiceNote,
       authorId: user.id,
       authorName: user.name
-    }, files || [], onProgress, { allowCreateRootFolder: isAdmin });
+    }, files || [], onProgress, { allowCreateRootFolder: isCreator, allowDriveUpload: isCreator });
 
     const newThumbnails = (record.files || []).map(f => f.thumbnail).filter(Boolean);
     const allPhotos = [...(existingPhotos || []), ...newThumbnails];
@@ -1379,7 +1394,7 @@ class RumaStore {
       this.logActivity(group, user, 'memory', `${memoryData.filesCount} ${memoryData.filesCount === 1 ? 'archivo' : 'archivos'} · ${memoryData.title}`);
     }
 
-    if (isAdmin && record.rootDriveFolderUrl && !DriveBridge.isRealFolderConfigured(group.driveFolderUrl)) {
+    if (isCreator && record.rootDriveFolderUrl && !DriveBridge.isRealFolderConfigured(group.driveFolderUrl)) {
       group.driveFolderUrl = record.rootDriveFolderUrl;
     }
 
@@ -1403,17 +1418,17 @@ class RumaStore {
     const mem = (group.memories || []).find(m => m.id === memoryId);
     if (!mem) return { ok: false, error: 'Recuerdo no encontrado.' };
 
-    const isAdmin = Entitlements.isGroupAdmin(group, user?.id);
-    if (!DriveBridge.isRealFolderConfigured(group.driveFolderUrl) && !isAdmin) {
+    const isCreator = Entitlements.isGroupCreator(group, user?.id);
+    if (!isCreator) {
       return {
         ok: false,
-        error: 'Solo los Administradores del grupo pueden configurar o vincular la carpeta de Google Drive.'
+        error: 'Solo el creador del grupo (dueño de la carpeta en Google Drive) puede activar y sincronizar con Google Drive.'
       };
     }
 
     try {
-      const synced = await DriveBridge.syncExistingMemoryToDrive(group, mem, onProgress, { allowCreateRootFolder: isAdmin });
-      if (isAdmin && synced.rootDriveFolderUrl && !DriveBridge.isRealFolderConfigured(group.driveFolderUrl)) {
+      const synced = await DriveBridge.syncExistingMemoryToDrive(group, mem, onProgress, { allowCreateRootFolder: isCreator });
+      if (isCreator && synced.rootDriveFolderUrl && !DriveBridge.isRealFolderConfigured(group.driveFolderUrl)) {
         group.driveFolderUrl = synced.rootDriveFolderUrl;
       }
       const { rootDriveFolderUrl: _rootUrl, ...memPatch } = synced;

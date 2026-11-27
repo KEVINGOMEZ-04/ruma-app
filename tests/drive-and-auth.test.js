@@ -291,11 +291,12 @@ describe('Google OAuth minimal scopes, Ruma 🌷 root folder & Drive HD streamin
     URL.revokeObjectURL(hdRes.url);
   });
 
-  it('blocks non-admin members from creating/linking the group Drive folder or rendering Drive config controls', async () => {
+  it('allows only the group creator to activate/manage the group Google Drive folder and blocks non-creator admins/members', async () => {
     const { DriveBridge } = await import('../src/services/drive-bridge.js');
     const { renderDriveConnectionPanelHtml } = await import('../src/components/drive-connect-modal.js');
+    const { Entitlements } = await import('../src/core/entitlements.js');
 
-    // Non-admin cannot auto-create Ruma 🌷 root folder via syncExistingMemoryToDrive
+    // Non-creator cannot auto-create Ruma 🌷 root folder via syncExistingMemoryToDrive
     localStorage.setItem(CONFIG.storageKeys.driveAuthSession, JSON.stringify({
       accessToken: 'tok_drive_member',
       email: 'member@example.com',
@@ -303,19 +304,33 @@ describe('Google OAuth minimal scopes, Ruma 🌷 root folder & Drive HD streamin
       expiresAt: Date.now() + 60_000
     }));
 
-    const unlinkedGroup = { id: 'g_no_drive', name: 'Grupo Sin Drive', driveFolderUrl: '', creatorId: 'u_admin', admins: ['u_admin'], members: [{ id: 'u_admin', role: 'admin' }, { id: 'u_member', role: 'member' }] };
+    const unlinkedGroup = {
+      id: 'g_no_drive',
+      name: 'Grupo Sin Drive',
+      driveFolderUrl: '',
+      creatorId: 'u_creator',
+      members: [
+        { id: 'u_creator', role: 'admin' },
+        { id: 'u_promoted_admin', role: 'admin' },
+        { id: 'u_member', role: 'member' }
+      ]
+    };
     const mem = { id: 'm1', title: 'Foto', date: '2026-11-26', files: [] };
+
+    expect(Entitlements.isGroupCreator(unlinkedGroup, 'u_creator')).toBe(true);
+    expect(Entitlements.isGroupCreator(unlinkedGroup, 'u_promoted_admin')).toBe(false);
+    expect(Entitlements.isGroupAdmin(unlinkedGroup, 'u_promoted_admin')).toBe(true);
 
     await expect(
       DriveBridge.syncExistingMemoryToDrive(unlinkedGroup, mem, null, { allowCreateRootFolder: false })
-    ).rejects.toThrow(/Administradores/i);
+    ).rejects.toThrow(/creador del grupo/i);
 
-    // Non-admin panel HTML is strictly read-only with zero config inputs/buttons
-    const nonAdminHtml = renderDriveConnectionPanelHtml(unlinkedGroup, false);
-    expect(nonAdminHtml).toContain('Solo administradores');
-    expect(nonAdminHtml).not.toContain('inp-drive-folder-url');
-    expect(nonAdminHtml).not.toContain('btn-drive-create-auto-folder');
-    expect(nonAdminHtml).not.toContain('btn-drive-save-all');
-    expect(nonAdminHtml).not.toContain('btn-drive-google-login');
+    // Non-creator panel HTML is strictly read-only with zero config inputs/buttons
+    const nonCreatorHtml = renderDriveConnectionPanelHtml(unlinkedGroup, false);
+    expect(nonCreatorHtml).toContain('Solo el creador del grupo');
+    expect(nonCreatorHtml).not.toContain('inp-drive-folder-url');
+    expect(nonCreatorHtml).not.toContain('btn-drive-create-auto-folder');
+    expect(nonCreatorHtml).not.toContain('btn-drive-save-all');
+    expect(nonCreatorHtml).not.toContain('btn-drive-google-login');
   });
 });

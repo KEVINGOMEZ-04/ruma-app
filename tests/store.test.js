@@ -250,6 +250,41 @@ describe('Store Freemium guards, Series/Movies states & permissions (AUD-05, AUD
     expect(store.deleteMemoryFromActiveGroup('mem_laura').ok).toBe(true);
     expect(store.getActiveGroup().memories.map(m => m.id)).toEqual(['mem_kevin']);
   });
+
+  it('restricts Google Drive settings and Drive memory sync exclusively to the group creator (even if user is a promoted admin)', async () => {
+    const promotedAdmin = { id: 'u2', name: 'Laura Admin', username: 'laura', isPremium: false };
+    const creator = { id: 'u1', name: 'Kevin Creador', username: 'kevin', isPremium: false };
+    const group = {
+      id: 'g1',
+      name: 'Grupo',
+      code: 'DRV001',
+      plan: 'free',
+      creatorId: 'u1',
+      driveFolderUrl: '',
+      members: [
+        { id: 'u1', name: 'Kevin Creador', role: 'admin' },
+        { id: 'u2', name: 'Laura Admin', role: 'admin' }
+      ],
+      memories: [{ id: 'mem1', title: 'Paseo', date: '2026-11-26', authorId: 'u2', files: [] }]
+    };
+
+    // Promoted admin can edit group name/description, but NOT driveFolderUrl/driveClientId or sync to Drive
+    seedSession(promotedAdmin, [group], 'g1');
+    expect(store.updateGroupSettings('g1', { name: 'Nuevo Nombre' }).ok).toBe(true);
+    const blockedDrivePatch = store.updateGroupSettings('g1', { driveFolderUrl: 'https://drive.google.com/drive/folders/123456789' });
+    expect(blockedDrivePatch.ok).toBe(false);
+    expect(blockedDrivePatch.error).toMatch(/creador del grupo/i);
+
+    const blockedSync = await store.syncExistingMemoryToDrive('mem1');
+    expect(blockedSync.ok).toBe(false);
+    expect(blockedSync.error).toMatch(/creador del grupo/i);
+
+    // Group creator CAN update driveFolderUrl
+    seedSession(creator, [group], 'g1');
+    const allowedDrivePatch = store.updateGroupSettings('g1', { driveFolderUrl: 'https://drive.google.com/drive/folders/123456789' });
+    expect(allowedDrivePatch.ok).toBe(true);
+    expect(store.getActiveGroup().driveFolderUrl).toBe('https://drive.google.com/drive/folders/123456789');
+  });
 });
 
 describe('iPhone / iOS Safari QuotaExceededError resilience & Base64 deduplication', () => {

@@ -286,6 +286,11 @@ export function mergeCloudAndLocalGroups(baseGroups = [], incomingGroups = []) {
           mergedMembersMap.delete(uid);
         }
       });
+      const mergedMemberIds = {};
+      mergedMembersMap.forEach((m, uid) => {
+        if (uid) mergedMemberIds[uid] = true;
+      });
+      if (winner.creatorId) mergedMemberIds[winner.creatorId] = true;
 
       // Lápidas de mensajes eliminados y corte de vaciado (chatClearedAt) para evitar resurrección entre dispositivos
       const mergedChatClearedAt = [older.chatClearedAt || '', winner.chatClearedAt || ''].sort().pop() || '';
@@ -470,6 +475,7 @@ export function mergeCloudAndLocalGroups(baseGroups = [], incomingGroups = []) {
         deletedMessages: mergedDeletedMessages,
         chatClearedAt: mergedChatClearedAt || undefined,
         pinnedMessageId: mergedPinnedMessageId,
+        memberIds: mergedMemberIds,
         members: Array.from(mergedMembersMap.values()),
         messages: mergedMessages
       });
