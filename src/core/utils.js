@@ -18,6 +18,14 @@ export const Utils = {
   generateGroupCode() {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
     let code = '';
+    if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+      const bytes = new Uint8Array(6);
+      crypto.getRandomValues(bytes);
+      for (let i = 0; i < 6; i++) {
+        code += chars.charAt(bytes[i] % chars.length);
+      }
+      return code;
+    }
     for (let i = 0; i < 6; i++) {
       code += chars.charAt(Math.floor(Math.random() * chars.length));
     }
@@ -33,6 +41,37 @@ export const Utils = {
     if (!url || typeof url !== 'string') return fallback;
     const trimmed = url.trim();
     if (/^(https?:\/\/|mailto:|data:image\/|data:audio\/|data:video\/|blob:|assets\/|\.\/|\/)/i.test(trimmed)) {
+      return trimmed;
+    }
+    return fallback;
+  },
+
+  /**
+   * Sanitiza una URL para usarla de forma segura dentro de `background-image:url('...')`
+   * bloqueando escapes de comillas, paréntesis, barras invertidas y saltos de línea.
+   */
+  safeCssUrl(url, fallback = '') {
+    const valid = this.safeUrl(url, fallback);
+    if (!valid) return '';
+    return valid
+      .replace(/[\r\n\0\\]/g, '')
+      .replace(/'/g, '%27')
+      .replace(/"/g, '%22')
+      .replace(/\(/g, '%28')
+      .replace(/\)/g, '%29');
+  },
+
+  /**
+   * Valida un degradado o color sólido CSS para prevenir inyección de propiedades vía `;` o `url(...)`.
+   */
+  safeCssGradient(value, fallback = 'linear-gradient(135deg,#7C3AED 0%,#C084FC 50%,#F472B6 100%)') {
+    if (!value || typeof value !== 'string') return fallback;
+    const trimmed = value.trim();
+    if (/[;{}<>\\]|url\s*\(|expression\s*\(/i.test(trimmed)) return fallback;
+    if (/^(linear|radial)-gradient\(\s*[0-9a-zA-Z%,.#\s()-]+\)$/.test(trimmed)) {
+      return trimmed;
+    }
+    if (/^#[0-9a-fA-F]{3,8}$/.test(trimmed)) {
       return trimmed;
     }
     return fallback;

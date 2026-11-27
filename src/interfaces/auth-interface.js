@@ -7,6 +7,7 @@ import { Utils } from '../core/utils.js';
 import { UI } from '../components/ui.js';
 import { CONFIG } from '../core/config.js';
 import { GoogleAuth } from '../services/google-auth.js';
+import { FirebaseAuth } from '../services/firebase-auth.js';
 
 function showRecoveryCodeModal(recoveryCode, heading = 'Guarda tu código de recuperación') {
   if (!recoveryCode) return;
@@ -197,10 +198,10 @@ export function renderAuthScreen(container) {
               </svg>
             </span>
             <input
-              type="text"
+              type="${FirebaseAuth.isConfigured() ? 'email' : 'text'}"
               id="reg-email-or-phone"
               class="ruma-auth-input"
-              placeholder="Correo electrónico o teléfono"
+              placeholder="${FirebaseAuth.isConfigured() ? 'Correo electrónico' : 'Correo electrónico o teléfono'}"
               autocomplete="email"
               required
             >
@@ -230,6 +231,11 @@ export function renderAuthScreen(container) {
               </svg>
             </button>
           </div>
+
+          <label style="display:flex;align-items:flex-start;gap:0.55rem;font-size:0.78rem;color:var(--text-secondary);text-align:left;line-height:1.4;padding:0.15rem 0.2rem;cursor:pointer;">
+            <input type="checkbox" id="reg-accept-terms" required style="margin-top:0.15rem;accent-color:var(--primary);width:16px;height:16px;flex-shrink:0;">
+            <span>Confirmo ser mayor de 13 años y acepto los <a href="${CONFIG.webUrls.terms}" target="_blank" rel="noopener">Términos de uso</a>, la <a href="${CONFIG.webUrls.privacy}" target="_blank" rel="noopener">Política de privacidad</a> y las normas contra contenido abusivo.</span>
+          </label>
 
           <button type="submit" class="ruma-auth-cta" id="btn-register-submit" style="margin-top:0.25rem;">
             Crear cuenta
@@ -302,6 +308,45 @@ export function renderAuthScreen(container) {
 
   document.getElementById('btn-auth-forgot-pass')?.addEventListener('click', () => {
     const prefill = document.getElementById('login-identifier')?.value || '';
+    if (FirebaseAuth.isConfigured()) {
+      UI.openModal({
+        title: '🔑 Recuperar Contraseña',
+        contentHtml: `
+          <form id="form-reset-email" style="display:flex;flex-direction:column;gap:0.85rem;">
+            <p style="font-size:0.84rem;color:var(--text-secondary);line-height:1.45;margin:0;">
+              Ingresa el correo electrónico de tu cuenta y te enviaremos un enlace seguro para crear una nueva contraseña.
+            </p>
+            <div class="form-group">
+              <label class="form-label">Correo electrónico</label>
+              <input type="email" id="reset-pass-email" class="form-input" placeholder="correo@ejemplo.com" value="${Utils.sanitize(prefill.includes('@') ? prefill : '')}" required>
+            </div>
+            <div style="display:flex;justify-content:flex-end;gap:0.65rem;margin-top:0.4rem;">
+              <button type="button" class="btn btn-secondary" id="btn-cancel-reset-email">Cancelar</button>
+              <button type="submit" class="btn btn-primary" id="btn-submit-reset-email">Enviar enlace</button>
+            </div>
+          </form>
+        `,
+        onMount: () => {
+          document.getElementById('btn-cancel-reset-email')?.addEventListener('click', () => UI.closeModal());
+          document.getElementById('form-reset-email')?.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const btn = document.getElementById('btn-submit-reset-email');
+            const email = document.getElementById('reset-pass-email')?.value || '';
+            if (btn) { btn.disabled = true; btn.textContent = 'Enviando...'; }
+            const res = await store.sendPasswordResetEmailAsync(email);
+            if (btn) { btn.disabled = false; btn.textContent = 'Enviar enlace'; }
+            if (!res.ok) {
+              UI.showToast(res.error, 'error');
+              return;
+            }
+            UI.closeModal();
+            UI.showToast('📩 Te enviamos un correo para restablecer tu contraseña. Revisa tu bandeja o spam.', 'success');
+          });
+        }
+      });
+      return;
+    }
+
     UI.openModal({
       title: '🔑 Recuperar Contraseña',
       contentHtml: `
@@ -375,7 +420,9 @@ export function renderAuthScreen(container) {
         const res = await store.loginWithGoogleAsync({
           email: session.email,
           name: session.name,
-          picture: session.picture
+          picture: session.picture,
+          idToken: session.idToken || '',
+          accessToken: session.accessToken || ''
         });
         if (!res?.ok) {
           throw new Error(res?.error || 'No se pudo completar el inicio de sesión con Google.');

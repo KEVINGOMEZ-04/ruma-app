@@ -254,14 +254,16 @@ export function renderGroupChatView(viewport, group, user, ctx) {
   const draftValue = chatUiState.drafts[group.id] || '';
 
   const buildChatRowsHtml = () => {
+    const blockedSet = new Set(store.getBlockedUserIds());
+    const visibleMessages = allMessages.filter(m => !blockedSet.has(m.senderId));
     const q = chatUiState.searchQuery.trim().toLowerCase();
     const messages = q
-      ? allMessages.filter(m =>
+      ? visibleMessages.filter(m =>
           (m.text || '').toLowerCase().includes(q) ||
           senderNameFor(m, group).toLowerCase().includes(q) ||
           (m.quote?.title || '').toLowerCase().includes(q)
         )
-      : allMessages;
+      : visibleMessages;
 
     if (messages.length === 0) {
       return `
@@ -843,6 +845,7 @@ export function renderGroupChatView(viewport, group, user, ctx) {
     const canDelete = store.canDeleteChatMessage(group, m, user);
     const canEdit = store.canEditChatMessage(group, m, user);
     const isPinned = Boolean(group.pinnedMessageId && group.pinnedMessageId === m.id);
+    const isMine = m.senderId === user.id;
     const displayName = senderNameFor(m, group);
 
     UI.openModal({
@@ -860,6 +863,8 @@ export function renderGroupChatView(viewport, group, user, ctx) {
             ${m.text ? `<button type="button" class="btn btn-secondary" id="ch-m-copy">📋 Copiar texto</button>` : ''}
             ${canEdit ? `<button type="button" class="btn btn-secondary" id="ch-m-edit">✏️ Editar mensaje</button>` : ''}
             ${isAdmin ? `<button type="button" class="btn btn-secondary" id="ch-m-pin">${isPinned ? '📌 Desfijar del chat' : '📌 Fijar arriba en el chat'}</button>` : ''}
+            ${!isMine ? `<button type="button" class="btn btn-secondary" id="ch-m-report">🚩 Reportar mensaje</button>` : ''}
+            ${!isMine && m.senderId ? `<button type="button" class="btn btn-secondary" id="ch-m-block" style="color:var(--error);border-color:rgba(239,68,68,0.35);">🚫 Bloquear a ${Utils.sanitize(displayName)}</button>` : ''}
             ${canDelete ? `<button type="button" class="btn btn-danger" id="ch-m-del">🗑️ Eliminar definitivamente</button>` : `
               <div style="font-size:.76rem;color:var(--text-muted);text-align:center;padding:.45rem;border-radius:.75rem;background:var(--surface-secondary);">🔒 Solo ${Utils.sanitize(displayName)} o un administrador pueden eliminar este mensaje.</div>`}
           </div>
@@ -883,6 +888,28 @@ export function renderGroupChatView(viewport, group, user, ctx) {
           UI.closeModal();
           if (res.ok) UI.showToast(res.pinned ? 'Mensaje fijado arriba 📌' : 'Mensaje desfijado', 'success');
           else UI.showToast(res.error || 'No se pudo fijar.', 'error');
+        });
+        document.getElementById('ch-m-report')?.addEventListener('click', () => {
+          UI.closeModal();
+          UI.openReportModal({
+            targetLabel: `un mensaje de ${displayName}`,
+            onSubmit: ({ reason, details }) => store.reportContentAsync({
+              groupId: group.id,
+              targetType: 'message',
+              targetId: m.id,
+              targetUserId: m.senderId || '',
+              reason,
+              details
+            })
+          });
+        });
+        document.getElementById('ch-m-block')?.addEventListener('click', () => {
+          UI.closeModal();
+          const res = store.blockUser(m.senderId);
+          UI.showToast(
+            res.ok ? `Bloqueaste a ${displayName}. Sus mensajes ya no se mostrarán 🛡️` : (res.error || 'No se pudo bloquear.'),
+            res.ok ? 'info' : 'error'
+          );
         });
         document.getElementById('ch-m-del')?.addEventListener('click', () => {
           UI.closeModal();

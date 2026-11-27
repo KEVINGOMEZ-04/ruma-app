@@ -14,17 +14,17 @@
 <body>
   <div class="card">
     <h1>Política de Privacidad — ruma 🌟</h1>
-    <p><strong>Última actualización:</strong> Noviembre 2026</p>
-    <p><strong>ruma</strong> es un espacio digital privado para grupos que permite organizar recuerdos, películas, series, libros, música, actividades, metas, notas y chat compartido.</p>
+    <p><strong>Última actualización:</strong> Noviembre 2026 · <a href="https://kevingomez-04.github.io/ruma-web/privacidad.html">Versión completa oficial</a></p>
+    <p><strong>ruma</strong> (<code>app.ruma.social</code>) es un espacio digital privado para grupos que permite organizar recuerdos, películas, series, libros, música, actividades, metas, notas y chat compartido.</p>
     <h2>1. Datos que utilizamos</h2>
-    <p>Para crear tu cuenta y sincronizar tus grupos entre dispositivos, ruma almacena tu perfil (nombre, @usuario, avatar y opcionalmente correo o teléfono), credenciales protegidas mediante hash criptográfico (PBKDF2) y el contenido que compartes en tus grupos.</p>
-    <p>Cuando conectas tu cuenta de Google (OAuth 2.0), ruma utiliza tu nombre, correo electrónico, imagen de perfil y el permiso autorizado de Google Drive únicamente para crear subcarpetas de recuerdos y respaldar allí las fotos, videos o notas de voz que elijas subir.</p>
-    <h2>2. Almacenamiento y sincronización</h2>
-    <p>El estado de tus grupos (mensajes, listas, progreso y reseñas) se sincroniza mediante <strong>Firebase Realtime Database</strong> y se guarda en caché local en tu navegador (<code>localStorage</code> e <code>IndexedDB</code>). Los archivos multimedia originales de recuerdos se respaldan en la carpeta de <strong>Google Drive</strong> vinculada por tu grupo.</p>
+    <p>Para crear tu cuenta y sincronizar tus grupos entre dispositivos, ruma utiliza <strong>Firebase Authentication</strong> y almacena tu perfil (nombre, @usuario, correo, avatar), tokens técnicos de notificaciones push (FCM) y el contenido que compartes en tus grupos. Nunca almacenamos contraseñas en texto plano.</p>
+    <p>Cuando conectas tu cuenta de Google (OAuth 2.0 con permiso mínimo <code>https://www.googleapis.com/auth/drive.file</code>), ruma accede únicamente a la carpeta <code>Ruma 🌷</code> y a los archivos de recuerdos creados o elegidos por ti para respaldarlos en tu Google Drive.</p>
+    <h2>2. Almacenamiento, suscripciones y segundo plano</h2>
+    <p>Tus grupos se sincronizan mediante <strong>Firebase Realtime Database</strong> protegida por reglas por miembro. En Android, las suscripciones de <strong>ruma Plus</strong> se gestionan mediante <strong>Google Play Billing / RevenueCat</strong>, las notificaciones push operan mediante <strong>Firebase Cloud Messaging</strong> y las subidas pesadas a Drive se ejecutan mediante tareas iniciadas por el usuario con notificación visible de progreso.</p>
     <h2>3. Servicios de terceros</h2>
-    <p>ruma no vende ni comparte tus datos personales con terceros con fines publicitarios. Para enriquecer fichas de catálogo se consultan APIs públicas de metadatos: <strong>TMDb</strong> (películas y series), <strong>iTunes / Apple Books</strong> y <strong>LRCLIB</strong> (música y letras), <strong>Google Books</strong>, <strong>Open Library</strong> y <strong>Wikipedia</strong> (libros y autores).</p>
-    <h2>4. Contacto y eliminación de datos</h2>
-    <p>Para consultas sobre privacidad o solicitud de eliminación de cuenta y datos, puedes escribir a <a href="mailto:kelvix110@gmail.com">kelvix110@gmail.com</a>.</p>
+    <p>ruma no vende ni comparte tus datos personales con fines publicitarios. Para fichas de catálogo se consultan APIs públicas: <strong>TMDb</strong> (vía proxy seguro), <strong>iTunes</strong>, <strong>LRCLIB</strong>, <strong>Google Books</strong>, <strong>Open Library</strong> y <strong>Wikipedia</strong>.</p>
+    <h2>4. Eliminación de cuenta y moderación</h2>
+    <p>Puedes eliminar tu cuenta completa al instante desde <strong>Ajustes → Eliminar mi cuenta ahora</strong> dentro de la app, desde <a href="https://kevingomez-04.github.io/ruma-web/eliminar-cuenta.html">eliminar-cuenta.html</a> o escribiendo a <a href="mailto:kelvix110@gmail.com">kelvix110@gmail.com</a>. También puedes reportar mensajes y bloquear usuarios directamente desde la app.</p>
     <p><a href="./">← Volver a ruma</a></p>
   </div>
 </body>

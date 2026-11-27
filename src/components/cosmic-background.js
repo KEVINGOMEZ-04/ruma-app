@@ -111,9 +111,11 @@ export class CosmicBackground {
   }
 
   start() {
+    if (this.reduceMotion) return;
     if (!this.isRunning) {
       this.isRunning = true;
-      this.animate();
+      this.lastFrameAt = 0;
+      this.animFrame = requestAnimationFrame(this.animate);
     }
   }
 
@@ -125,8 +127,18 @@ export class CosmicBackground {
     }
   }
 
-  animate() {
+  animate(now = 0) {
     if (!this.isRunning || !this.ctx) return;
+
+    // Ahorro de batería en teléfonos: limitar a ~24 fps en móvil y 45 fps en escritorio
+    const isMobile = this.canvas.width < 768;
+    const minInterval = isMobile ? 42 : 22;
+    if (this.lastFrameAt && (now - this.lastFrameAt) < minInterval) {
+      this.animFrame = requestAnimationFrame(this.animate);
+      return;
+    }
+    this.lastFrameAt = now;
+
     const w = this.canvas.width;
     const h = this.canvas.height;
     const light = this.isLight();

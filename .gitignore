@@ -2,7 +2,28 @@ node_modules/
 dist/
 .DS_Store
 *.log
+.backups/
 .env
 .env.*
-android/
+!.env.example
+
+# Secretos y firmas (NUNCA subir a Git)
+*.keystore
+*.jks
+keystore.properties
+google-services.json
+**/google-services.json
+service-account*.json
+worker/.dev.vars
+worker/.wrangler/
+worker/node_modules/
+
+# Compilados temporales de Android (el proyecto fuente android/ sí se versiona)
+android/.gradle/
+android/.idea/
+android/build/
+android/app/build/
+android/capacitor-cordova-android-plugins/build/
+android/local.properties
+android/app/src/main/assets/public/
 ios/

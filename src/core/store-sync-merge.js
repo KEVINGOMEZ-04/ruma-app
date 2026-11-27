@@ -104,13 +104,25 @@ function compactMediaEntryForStorage(item) {
   return next;
 }
 
+export function buildMemberIdsMap(group) {
+  const map = {};
+  if (!group || typeof group !== 'object') return map;
+  if (group.creatorId) map[group.creatorId] = true;
+  if (Array.isArray(group.members)) {
+    group.members.forEach(m => {
+      if (m && m.id) map[m.id] = true;
+    });
+  }
+  return map;
+}
+
 /**
  * Compacta un grupo eliminando duplicación triple de miniaturas Base64 en recuerdos
- * y avatares Base64 incrustados en registros hijos, preservando `members[].avatar`.
+ * y avatares Base64 incrustados en registros hijos, preservando `members[].avatar` y `memberIds`.
  */
 export function compactGroupForStorage(group) {
   if (!group || typeof group !== 'object' || group.deleted) return group;
-  const next = { ...group };
+  const next = { ...group, memberIds: buildMemberIdsMap(group) };
 
   if (Array.isArray(next.activity)) {
     next.activity = next.activity.map(a => (a && typeof a === 'object' ? {
@@ -471,6 +483,10 @@ export function mergeCloudAndLocalGroups(baseGroups = [], incomingGroups = []) {
         chatClearedAt: mergedChatClearedAt || undefined,
         pinnedMessageId: mergedPinnedMessageId,
         members: Array.from(mergedMembersMap.values()),
+        memberIds: buildMemberIdsMap({
+          creatorId: winner.creatorId || older.creatorId,
+          members: Array.from(mergedMembersMap.values())
+        }),
         messages: mergedMessages
       });
     });

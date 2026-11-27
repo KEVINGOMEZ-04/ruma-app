@@ -13,6 +13,7 @@
 import { Utils } from '../core/utils.js';
 import { MediaStorage } from './media-storage.js';
 import { DriveResumableUploader } from './drive-resumable-uploader.js';
+import { NativeDriveUploader } from './native-drive-uploader.js';
 import { GoogleAuth } from './google-auth.js';
 
 const DEMO_FOLDER_IDS = new Set([
@@ -191,11 +192,14 @@ export const DriveBridge = {
 
     const processedFiles = [];
 
-    // 1. Guardar cada archivo binario en IndexedDB (soporta 100 MB y 1 GB+)
+    // 1. Preparar archivos: en Android Photo Picker (`nativeUri`) no cargamos el binario a RAM/IndexedDB;
+    // en Web/iOS guardamos en IndexedDB para reproducción offline inmediata.
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
       const fileId = Utils.generateId('blob');
-      const isVideo = file.type ? file.type.startsWith('video/') : false;
+      const isNativeUri = Boolean(file && typeof file === 'object' && file.nativeUri);
+      const mime = file?.mimeType || file?.type || '';
+      const isVideo = mime ? mime.startsWith('video/') : false;
 
       if (typeof onProgress === 'function') {
         onProgress({
@@ -203,8 +207,22 @@ export const DriveBridge = {
           fileIndex: i + 1,
           totalFiles: files.length,
           percent: Math.round(((i + 0.5) / Math.max(files.length, 1)) * 100),
-          fileName: file.name || `Archivo ${i + 1}`
+          fileName: file?.name || `Archivo ${i + 1}`
         });
+      }
+
+      if (isNativeUri) {
+        processedFiles.push({
+          id: fileId,
+          name: file.name || (isVideo ? `Video_${i + 1}.mp4` : `Foto_${i + 1}.jpg`),
+          type: mime || (isVideo ? 'video/mp4' : 'image/jpeg'),
+          size: Number(file.size) || 0,
+          isVideo,
+          thumbnail: file.thumbnailDataUrl || '',
+          nativeUri: file.nativeUri,
+          originalFile: null
+        });
+        continue;
       }
 
       const mediaRecord = await MediaStorage.saveMedia(fileId, file, {
@@ -225,7 +243,6 @@ export const DriveBridge = {
     }
 
     // 2. Subir a Google Drive si ya existe token activo de `drive.file`
-    // (No abrir popup tras `await` para evitar bloqueos de Safari iOS)
     let driveSubfolder = null;
     let rootDriveFolderUrl = '';
     let driveSyncStatus = 'local_only'; // 'synced' | 'local_only' | 'error'
@@ -248,7 +265,6 @@ export const DriveBridge = {
           });
         }
 
-        // Si el grupo aún no tenía carpeta vinculada, solo un administrador puede buscar/crear `Ruma 🌷`
         if (!parentFolderId) {
           const rootFolder = await DriveResumableUploader.createRootGroupFolder(token);
           parentFolderId = rootFolder.id;
@@ -257,7 +273,31 @@ export const DriveBridge = {
 
         driveSubfolder = await DriveResumableUploader.createSubfolder(token, parentFolderId, subfolderName);
 
-        // Subir cada foto/video a la subcarpeta del recuerdo dentro de `Ruma 🌷`
+        // 2a. Subida nativa en 2.º plano (Android WorkManager + UIDT/FGS dataSync) para URIs de Photo Picker
+        const nativeItems = processedFiles.filter(item => item.nativeUri);
+        if (nativeItems.length > 0 && NativeDriveUploader.isAvailable()) {
+          const bgResult = await NativeDriveUploader.uploadFilesInBackground({
+            accessToken: token,
+            folderId: driveSubfolder.id,
+            title: memoryPayload.title || 'Recuerdo',
+            files: nativeItems.map(item => ({
+              uri: item.nativeUri,
+              name: item.name,
+              mimeType: item.type,
+              size: item.size
+            })),
+            onProgress
+          });
+          (bgResult.uploaded || []).forEach((u, idx) => {
+            const target = nativeItems[idx];
+            if (target && u?.id) {
+              target.driveFileId = u.id;
+              target.driveViewLink = u.webViewLink || `https://drive.google.com/file/d/${u.id}/view`;
+            }
+          });
+        }
+
+        // 2b. Subida resumable web/iOS para objetos File/Blob estándar
         for (let i = 0; i < processedFiles.length; i++) {
           const item = processedFiles[i];
           if (item.originalFile) {

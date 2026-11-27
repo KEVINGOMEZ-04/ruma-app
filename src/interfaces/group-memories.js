@@ -135,7 +135,7 @@ export function renderGroupMemoriesView(viewport, group, user, isAdmin, ctx) {
         <div class="rm-stack" aria-hidden="true">
           <span class="rm-stack-card c3"></span>
           <span class="rm-stack-card c2"></span>
-          <span class="rm-stack-card c1" style="background-image:url('${Utils.sanitize(Utils.safeUrl(stackImg, 'assets/ruma_default_avatar.png'))}')"></span>
+          <span class="rm-stack-card c1" style="background-image:url('${Utils.sanitize(Utils.safeCssUrl(stackImg, 'assets/ruma_default_avatar.png'))}')"></span>
         </div>
       </section>
 

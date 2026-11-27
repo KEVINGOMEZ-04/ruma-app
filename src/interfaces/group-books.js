@@ -1553,7 +1553,7 @@ function openBookDetailModal(bookId, user, ctx) {
                 ` : `
                   ${enrichment?.author ? `
                     <div class="rbk-author-box">
-                      ${enrichment.author.photo ? `<img class="rbk-author-photo" src="${esc(enrichment.author.photo)}" alt="${esc(enrichment.author.name)}" onerror="this.style.display='none'">` : ''}
+                      ${enrichment.author.photo ? `<img class="rbk-author-photo" src="${esc(Utils.safeUrl(enrichment.author.photo, ''))}" alt="${esc(enrichment.author.name)}" data-hide-on-error="1">` : ''}
                       <div class="rbk-author-txt">
                         <b>${esc(enrichment.author.name)}</b>
                         <p>${esc(enrichment.author.bio || 'Sin biografía ampliada disponible todavía.')}</p>
@@ -1604,6 +1604,9 @@ function openBookDetailModal(bookId, user, ctx) {
         </div>
       `,
       onMount: (modalEl) => {
+        modalEl.querySelectorAll('img[data-hide-on-error="1"]').forEach(img => {
+          img.addEventListener('error', () => { img.style.display = 'none'; }, { once: true });
+        });
         const openEdit = () => openEditBookMetaModal(book, () => openBookDetailModal(book.id, user, { ...ctx, initialTab: activeTab }));
         modalEl.querySelector('#rbk-det-edit-pages')?.addEventListener('click', openEdit);
         modalEl.querySelector('#rbk-det-edit-full')?.addEventListener('click', openEdit);

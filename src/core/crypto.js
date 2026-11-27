@@ -218,11 +218,11 @@ export const CryptoAuth = {
 
   /**
    * Indica si el toggle libre de ruma Plus para pruebas está permitido en este entorno.
+   * Por seguridad (Google Play Billing), solo se habilita en compilaciones locales DEV.
    */
   isBetaSelfUpgradeAllowed() {
     try {
-      if (typeof import.meta !== 'undefined' && import.meta.env?.DEV) return true;
-      return typeof localStorage !== 'undefined' && localStorage.getItem('ruma_dev_tools') === '1';
+      return Boolean(typeof import.meta !== 'undefined' && import.meta.env?.DEV);
     } catch (_) {
       return false;
     }

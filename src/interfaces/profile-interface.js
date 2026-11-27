@@ -138,10 +138,11 @@ export function renderProfileInterface(container) {
     ? profileUser.avatar
     : 'assets/ruma_default_avatar.png';
 
-  const safeBannerImg = Utils.safeUrl(profileUser.bannerImage, '');
+  const safeBannerImg = Utils.safeCssUrl(profileUser.bannerImage, '');
+  const safeGradient = Utils.safeCssGradient(profileUser.bannerGradient, PRESET_GRADIENTS[0]);
   const bannerStyle = safeBannerImg
     ? `background-image:url('${esc(safeBannerImg)}');`
-    : `background:${esc(profileUser.bannerGradient || PRESET_GRADIENTS[0])};`;
+    : `background:${esc(safeGradient)};`;
 
   container.innerHTML = `
     <div class="rpf-wrap">
@@ -169,7 +170,11 @@ export function renderProfileInterface(container) {
 
             ${isOwnProfile
               ? `<button type="button" class="rpf-edit-primary" id="rpf-edit-btn">${svg(ICO.edit, 14)}<span>Editar perfil</span></button>`
-              : `<button type="button" class="rpf-edit-primary" id="rpf-back-own">Mi perfil</button>`}
+              : `<div style="display:flex;gap:0.45rem;flex-wrap:wrap;justify-content:flex-end;">
+                  <button type="button" class="btn btn-secondary btn-sm" id="rpf-ugc-report" title="Reportar usuario">🚩 Reportar</button>
+                  <button type="button" class="btn btn-secondary btn-sm" id="rpf-ugc-block" style="color:var(--error);border-color:rgba(239,68,68,0.35);">${store.isUserBlocked(profileUser.id) ? 'Desbloquear' : '🚫 Bloquear'}</button>
+                  <button type="button" class="rpf-edit-primary" id="rpf-back-own">Mi perfil</button>
+                </div>`}
           </div>
 
           <div class="rpf-id-body">
@@ -307,6 +312,28 @@ export function renderProfileInterface(container) {
   if (!isOwnProfile) {
     container.querySelector('#rpf-back-own')?.addEventListener('click', () => {
       store.navigate('profile', { inspectUserId: currentUser.id });
+    });
+    container.querySelector('#rpf-ugc-block')?.addEventListener('click', () => {
+      const blocked = store.isUserBlocked(profileUser.id);
+      if (blocked) {
+        store.unblockUser(profileUser.id);
+        UI.showToast(`Desbloqueaste a ${profileUser.name}.`, 'info');
+      } else {
+        store.blockUser(profileUser.id);
+        UI.showToast(`Bloqueaste a ${profileUser.name}. Sus mensajes quedarán ocultos 🛡️`, 'info');
+      }
+    });
+    container.querySelector('#rpf-ugc-report')?.addEventListener('click', () => {
+      UI.openReportModal({
+        targetLabel: `al usuario ${profileUser.name} (@${profileUser.username || 'usuario'})`,
+        onSubmit: ({ reason, details }) => store.reportContentAsync({
+          targetType: 'user',
+          targetId: profileUser.id,
+          targetUserId: profileUser.id,
+          reason,
+          details
+        })
+      });
     });
     return;
   }

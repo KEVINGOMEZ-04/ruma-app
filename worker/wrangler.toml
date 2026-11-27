@@ -1,0 +1,14 @@
+name = "ruma-backend"
+main = "src/index.js"
+compatibility_date = "2026-11-01"
+
+[vars]
+FIREBASE_PROJECT_ID = "luma-f53ee"
+FIREBASE_DATABASE_URL = "https://luma-f53ee-default-rtdb.firebaseio.com"
+FIREBASE_ROOT_PATH = "ruma_cloud_v1"
+ALLOWED_ORIGINS = "https://kevingomez-04.github.io,https://localhost,capacitor://localhost,http://localhost:5173"
+
+# Configura estos secretos con `npx wrangler secret put <NOMBRE>` (NUNCA los pongas aquí):
+# - FIREBASE_SERVICE_ACCOUNT_JSON   (JSON completo de la cuenta de servicio de Firebase)
+# - TMDB_API_KEY                    (Clave rotada de TMDb v3)
+# - REVENUECAT_WEBHOOK_SECRET       (Token Bearer configurado en RevenueCat Webhooks)

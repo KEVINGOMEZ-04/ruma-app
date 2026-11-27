@@ -1,16 +1,21 @@
 /**
- * ruma 🌟 — Servicio de Autenticación Oficial con Google Identity Services (GIS OAuth 2.0)
+ * ruma 🌟 — Servicio de Autenticación con Google (Nativo Android + Web GIS Safari-safe)
  *
- * - Separa «Iniciar sesión con Google» (solo `openid email profile`, sin pedir Drive)
- *   de «Conectar Google Drive» (autorización incremental con `drive.file`, solo carpeta Ruma 🌷).
- * - Preserva el gesto táctil síncrono en iPhone / Safari iOS evitando `await` antes de abrir el popup
- *   cuando GIS ya fue precargado desde `index.html`.
- * - Evita forzar `prompt: 'consent'` en renovaciones cuando el usuario ya autorizó la app.
+ * - En Android Capacitor (APK/AAB): utiliza `@capgo/capacitor-social-login` (Credential Manager +
+ *   AuthorizationClient nativo de Google Play Services) y guarda tokens cifrados en Android Keystore
+ *   vía `SecureStorage` (adiós al `403: disallowed_useragent` del WebView y al token en `localStorage`).
+ * - En Web / iPhone Safari: preserva el flujo síncrono GIS (`accounts.google.com/gsi/client`)
+ *   sin `await` previo al clic para no perder el gesto táctil en iOS.
+ * - Separa «Iniciar sesión con Google» (`openid email profile`) de «Conectar Google Drive» (`drive.file`).
  */
 
+import { SocialLogin } from '@capgo/capacitor-social-login';
 import { CONFIG } from '../core/config.js';
+import { NativePlatform } from './native-platform.js';
+import { SecureStorage } from './secure-storage.js';
 
 let currentSession = null;
+let nativeSocialInitialized = false;
 
 function loadPersistedSession() {
   if (currentSession) {
@@ -20,6 +25,9 @@ function loadPersistedSession() {
     currentSession = null;
     try { localStorage.removeItem(CONFIG.storageKeys.driveAuthSession); } catch (_) {}
   }
+  // En Android nativo el token vive cifrado en Keystore (se hidrata con restoreNativeSession)
+  if (NativePlatform.isAndroid()) return null;
+
   try {
     const raw = localStorage.getItem(CONFIG.storageKeys.driveAuthSession);
     if (!raw) return null;
@@ -35,6 +43,16 @@ function loadPersistedSession() {
 
 function savePersistedSession(session) {
   currentSession = session;
+  if (NativePlatform.isAndroid()) {
+    if (session) {
+      SecureStorage.set(CONFIG.storageKeys.driveAuthSession, JSON.stringify(session)).catch(() => {});
+    } else {
+      SecureStorage.remove(CONFIG.storageKeys.driveAuthSession).catch(() => {});
+    }
+    try { localStorage.removeItem(CONFIG.storageKeys.driveAuthSession); } catch (_) {}
+    return;
+  }
+
   try {
     if (session) {
       localStorage.setItem(CONFIG.storageKeys.driveAuthSession, JSON.stringify(session));
@@ -47,14 +65,42 @@ function savePersistedSession(session) {
 function sessionHasDriveScope(session) {
   if (!session || !session.accessToken) return false;
   if (typeof session.hasDriveScope === 'boolean') return session.hasDriveScope;
-  // Retrocompatibilidad con sesiones guardadas antes de separar login vs Drive
   if (typeof session.grantedScope === 'string') {
     return session.grantedScope.includes('drive');
   }
   return true;
 }
 
+async function ensureNativeGoogleInit(webClientId) {
+  if (nativeSocialInitialized) return;
+  await SocialLogin.initialize({
+    google: {
+      webClientId: webClientId || CONFIG.googleDrive.clientId,
+      mode: 'online'
+    }
+  });
+  nativeSocialInitialized = true;
+}
+
 export const GoogleAuth = {
+  /**
+   * Hidrata la sesión cifrada desde Android Keystore al iniciar la app nativa.
+   */
+  async restoreNativeSession() {
+    if (!NativePlatform.isAndroid()) return loadPersistedSession();
+    try {
+      const raw = await SecureStorage.get(CONFIG.storageKeys.driveAuthSession);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (parsed && parsed.accessToken && parsed.expiresAt && Date.now() < parsed.expiresAt) {
+        currentSession = parsed;
+        return currentSession;
+      }
+      await SecureStorage.remove(CONFIG.storageKeys.driveAuthSession);
+    } catch (_) {}
+    return null;
+  },
+
   /**
    * Obtiene el Client ID de OAuth 2.0 configurado (prioriza el Client ID oficial de CONFIG)
    */
@@ -85,7 +131,7 @@ export const GoogleAuth = {
   },
 
   /**
-   * Carga el script oficial de Google Identity Services (https://accounts.google.com/gsi/client)
+   * Carga el script oficial de Google Identity Services (solo entorno Web)
    */
   loadGoogleScript() {
     return new Promise((resolve, reject) => {
@@ -132,9 +178,74 @@ export const GoogleAuth = {
   },
 
   /**
-   * Lanza el flujo OAuth 2.0 GIS preservando el gesto síncrono del clic (crítico en Safari iOS).
+   * Flujo nativo Android (Credential Manager / AuthorizationClient) — evita WebView OAuth block.
+   */
+  async _requestNativeToken({ scopes, expectDriveScope = false, customClientId = '', group = null, forceRefresh = false }) {
+    const webClientId = (customClientId || this.getClientId(group) || '').trim();
+    if (!webClientId || !webClientId.includes('.apps.googleusercontent.com')) {
+      const err = new Error('CLIENT_ID_MISSING');
+      err.code = 'CLIENT_ID_MISSING';
+      throw err;
+    }
+
+    await ensureNativeGoogleInit(webClientId);
+    const scopeList = String(scopes || 'email profile').split(/\s+/).filter(Boolean);
+    const prevSession = loadPersistedSession();
+
+    const { result } = await SocialLogin.login({
+      provider: 'google',
+      options: {
+        scopes: scopeList,
+        forceRefreshToken: Boolean(forceRefresh || expectDriveScope)
+      }
+    });
+
+    const accessToken = result?.accessToken?.token || '';
+    const idToken = result?.idToken || '';
+    if (expectDriveScope && !accessToken) {
+      throw new Error('Google no otorgó el token de acceso para Google Drive. Intenta conceder el permiso de nuevo.');
+    }
+
+    const profile = result?.profile || (accessToken ? await this.fetchGoogleUserProfile(accessToken) : null);
+    const expiresAt = Date.now() + 55 * 60 * 1000;
+    const grantedScope = scopeList.join(' ');
+    const hasDriveScope = expectDriveScope
+      ? Boolean(accessToken)
+      : (sessionHasDriveScope(prevSession) || grantedScope.includes('drive.file'));
+
+    const session = {
+      accessToken: accessToken || prevSession?.accessToken || '',
+      idToken,
+      expiresAt,
+      clientId: webClientId,
+      grantedScope,
+      hasDriveScope,
+      email: profile?.email || prevSession?.email || '',
+      name: profile?.name || profile?.givenName || prevSession?.name || 'Cuenta Google conectada',
+      picture: profile?.imageUrl || profile?.picture || prevSession?.picture || '',
+      connectedAt: new Date().toISOString()
+    };
+
+    if (session.accessToken) {
+      savePersistedSession(session);
+    }
+    return session;
+  },
+
+  /**
+   * Lanza el flujo OAuth 2.0: nativo en Android APK o GIS síncrono en Web/Safari iOS.
    */
   _requestToken({ scopes, expectDriveScope = false, customClientId = '', group = null, prompt = '' }) {
+    if (NativePlatform.isAndroid()) {
+      return this._requestNativeToken({
+        scopes,
+        expectDriveScope,
+        customClientId,
+        group,
+        forceRefresh: prompt === 'consent'
+      });
+    }
+
     const effectiveClientId = (customClientId || this.getClientId(group) || '').trim();
 
     if (!effectiveClientId || effectiveClientId === 'DEMO_CLIENT_ID' || !effectiveClientId.includes('.apps.googleusercontent.com')) {
@@ -201,25 +312,21 @@ export const GoogleAuth = {
         if (loginHint && prompt !== 'select_account') {
           reqOpts.hint = loginHint;
         }
-        // Llamada síncrona dentro del clic para no perder el gesto táctil en Safari iOS
         tokenClient.requestAccessToken(reqOpts);
       } catch (err) {
         reject(err);
       }
     });
 
-    // Si GIS ya está precargado (caso normal), lanzar síncronamente sin `await` previo
     if (window.google?.accounts?.oauth2) {
       return runTokenFlow();
     }
 
-    // Fallback si el usuario pulsó antes de terminar de cargar el script de index.html
     return this.loadGoogleScript().then(() => runTokenFlow());
   },
 
   /**
    * Inicia sesión con Google pidiendo SOLO perfil y correo (`openid email profile`).
-   * No solicita permisos de Google Drive en el login inicial.
    */
   signInWithProfile(customClientId = '') {
     return this._requestToken({
@@ -232,7 +339,6 @@ export const GoogleAuth = {
 
   /**
    * Solicita autorización incremental de Google Drive (`drive.file`: solo carpeta Ruma 🌷).
-   * En renovaciones no fuerza `prompt: 'consent'` para mejorar la experiencia en móvil.
    */
   requestDriveAccess(customClientId = '', group = null, { forceConsent = false } = {}) {
     const prevSession = loadPersistedSession();
@@ -270,7 +376,9 @@ export const GoogleAuth = {
 
   clearToken() {
     const s = loadPersistedSession();
-    if (s?.accessToken && typeof window !== 'undefined' && window.google?.accounts?.oauth2?.revoke) {
+    if (NativePlatform.isAndroid()) {
+      SocialLogin.logout({ provider: 'google' }).catch(() => {});
+    } else if (s?.accessToken && typeof window !== 'undefined' && window.google?.accounts?.oauth2?.revoke) {
       try { window.google.accounts.oauth2.revoke(s.accessToken, () => {}); } catch (_) {}
     }
     savePersistedSession(null);

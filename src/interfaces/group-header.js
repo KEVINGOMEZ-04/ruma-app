@@ -31,7 +31,7 @@ export function groupHeaderHtml(group, user) {
   const isAdmin = Entitlements.isGroupAdmin(group, user.id);
   const members = group.members || [];
   const shown = members.slice(0, 3);
-  const safeCover = Utils.safeUrl(group.coverImage, '');
+  const safeCover = Utils.safeCssUrl(group.coverImage, '');
   const cover = safeCover ? `style="background-image:url('${Utils.sanitize(safeCover)}')"` : '';
   const avatar = group.avatar
     ? `<img src="${Utils.sanitize(group.avatar)}" alt="">`
@@ -196,6 +196,7 @@ function openEditGroupModal(group, save) {
 
 function openGroupMembersModal(group, currentUser, invite) {
   const members = group.members || [];
+  const amIAdmin = Entitlements.isGroupAdmin(group, currentUser.id);
   UI.openModal({
     title: `👥 Miembros (${members.length})`,
     contentHtml: `
@@ -205,15 +206,18 @@ function openGroupMembersModal(group, currentUser, invite) {
           const isAdmin = Entitlements.isGroupAdmin(group, m.id);
           const roleLabel = isCreator ? '👑 Creador' : (isAdmin ? '🛡️ Admin' : '👤 Miembro');
           const isMe = m.id === currentUser.id;
+          const canKick = amIAdmin && !isMe && !isCreator;
           return `
-            <button type="button" class="rst-row" data-open-member="${Utils.sanitize(m.id)}">
-              <img src="${Utils.sanitize(m.avatar || 'assets/ruma_default_avatar.png')}" alt="${Utils.sanitize(m.name)}" style="width:40px;height:40px;border-radius:50%;object-fit:cover;border:1.5px solid var(--primary);flex-shrink:0;">
-              <span class="rst-row-txt">
-                <b>${Utils.sanitize(m.name)}${isMe ? ' (Tú)' : ''}</b>
-                <small>@${Utils.sanitize(m.username || 'usuario')} · ${roleLabel}</small>
-              </span>
-              <span class="rst-chev">›</span>
-            </button>`;
+            <div class="rst-row" style="justify-content:space-between;gap:0.5rem;">
+              <button type="button" data-open-member="${Utils.sanitize(m.id)}" style="display:flex;align-items:center;gap:0.75rem;flex:1;min-width:0;background:none;border:none;color:inherit;text-align:left;cursor:pointer;padding:0;">
+                <img src="${Utils.sanitize(m.avatar || 'assets/ruma_default_avatar.png')}" alt="${Utils.sanitize(m.name)}" style="width:40px;height:40px;border-radius:50%;object-fit:cover;border:1.5px solid var(--primary);flex-shrink:0;">
+                <span class="rst-row-txt">
+                  <b>${Utils.sanitize(m.name)}${isMe ? ' (Tú)' : ''}</b>
+                  <small>@${Utils.sanitize(m.username || 'usuario')} · ${roleLabel}</small>
+                </span>
+              </button>
+              ${canKick ? `<button type="button" class="btn btn-secondary btn-sm" data-kick-member="${Utils.sanitize(m.id)}" data-kick-name="${Utils.sanitize(m.name)}" style="color:var(--error);border-color:rgba(239,68,68,0.35);flex-shrink:0;">Expulsar</button>` : '<span class="rst-chev">›</span>'}
+            </div>`;
         }).join('')}
         <button type="button" class="btn btn-primary" id="rg-members-invite" style="margin-top:.35rem;width:100%;">
           🔗 Invitar amigos (${Utils.sanitize(group.code)})
@@ -225,6 +229,19 @@ function openGroupMembersModal(group, currentUser, invite) {
           const uid = btn.getAttribute('data-open-member');
           UI.closeModal();
           store.navigate('profile', { inspectUserId: uid });
+        });
+      });
+      document.querySelectorAll('[data-kick-member]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const targetId = btn.getAttribute('data-kick-member');
+          const targetName = btn.getAttribute('data-kick-name') || 'este miembro';
+          btn.disabled = true;
+          const res = await store.removeMemberFromGroup(group.id, targetId);
+          UI.closeModal();
+          UI.showToast(
+            res.ok ? `${targetName} fue expulsado del grupo 🛡️` : (res.error || 'No se pudo expulsar al miembro.'),
+            res.ok ? 'info' : 'error'
+          );
         });
       });
       document.getElementById('rg-members-invite')?.addEventListener('click', () => {

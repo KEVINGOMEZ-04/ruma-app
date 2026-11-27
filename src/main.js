@@ -16,8 +16,12 @@ import './styles/profile.css';
 
 import { store } from './core/store.js';
 import { Utils } from './core/utils.js';
+import { UI } from './components/ui.js';
 import { CloudSync } from './services/cloud-sync.js';
 import { CosmicBackground } from './components/cosmic-background.js';
+import { NativePlatform } from './services/native-platform.js';
+import { PushService } from './services/push-service.js';
+import { RemindersService } from './services/reminders-service.js';
 
 let cosmicBg = null;
 let appRenderSeq = 0;
@@ -286,4 +290,19 @@ CloudSync.onStatusChange((status) => {
 });
 
 store.subscribe(renderApp);
-window.addEventListener('DOMContentLoaded', renderApp);
+window.addEventListener('DOMContentLoaded', () => {
+  renderApp();
+  NativePlatform.init({
+    store,
+    UI,
+    onPause: () => cosmicBg?.stop?.(),
+    onResume: () => {
+      cosmicBg?.start?.();
+      if (store.getCurrentUser()) {
+        store.syncNowWithCloud?.().catch?.(() => {});
+      }
+    }
+  });
+  PushService.init({ store, UI }).catch(() => {});
+  RemindersService.init({ store }).catch(() => {});
+});

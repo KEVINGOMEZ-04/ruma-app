@@ -8,6 +8,7 @@ import { MusicService } from '../services/music-service.js';
 import { MediaStorage } from '../services/media-storage.js';
 import { GoogleAuth } from '../services/google-auth.js';
 import { DriveBridge } from '../services/drive-bridge.js';
+import { NativeDriveUploader } from '../services/native-drive-uploader.js';
 import { openDriveConnectModal } from '../components/drive-connect-modal.js';
 import { UI } from '../components/ui.js';
 
@@ -147,7 +148,16 @@ export function openUploadMemoryModal(group, editingMemory = null, prefillDate =
 
         <div class="form-group">
           <label class="form-label">Fotos o Videos del Álbum (Sin límite de peso en MB/GB)</label>
-          <input type="file" id="mem-files" class="form-input" accept="image/*,video/*,.heic,.heif,.mov,.m4v,.mp4" multiple>
+          ${NativeDriveUploader.isAvailable() ? `
+            <div style="display:flex;flex-direction:column;gap:0.45rem;">
+              <button type="button" class="btn btn-secondary" id="btn-mem-android-picker" style="width:100%;">
+                🖼️ Elegir fotos o videos (Subida en 2.º plano sin cortes)
+              </button>
+              <div id="mem-android-picked-summary" style="font-size:0.78rem;color:var(--text-secondary);"></div>
+            </div>
+          ` : `
+            <input type="file" id="mem-files" class="form-input" accept="image/*,video/*,.heic,.heif,.mov,.m4v,.mp4" multiple>
+          `}
         </div>
 
         <div class="form-group">
@@ -316,10 +326,39 @@ export function openUploadMemoryModal(group, editingMemory = null, prefillDate =
         }
       });
 
+      let pickedNativeFiles = [];
+      document.getElementById('btn-mem-android-picker')?.addEventListener('click', async () => {
+        try {
+          const limits = Entitlements.getGroupLimits(group);
+          const maxItems = Number.isFinite(limits.maxFilesPerMemoryUpload) ? limits.maxFilesPerMemoryUpload : 20;
+          const items = await NativeDriveUploader.pickMedia({ maxItems });
+          pickedNativeFiles = items.map(item => ({
+            nativeUri: item.uri,
+            name: item.name,
+            mimeType: item.mimeType,
+            type: item.mimeType,
+            size: item.size,
+            thumbnailDataUrl: item.thumbnailDataUrl || ''
+          }));
+          const summary = document.getElementById('mem-android-picked-summary');
+          if (summary) {
+            summary.textContent = pickedNativeFiles.length > 0
+              ? `✅ ${pickedNativeFiles.length} archivo(s) listos para subida en 2.º plano`
+              : '';
+          }
+        } catch (err) {
+          if (err?.message && !/cancel/i.test(err.message)) {
+            UI.showToast(err.message, 'error');
+          }
+        }
+      });
+
       document.getElementById('btn-cancel-mem')?.addEventListener('click', () => UI.closeModal());
       document.getElementById('form-upload-memory')?.addEventListener('submit', async (e) => {
         e.preventDefault();
-        const files = Array.from(document.getElementById('mem-files')?.files || []);
+        const files = pickedNativeFiles.length > 0
+          ? pickedNativeFiles
+          : Array.from(document.getElementById('mem-files')?.files || []);
         const submitBtn = document.getElementById('btn-submit-mem');
         const progWrap = document.getElementById('mem-upload-progress-wrap');
         const progText = document.getElementById('mem-upload-progress-text');
@@ -435,6 +474,7 @@ export async function openMemoryDetailModal(group, mem, user) {
               ? `<a href="${Utils.sanitize(Utils.safeUrl(mem.driveUrl, '#'))}" target="_blank" rel="noopener noreferrer" class="btn btn-primary btn-sm">📁 Carpeta Drive ↗</a>`
               : `<button type="button" class="btn btn-primary btn-sm" id="btn-mem-detail-sync-drive">☁️ Subir a Google Drive</button>`
             }
+            ${mem.authorId && mem.authorId !== user.id ? `<button type="button" class="btn btn-secondary btn-sm" id="btn-mem-detail-report" aria-label="Reportar recuerdo">🚩</button>` : ''}
             ${store.canDeleteMemory(group, mem, user) ? `<button type="button" class="btn btn-danger btn-sm" id="btn-mem-detail-delete" aria-label="Eliminar recuerdo">🗑️</button>` : ''}
           </div>
         </div>
@@ -580,6 +620,20 @@ export async function openMemoryDetailModal(group, mem, user) {
       document.getElementById('btn-mem-detail-edit')?.addEventListener('click', () => {
         UI.closeModal();
         openUploadMemoryModal(group, mem, null, Entitlements.isGroupAdmin(group, user.id));
+      });
+
+      document.getElementById('btn-mem-detail-report')?.addEventListener('click', () => {
+        UI.openReportModal({
+          targetLabel: `el recuerdo "${mem.title || 'Sin título'}"`,
+          onSubmit: ({ reason, details }) => store.reportContentAsync({
+            groupId: group.id,
+            targetType: 'memory',
+            targetId: mem.id,
+            targetUserId: mem.authorId || '',
+            reason,
+            details
+          })
+        });
       });
 
       document.getElementById('btn-mem-detail-delete')?.addEventListener('click', () => {

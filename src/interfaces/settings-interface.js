@@ -7,6 +7,9 @@ import { Entitlements, PLAN_LIMITS } from '../core/entitlements.js';
 import { Utils } from '../core/utils.js';
 import { UI } from '../components/ui.js';
 import { CONFIG } from '../core/config.js';
+import { PushService } from '../services/push-service.js';
+import { RemindersService } from '../services/reminders-service.js';
+import { BillingService } from '../services/billing-service.js';
 
 const svg = (inner, size = 18) =>
   `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${inner}</svg>`;
@@ -25,7 +28,9 @@ const ICO = {
   book: '<path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32 1.41 1.41M2 12h2m16 0h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>',
   moon: '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>',
+  bell: '<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>',
   shield: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>',
+  ban: '<circle cx="12" cy="12" r="9"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>',
   fileText: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>',
   trash: '<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/>',
   external: '<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>'
@@ -41,10 +46,13 @@ export function renderSettingsInterface(container) {
   const allGroups = store.getGroups();
   const myGroups = store.getMyGroups();
   const refGroup = store.getActiveGroup() || myGroups[0] || null;
+  const accounts = store.getAccounts();
+  const blockedIds = store.getBlockedUserIds();
 
   const isUserPrem = Entitlements.isUserPremium(user, allGroups);
   const isGroupPrem = refGroup ? Entitlements.isGroupPremium(refGroup) : isUserPrem;
   const allowDevToggle = CryptoAuth.isBetaSelfUpgradeAllowed();
+  const nativeBilling = BillingService.isNativeBillingReady();
 
   const groupsCount = myGroups.length;
   const groupsMax = isUserPrem ? Infinity : PLAN_LIMITS.free.maxTotalGroups;
@@ -77,13 +85,23 @@ export function renderSettingsInterface(container) {
     { label: 'Libros', val: booksCount, max: booksMax, ico: ICO.book }
   ];
 
+  const resolveBlockedLabel = (uid) => {
+    const acc = accounts.find(a => a.id === uid);
+    if (acc?.name) return `${acc.name} (@${acc.username || 'usuario'})`;
+    for (const g of myGroups) {
+      const m = (g.members || []).find(x => x.id === uid);
+      if (m?.name) return `${m.name} (@${m.username || 'usuario'})`;
+    }
+    return `Usuario (${uid.slice(0, 10)})`;
+  };
+
   container.innerHTML = `
     <div class="rst-wrap">
       <!-- Cabecera -->
       <header class="rst-head">
         <div>
           <h1>⚙️ Ajustes</h1>
-          <p>Gestiona tu cuenta y tu plan en Ruma.</p>
+          <p>Gestiona tu cuenta, notificaciones y tu plan en Ruma.</p>
         </div>
         <button type="button" class="rst-logout" id="rst-logout-btn">🚪 Cerrar Sesión</button>
       </header>
@@ -109,6 +127,37 @@ export function renderSettingsInterface(container) {
               <span class="rst-chev">›</span>
             </button>
           `).join('')}
+        </div>
+      </section>
+
+      <!-- Notificaciones y Operación en 2.º Plano -->
+      <section class="rg-card rst-card">
+        <div class="rst-sec-head">
+          <div class="rst-sec-ico">${svg(ICO.bell, 20)}</div>
+          <div>
+            <h2>Notificaciones y 2.º Plano</h2>
+            <p>Recibe avisos de chat con la app cerrada y recordatorios de planes o metas.</p>
+          </div>
+        </div>
+
+        <div class="rst-rows">
+          <button type="button" class="rst-row" id="rst-enable-push">
+            <span class="rst-row-ico">${svg(ICO.bell, 18)}</span>
+            <span class="rst-row-txt">
+              <b>Notificaciones Push del Chat y Grupos</b>
+              <small id="rst-push-status">${PushService.isSupported() ? 'Activa avisos en tiempo real vía Firebase Cloud Messaging' : 'Disponible al instalar la app Android'}</small>
+            </span>
+            <span class="rst-chev">›</span>
+          </button>
+
+          <button type="button" class="rst-row" id="rst-enable-reminders">
+            <span class="rst-row-ico">${svg(ICO.bell, 18)}</span>
+            <span class="rst-row-txt">
+              <b>Recordatorios de Planes y Metas</b>
+              <small>${RemindersService.isEnabled() ? 'Activados (avisos 24 h y 1 h antes)' : 'Desactivados · Toca para activar'}</small>
+            </span>
+            <span class="rst-chev">›</span>
+          </button>
         </div>
       </section>
 
@@ -140,7 +189,7 @@ export function renderSettingsInterface(container) {
           <div class="rst-crown">👑</div>
           <div>
             <h2>Plan y Límites</h2>
-            <p>Gestiona tu suscripción de ruma Plus y consulta tus límites.</p>
+            <p>Gestiona tu suscripción de ruma Plus en Google Play y consulta tus límites.</p>
           </div>
         </div>
 
@@ -151,16 +200,19 @@ export function renderSettingsInterface(container) {
           </div>
           <p>${isUserPrem
             ? 'Tienes ruma Plus activo: puedes unirte a todos los grupos que quieras, crear 1 grupo Premium y guardar películas, series y canciones ilimitadas.'
-            : 'Desbloquea todo el potencial de Ruma: más grupos, contenido ilimitado y funciones exclusivas.'}</p>
+            : 'Desbloquea todo el potencial de Ruma: más grupos, contenido ilimitado y funciones exclusivas vía Google Play Billing.'}</p>
 
           ${allowDevToggle ? `
             <button type="button" class="rst-plus-btn ${isUserPrem ? 'is-off' : ''}" id="rst-toggle-plus">
               ${isUserPrem ? '🔄 Desactivar ruma Plus (Modo Dev)' : '👑 Activar ruma Plus (Modo Dev)'}
             </button>
           ` : `
-            <button type="button" class="rst-plus-btn" id="rst-plus-coming-soon" style="opacity:0.85;">
-              ${isUserPrem ? '✨ Plan ruma Plus activo' : '✨ ruma Plus · Próximamente'}
-            </button>
+            <div style="display:flex;flex-direction:column;gap:0.5rem;">
+              <button type="button" class="rst-plus-btn" id="rst-plus-subscribe">
+                ${isUserPrem ? '✨ Gestionar ruma Plus en Google Play' : (nativeBilling ? '👑 Suscribirme con Google Play' : '✨ ruma Plus · Disponible en Google Play')}
+              </button>
+              ${nativeBilling ? `<button type="button" class="btn btn-secondary btn-sm" id="rst-restore-purchases">🔄 Restaurar compras de Google Play</button>` : ''}
+            </div>
           `}
         </div>
 
@@ -184,13 +236,37 @@ export function renderSettingsInterface(container) {
         </div>
       </section>
 
-      <!-- Legal & Privacidad -->
+      <!-- Seguridad Comunitaria (Usuarios bloqueados UGC) -->
+      ${blockedIds.length > 0 ? `
+        <section class="rg-card rst-card">
+          <div class="rst-sec-head">
+            <div class="rst-sec-ico">${svg(ICO.ban, 20)}</div>
+            <div>
+              <h2>Usuarios bloqueados (${blockedIds.length})</h2>
+              <p>Los mensajes y avisos de estas cuentas permanecen ocultos para ti.</p>
+            </div>
+          </div>
+          <div class="rst-rows">
+            ${blockedIds.map(bid => `
+              <div class="rst-row" style="cursor:default;justify-content:space-between;">
+                <span class="rst-row-txt">
+                  <b>${Utils.sanitize(resolveBlockedLabel(bid))}</b>
+                  <small>Bloqueado</small>
+                </span>
+                <button type="button" class="btn btn-secondary btn-sm" data-unblock-uid="${Utils.sanitize(bid)}">Desbloquear</button>
+              </div>
+            `).join('')}
+          </div>
+        </section>
+      ` : ''}
+
+      <!-- Legal, Privacidad y Eliminación de Cuenta -->
       <section class="rg-card rst-card">
         <div class="rst-sec-head">
           <div class="rst-sec-ico">${svg(ICO.shield, 20)}</div>
           <div>
-            <h2>Privacidad y Términos</h2>
-            <p>Documentación oficial de ruma y opciones de protección de datos.</p>
+            <h2>Privacidad, Términos y Cuenta</h2>
+            <p>Documentación oficial de ruma y control total sobre tus datos.</p>
           </div>
         </div>
 
@@ -199,7 +275,7 @@ export function renderSettingsInterface(container) {
             <span class="rst-row-ico">${svg(ICO.shield, 18)}</span>
             <span class="rst-row-txt">
               <b>Política de Privacidad</b>
-              <small>Cómo protegemos tus datos y uso limitado de Google</small>
+              <small>Cómo protegemos tus datos y uso limitado de Google Drive (drive.file)</small>
             </span>
             <span class="rst-chev">${svg(ICO.external, 14)}</span>
           </a>
@@ -208,16 +284,25 @@ export function renderSettingsInterface(container) {
             <span class="rst-row-ico">${svg(ICO.fileText, 18)}</span>
             <span class="rst-row-txt">
               <b>Términos y Condiciones</b>
-              <small>Reglas de uso del servicio y compromisos de la plataforma</small>
+              <small>Reglas de uso del servicio, moderación UGC y suscripciones</small>
             </span>
             <span class="rst-chev">${svg(ICO.external, 14)}</span>
           </a>
 
-          <a class="rst-row" href="${CONFIG.webUrls.deleteAccount}" target="_blank" rel="noopener" style="text-decoration:none;">
+          <button type="button" class="rst-row" id="rst-delete-account-inapp">
             <span class="rst-row-ico" style="color:var(--error);background:rgba(239,68,68,0.12);border-color:rgba(239,68,68,0.25);">${svg(ICO.trash, 18)}</span>
             <span class="rst-row-txt">
-              <b>Eliminar mi cuenta</b>
-              <small>Solicitar borrado total y purga de datos conforme a Play Store</small>
+              <b style="color:var(--error);">Eliminar mi cuenta ahora</b>
+              <small>Borra definitivamente tu cuenta, sesión y datos en ruma</small>
+            </span>
+            <span class="rst-chev">›</span>
+          </button>
+
+          <a class="rst-row" href="${CONFIG.webUrls.deleteAccount}" target="_blank" rel="noopener" style="text-decoration:none;">
+            <span class="rst-row-ico">${svg(ICO.external, 16)}</span>
+            <span class="rst-row-txt">
+              <b>Portal web de eliminación de datos</b>
+              <small>Información y solicitudes externas de eliminación de datos</small>
             </span>
             <span class="rst-chev">${svg(ICO.external, 14)}</span>
           </a>
@@ -229,6 +314,39 @@ export function renderSettingsInterface(container) {
   container.querySelector('#rst-logout-btn')?.addEventListener('click', () => {
     store.logout();
     UI.showToast('Has cerrado sesión correctamente.', 'info');
+  });
+
+  // Estado contextual de Push FCM
+  if (PushService.isSupported()) {
+    PushService.checkPermissionStatus().then(st => {
+      const el = container.querySelector('#rst-push-status');
+      if (!el) return;
+      if (st === 'granted') el.textContent = '🟢 Activadas · Recibirás avisos con la app cerrada';
+      else if (st === 'denied') el.textContent = '🔴 Bloqueadas en ajustes del sistema Android';
+    }).catch(() => {});
+  }
+
+  container.querySelector('#rst-enable-push')?.addEventListener('click', async () => {
+    const res = await PushService.enableNotifications();
+    UI.showToast(res.ok ? '🔔 ¡Notificaciones Push activadas!' : res.error, res.ok ? 'success' : 'info');
+    if (res.ok) renderSettingsInterface(container);
+  });
+
+  container.querySelector('#rst-enable-reminders')?.addEventListener('click', async () => {
+    if (RemindersService.isSupported()) {
+      const res = await RemindersService.requestPermission();
+      if (!res.ok) {
+        UI.showToast(res.error, 'error');
+        return;
+      }
+      const syncRes = await RemindersService.syncAllFromGroups(store.getMyGroups());
+      UI.showToast(`🗓️ Recordatorios activos (${syncRes.scheduled} programados).`, 'success');
+    } else {
+      const next = !RemindersService.isEnabled();
+      RemindersService.setEnabled(next);
+      UI.showToast(next ? 'Recordatorios activados para Android 🗓️' : 'Recordatorios desactivados', 'info');
+    }
+    renderSettingsInterface(container);
   });
 
   container.querySelectorAll('[data-set-theme]').forEach(btn => {
@@ -251,13 +369,74 @@ export function renderSettingsInterface(container) {
     );
   });
 
-  container.querySelector('#rst-plus-coming-soon')?.addEventListener('click', () => {
-    UI.showToast(
-      isUserPrem
-        ? 'Tu cuenta ya cuenta con beneficios ruma Plus ✨'
-        : 'ruma Plus estará disponible próximamente en el lanzamiento oficial. ¡Gracias por probar la beta! 💜',
-      'info'
+  container.querySelector('#rst-plus-subscribe')?.addEventListener('click', () => {
+    if (isUserPrem) {
+      window.open(BillingService.getManageSubscriptionUrl(), '_blank', 'noopener,noreferrer');
+      return;
+    }
+    UI.showUpgradeModal(
+      'Activa ruma Plus para unirte a grupos ilimitados y desbloquear catálogos sin tope en tu grupo Premium.',
+      () => store.syncBillingEntitlementsAsync(),
+      { userId: user.id }
     );
+  });
+
+  container.querySelector('#rst-restore-purchases')?.addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    const res = await BillingService.restorePurchases(user.id);
+    btn.disabled = false;
+    UI.showToast(res.message || res.error || 'Proceso finalizado.', res.isPremium ? 'success' : 'info');
+    if (res.isPremium) await store.syncBillingEntitlementsAsync();
+  });
+
+  container.querySelectorAll('[data-unblock-uid]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const uid = btn.getAttribute('data-unblock-uid');
+      store.unblockUser(uid);
+      UI.showToast('Usuario desbloqueado.', 'info');
+    });
+  });
+
+  // Eliminación definitiva de cuenta in-app (requisito obligatorio Google Play)
+  container.querySelector('#rst-delete-account-inapp')?.addEventListener('click', () => {
+    UI.openModal({
+      title: '🗑️ Eliminar cuenta definitivamente',
+      contentHtml: `
+        <form id="rst-del-acc-form" style="display:flex;flex-direction:column;gap:0.85rem;">
+          <p style="font-size:0.88rem;color:var(--text-secondary);line-height:1.5;margin:0;">
+            Esta acción es <strong>permanente e irreversible</strong>. Se borrarán tu cuenta de acceso, perfil, tokens de notificaciones y tu membresía en tus grupos (los archivos guardados en tu Google Drive personal permanecen en tu Drive).
+          </p>
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="rst-del-confirm">Escribe <strong>ELIMINAR</strong> para confirmar</label>
+            <input type="text" id="rst-del-confirm" class="form-input" placeholder="ELIMINAR" autocomplete="off" required>
+          </div>
+          <div style="display:flex;justify-content:flex-end;gap:0.6rem;">
+            <button type="button" class="btn btn-secondary" id="rst-del-cancel">Cancelar</button>
+            <button type="submit" class="btn btn-danger" id="rst-del-submit" disabled>Eliminar mi cuenta</button>
+          </div>
+        </form>
+      `,
+      onMount: () => {
+        const inp = document.getElementById('rst-del-confirm');
+        const btn = document.getElementById('rst-del-submit');
+        inp?.addEventListener('input', () => {
+          if (btn) btn.disabled = inp.value.trim().toUpperCase() !== 'ELIMINAR';
+        });
+        document.getElementById('rst-del-cancel')?.addEventListener('click', () => UI.closeModal());
+        document.getElementById('rst-del-acc-form')?.addEventListener('submit', async (e) => {
+          e.preventDefault();
+          if (btn) { btn.disabled = true; btn.textContent = 'Eliminando…'; }
+          const res = await store.deleteCurrentUserAccountAsync();
+          UI.closeModal();
+          if (!res.ok) {
+            UI.showToast(res.error || 'No se pudo eliminar la cuenta.', 'error');
+            return;
+          }
+          UI.showToast('Tu cuenta y tus datos han sido eliminados definitivamente.', 'info');
+        });
+      }
+    });
   });
 
   container.querySelectorAll('[data-edit-field]').forEach(btn => {

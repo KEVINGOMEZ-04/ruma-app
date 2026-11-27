@@ -54,12 +54,13 @@ export default [
     ignores: ['dist/**', 'node_modules/**', 'public/**', 'android/**', 'ios/**']
   },
   {
-    files: ['src/**/*.js', 'tests/**/*.js'],
+    files: ['src/**/*.js', 'tests/**/*.js', 'worker/src/**/*.js'],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: 'module',
       globals: {
         ...BROWSER_GLOBALS,
+        caches: 'readonly',
         globalThis: 'readonly'
       }
     },

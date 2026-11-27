@@ -5,6 +5,7 @@
  */
 
 import { CONFIG } from '../core/config.js';
+import { BackendApi } from './backend-api.js';
 
 const tmdbCache = new Map();
 
@@ -77,6 +78,28 @@ export const MediaService = {
       return tmdbCache.get(endpoint);
     }
 
+    const remember = (data) => {
+      if (tmdbCache.size >= 120) {
+        const firstKey = tmdbCache.keys().next().value;
+        if (firstKey !== undefined) tmdbCache.delete(firstKey);
+      }
+      tmdbCache.set(endpoint, data);
+      return data;
+    };
+
+    // 1. Ruta recomendada en producción / APK: proxy seguro en Cloudflare Worker (oculta la API key)
+    if (BackendApi.isConfigured()) {
+      try {
+        const proxied = await BackendApi.fetchTmdb(endpoint);
+        if (proxied && !proxied.error) {
+          return remember(proxied);
+        }
+      } catch (err) {
+        console.warn('TMDb Worker proxy warning:', err);
+      }
+    }
+
+    // 2. Fallback exclusivo para desarrollo local si se configuró `VITE_TMDB_API_KEY`
     const keys = [...new Set([
       CONFIG.tmdb.apiKey,
       ...(CONFIG.tmdb.backupKeys || [])
@@ -89,14 +112,8 @@ export const MediaService = {
         const res = await fetch(url);
         if (res.ok) {
           const data = await res.json();
-          if (tmdbCache.size >= 120) {
-            const firstKey = tmdbCache.keys().next().value;
-            if (firstKey !== undefined) tmdbCache.delete(firstKey);
-          }
-          tmdbCache.set(endpoint, data);
-          return data;
+          return remember(data);
         }
-        // Si TMDb responde 400/404, no desperdiciar reintentos con claves de respaldo
         if (res.status === 400 || res.status === 404) return null;
       } catch (err) {
         console.warn('TMDb fallback warning:', err);

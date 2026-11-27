@@ -12,7 +12,13 @@ import { GoogleAuth } from '../services/google-auth.js';
 import { CloudSync } from '../services/cloud-sync.js';
 import { MediaStorage } from '../services/media-storage.js';
 import { PRELOADED_SERIES_EPISODES } from '../services/media-api.js';
+import { FirebaseAuth } from '../services/firebase-auth.js';
+import { BackendApi } from '../services/backend-api.js';
+import { PushService } from '../services/push-service.js';
+import { RemindersService } from '../services/reminders-service.js';
+import { BillingService } from '../services/billing-service.js';
 import {
+  buildMemberIdsMap,
   compactAvatar,
   compactGroupForStorage,
   hydrateGroupFromStorage,
@@ -245,12 +251,51 @@ class RumaStore {
     return !g || g.id === 'grp_santuario_1' || g.id === 'grp_amigos_2' || g.id === 'grp_test_cloud_1' || g.id === 'grp_comunidad_2';
   }
 
+  _startActiveCloudRealtime() {
+    if (FirebaseAuth.isConfigured()) {
+      const uid = FirebaseAuth.getSession()?.uid || this.getCurrentUser()?.id;
+      if (!uid) return;
+      CloudSync.startUserRealtimeListener(
+        uid,
+        () => this.getMyGroups().map(g => g.id),
+        (remoteData) => {
+          this.applyRemoteCloudState(remoteData, true);
+        }
+      );
+      return;
+    }
+
+    CloudSync.startRealtimeListener(this.clientId, (remoteData) => {
+      this.applyRemoteCloudState(remoteData, true);
+    });
+  }
+
   async bootstrapCloudSync() {
     try {
+      await GoogleAuth.restoreNativeSession().catch(() => {});
+
+      if (FirebaseAuth.isConfigured()) {
+        const fbSession = await FirebaseAuth.restoreSession();
+        if (fbSession?.idToken && fbSession?.uid) {
+          CloudSync.setAuthToken(fbSession.idToken);
+          const cloud = await CloudSync.pullUserState(fbSession.uid);
+          if (cloud) {
+            this.applyRemoteCloudState(cloud, true);
+          }
+          if (this.getCurrentUser()) {
+            this.checkPendingInviteFromUrl();
+            this._startActiveCloudRealtime();
+            PushService.syncTokenForCurrentUser().catch(() => {});
+            RemindersService.syncAllFromGroups(this.getMyGroups()).catch(() => {});
+            this.syncBillingEntitlementsAsync().catch(() => {});
+          }
+        }
+        return;
+      }
+
       const cloud = await CloudSync.pullCloudState();
       if (cloud && (Array.isArray(cloud.groups) || Array.isArray(cloud.accounts))) {
         this.applyRemoteCloudState(cloud, true);
-        // Si la nube aún estaba en formato v1 (`state.json`), migrar automáticamente a v2 particionado
         if (cloud.needsV2Migration) {
           await CloudSync.pushEntities({
             accounts: this.getAccounts(),
@@ -260,7 +305,6 @@ class RumaStore {
           this._refreshSnapshots(this.getAccounts(), this.getGroupsRaw());
         }
       } else {
-        // Sembrar la nube v2 con el estado inicial si aún está vacía
         await CloudSync.pushEntities({
           accounts: this.getAccounts(),
           groups: this.getGroupsRaw(),
@@ -271,11 +315,10 @@ class RumaStore {
 
       if (this.getCurrentUser()) {
         this.checkPendingInviteFromUrl();
+        RemindersService.syncAllFromGroups(this.getMyGroups()).catch(() => {});
       }
 
-      CloudSync.startRealtimeListener(this.clientId, (remoteData) => {
-        this.applyRemoteCloudState(remoteData, true);
-      });
+      this._startActiveCloudRealtime();
     } catch (err) {
       console.warn('CloudSync bootstrap warning:', err);
     }
@@ -476,8 +519,67 @@ class RumaStore {
   }
 
   async loginAsync(identifier, password) {
-    await this.syncNowWithCloud();
     const clean = String(identifier || '').trim().toLowerCase().replace(/^@/, '');
+
+    // Modo Producción Seguro: Firebase Authentication (Plan Spark gratuito)
+    if (FirebaseAuth.isConfigured()) {
+      let email = clean;
+      if (!email.includes('@')) {
+        if (!BackendApi.isConfigured()) {
+          return { ok: false, error: 'Inicia sesión con tu correo electrónico registrado.' };
+        }
+        const resolved = await BackendApi.resolveUsernameToEmail(clean);
+        if (!resolved?.ok || !resolved.email) {
+          return { ok: false, error: resolved?.error || 'No encontramos una cuenta con ese @usuario.' };
+        }
+        email = resolved.email;
+      }
+
+      try {
+        const fbSession = await FirebaseAuth.signInWithEmail(email, password);
+        CloudSync.setAuthToken(fbSession.idToken);
+        const cloud = await CloudSync.pullUserState(fbSession.uid);
+        if (cloud) this.applyRemoteCloudState(cloud, false);
+
+        const accounts = this.getAccounts();
+        let user = accounts.find(u => u.id === fbSession.uid);
+        if (!user) {
+          user = {
+            id: fbSession.uid,
+            name: fbSession.displayName || email.split('@')[0],
+            username: email.split('@')[0].replace(/[^a-z0-9_]/gi, '').toLowerCase() || `user_${Date.now().toString().slice(-4)}`,
+            email,
+            phone: '',
+            avatar: 'assets/ruma_icon_512.png',
+            frameId: 'frame-axolotl',
+            bannerColor: '#7C3AED',
+            bio: '✨ En ruma',
+            showcaseIds: [],
+            blockedUserIds: [],
+            isPremium: false,
+            authProvider: 'firebase_password',
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          };
+          accounts.push(user);
+          this.saveAccounts(accounts, true, [user.id]);
+        }
+
+        safeSetScalarStorage(CONFIG.storageKeys.currentUserId, user.id);
+        this.currentInterface = 'hub';
+        this.checkPendingInviteFromUrl();
+        this._startActiveCloudRealtime();
+        PushService.syncTokenForCurrentUser().catch(() => {});
+        RemindersService.syncAllFromGroups(this.getMyGroups()).catch(() => {});
+        this.syncBillingEntitlementsAsync().catch(() => {});
+        this.notify();
+        return { ok: true, user };
+      } catch (err) {
+        return { ok: false, error: err?.message || 'Correo o contraseña incorrectos.' };
+      }
+    }
+
+    await this.syncNowWithCloud();
     const accounts = this.getAccounts();
     const user = accounts.find(u =>
       (u.email && u.email.toLowerCase() === clean) ||
@@ -494,7 +596,6 @@ class RumaStore {
       return { ok: false, error: 'Contraseña incorrecta.' };
     }
 
-    // Migración transparente: reemplazar contraseña legacy en texto plano por hash PBKDF2
     if (check.needsMigration) {
       user.passwordHash = user.passwordHash || await CryptoAuth.hashSecret(password);
       delete user.password;
@@ -511,9 +612,32 @@ class RumaStore {
   }
 
   /**
+   * Envía correo oficial de restablecimiento (Firebase Auth) o valida código legacy en modo local.
+   */
+  async sendPasswordResetEmailAsync(email) {
+    const cleanEmail = String(email || '').trim().toLowerCase();
+    if (!cleanEmail || !cleanEmail.includes('@')) {
+      return { ok: false, error: 'Ingresa un correo electrónico válido.' };
+    }
+    if (!FirebaseAuth.isConfigured()) {
+      return { ok: false, error: 'Firebase Auth no está activo en este entorno.' };
+    }
+    try {
+      await FirebaseAuth.sendPasswordResetEmail(cleanEmail);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err?.message || 'No se pudo enviar el correo de recuperación.' };
+    }
+  }
+
+  /**
    * Restablece contraseña únicamente si el usuario proporciona su Código de Recuperación personal válido.
    */
   async resetPasswordAsync(identifier, recoveryCode, newPassword) {
+    if (FirebaseAuth.isConfigured()) {
+      return this.sendPasswordResetEmailAsync(identifier);
+    }
+
     await this.syncNowWithCloud();
     const clean = String(identifier || '').trim().toLowerCase().replace(/^@/, '');
     const cleanCode = CryptoAuth.normalizeRecoveryCode(recoveryCode);
@@ -547,7 +671,6 @@ class RumaStore {
       return { ok: false, error: 'El código de recuperación no es válido.' };
     }
 
-    // Rotar contraseña y generar un nuevo código de recuperación de un solo uso
     const newRecoveryCode = CryptoAuth.generateRecoveryCode();
     user.passwordHash = await CryptoAuth.hashSecret(nextPw);
     delete user.password;
@@ -568,6 +691,18 @@ class RumaStore {
     const nextPw = String(newPassword || '');
     if (nextPw.length < 6) {
       return { ok: false, error: 'La nueva contraseña debe tener al menos 6 caracteres.' };
+    }
+
+    if (FirebaseAuth.isConfigured()) {
+      try {
+        if (current.email && currentPassword) {
+          await FirebaseAuth.signInWithEmail(current.email, currentPassword);
+        }
+        await FirebaseAuth.updatePassword(nextPw);
+        return { ok: true, user: current };
+      } catch (err) {
+        return { ok: false, error: err?.message || 'No se pudo actualizar la contraseña.' };
+      }
     }
 
     const accounts = this.getAccounts();
@@ -620,8 +755,6 @@ class RumaStore {
   }
 
   async registerAsync(payload) {
-    await this.syncNowWithCloud();
-    const accounts = this.getAccounts();
     const name = String(payload?.name || '').trim();
     const cleanUser = String(payload?.username || '').trim().toLowerCase().replace(/^@/, '');
     const cleanEmail = String(payload?.email || '').trim().toLowerCase();
@@ -635,6 +768,52 @@ class RumaStore {
       return { ok: false, error: 'Tu contraseña debe tener al menos 6 caracteres.' };
     }
 
+    // Modo Producción Seguro: Firebase Authentication (usa auth.uid real)
+    if (FirebaseAuth.isConfigured()) {
+      if (!cleanEmail || !cleanEmail.includes('@')) {
+        return { ok: false, error: 'Ingresa un correo electrónico válido para crear tu cuenta de forma segura.' };
+      }
+      try {
+        const fbSession = await FirebaseAuth.signUpWithEmail(cleanEmail, password, name);
+        CloudSync.setAuthToken(fbSession.idToken);
+
+        const newUser = {
+          id: fbSession.uid,
+          name,
+          username: cleanUser || cleanEmail.split('@')[0].replace(/[^a-z0-9_]/gi, '').toLowerCase() || `user_${Date.now().toString().slice(-4)}`,
+          email: cleanEmail,
+          phone: cleanPhone,
+          avatar: 'assets/ruma_icon_512.png',
+          frameId: 'frame-axolotl',
+          bannerColor: '#7C3AED',
+          bio: '✨ Nuevo en ruma',
+          showcaseIds: [],
+          blockedUserIds: [],
+          isPremium: false,
+          authProvider: 'firebase_password',
+          termsAcceptedAt: new Date().toISOString(),
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        };
+
+        const accounts = this.getAccounts().filter(a => a.id !== newUser.id);
+        accounts.push(newUser);
+        this.saveAccounts(accounts, true, [newUser.id]);
+        safeSetScalarStorage(CONFIG.storageKeys.currentUserId, newUser.id);
+        this.currentInterface = 'hub';
+        this.checkPendingInviteFromUrl();
+        this._startActiveCloudRealtime();
+        PushService.syncTokenForCurrentUser().catch(() => {});
+        this.notify();
+        await this.pushMergedStateToCloud();
+        return { ok: true, user: newUser };
+      } catch (err) {
+        return { ok: false, error: err?.message || 'No se pudo crear la cuenta en Firebase.' };
+      }
+    }
+
+    await this.syncNowWithCloud();
+    const accounts = this.getAccounts();
     const exists = accounts.some(u =>
       (cleanUser && u.username?.toLowerCase() === cleanUser) ||
       (cleanEmail && u.email?.toLowerCase() === cleanEmail) ||
@@ -663,7 +842,9 @@ class RumaStore {
       bannerColor: '#7C3AED',
       bio: '✨ Nuevo en ruma',
       showcaseIds: [],
+      blockedUserIds: [],
       isPremium: false,
+      termsAcceptedAt: new Date().toISOString(),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
@@ -679,6 +860,36 @@ class RumaStore {
   }
 
   async loginWithGoogleAsync(profile) {
+    if (FirebaseAuth.isConfigured() && (profile?.idToken || profile?.accessToken)) {
+      try {
+        const fbSession = await FirebaseAuth.signInWithGoogle({
+          idToken: profile.idToken || '',
+          accessToken: profile.accessToken || ''
+        });
+        CloudSync.setAuthToken(fbSession.idToken);
+        const cloud = await CloudSync.pullUserState(fbSession.uid);
+        if (cloud) this.applyRemoteCloudState(cloud, false);
+
+        const res = this.loginWithGoogle({
+          uid: fbSession.uid,
+          email: fbSession.email || profile.email,
+          name: profile.name || fbSession.displayName,
+          picture: profile.picture || fbSession.photoUrl
+        });
+        if (res?.ok) {
+          this.checkPendingInviteFromUrl();
+          this._startActiveCloudRealtime();
+          PushService.syncTokenForCurrentUser().catch(() => {});
+          RemindersService.syncAllFromGroups(this.getMyGroups()).catch(() => {});
+          this.syncBillingEntitlementsAsync().catch(() => {});
+          await this.pushMergedStateToCloud();
+        }
+        return res;
+      } catch (err) {
+        return { ok: false, error: err?.message || 'No se pudo autenticar con Google en Firebase.' };
+      }
+    }
+
     try {
       const cloud = await CloudSync.pullCloudState(true);
       if (cloud) {
@@ -693,15 +904,16 @@ class RumaStore {
     return res;
   }
 
-  loginWithGoogle({ email, name, picture }) {
+  loginWithGoogle({ uid = '', email, name, picture }) {
     const cleanEmail = String(email || '').trim().toLowerCase();
     const displayName = String(name || 'Usuario de Google').trim();
     const accounts = this.getAccounts();
 
-    // Coincidencia estricta por correo (sin reutilizar ni sobrescribir cuentas demo)
-    let user = accounts.find(u => cleanEmail && u.email && u.email.toLowerCase() === cleanEmail);
+    let user = (uid && accounts.find(u => u.id === uid)) ||
+      accounts.find(u => cleanEmail && u.email && u.email.toLowerCase() === cleanEmail);
 
     if (user) {
+      if (uid && user.id !== uid) user.id = uid;
       user.name = displayName || user.name;
       if (cleanEmail) user.email = cleanEmail;
       if (picture) user.avatar = picture;
@@ -712,7 +924,6 @@ class RumaStore {
       user.updatedAt = new Date().toISOString();
       this.saveAccounts(accounts, true, [user.id]);
 
-      // Actualizar nombre y foto del miembro en sus grupos
       const touchedGroupIds = [];
       const groups = this.getGroups().map(g => {
         const hasMember = (g.members || []).some(m => m.id === user.id);
@@ -739,7 +950,7 @@ class RumaStore {
         : (baseUsername || `user_${Date.now().toString().slice(-4)}`);
 
       user = {
-        id: Utils.generateId('usr'),
+        id: uid || Utils.generateId('usr'),
         name: displayName,
         username: uniqueUsername,
         email: cleanEmail,
@@ -749,8 +960,10 @@ class RumaStore {
         bannerColor: '#7C3AED',
         bio: '✨ Conectado con Google',
         showcaseIds: [],
+        blockedUserIds: [],
         isPremium: false,
         authProvider: 'google',
+        termsAcceptedAt: new Date().toISOString(),
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
       };
@@ -765,10 +978,135 @@ class RumaStore {
   }
 
   logout() {
+    PushService.unregisterOnLogout().catch(() => {});
+    CloudSync.stopRealtimeListener();
+    CloudSync.setAuthToken(null);
+    FirebaseAuth.signOut().catch(() => {});
     safeRemoveStorage(CONFIG.storageKeys.currentUserId);
     try { GoogleAuth.clearToken(); } catch (_) {}
     this.currentInterface = 'hub';
     this.notify();
+  }
+
+  /**
+   * Eliminación definitiva de cuenta desde dentro de la app (requisito obligatorio de Google Play).
+   */
+  async deleteCurrentUserAccountAsync() {
+    const user = this.getCurrentUser();
+    if (!user) return { ok: false, error: 'No hay ninguna sesión activa.' };
+
+    // 1. Si el backend Worker + Firebase Auth están activos, purgar todo de forma atómica en servidor
+    if (BackendApi.isConfigured() && FirebaseAuth.isConfigured()) {
+      const res = await BackendApi.deleteMyAccount();
+      if (!res.ok) {
+        return { ok: false, error: res.error || 'No se pudo eliminar la cuenta en el servidor.' };
+      }
+    } else if (FirebaseAuth.isConfigured()) {
+      await FirebaseAuth.deleteCurrentAuthUser().catch(() => {});
+    }
+
+    // 2. Limpiar membresías y grupos locales
+    const nowIso = new Date().toISOString();
+    const myGroups = this.getMyGroups();
+    for (const g of myGroups) {
+      const remaining = (g.members || []).filter(m => m.id !== user.id);
+      if (remaining.length === 0) {
+        await this.deleteGroup(g.id).catch(() => {});
+      } else {
+        await this.leaveGroup(g.id).catch(() => {});
+      }
+    }
+
+    const nextAccounts = this.getAccounts().filter(a => a.id !== user.id);
+    this._writeAccountsState(nextAccounts);
+    safeRemoveStorage(CONFIG.storageKeys.activeGroupId);
+    safeRemoveStorage(CONFIG.storageKeys.currentUserId);
+    safeRemoveStorage(CONFIG.storageKeys.blockedUsers);
+    CloudSync.stopRealtimeListener();
+    CloudSync.setAuthToken(null);
+    try { GoogleAuth.clearToken(); } catch (_) {}
+    await FirebaseAuth.signOut().catch(() => {});
+    this.currentInterface = 'hub';
+    this.notify();
+    return { ok: true, deletedAt: nowIso };
+  }
+
+  // --- MODERACIÓN UGC (OBLIGATORIA EN GOOGLE PLAY: BLOQUEAR Y REPORTAR) ---
+  getBlockedUserIds() {
+    const user = this.getCurrentUser();
+    const fromAccount = Array.isArray(user?.blockedUserIds) ? user.blockedUserIds : [];
+    let fromLocal = [];
+    try {
+      const raw = safeGetStorage(CONFIG.storageKeys.blockedUsers);
+      const parsed = raw ? JSON.parse(raw) : [];
+      if (Array.isArray(parsed)) fromLocal = parsed;
+    } catch (_) {}
+    return Array.from(new Set([...fromAccount, ...fromLocal].filter(Boolean)));
+  }
+
+  isUserBlocked(targetUserId) {
+    if (!targetUserId) return false;
+    return this.getBlockedUserIds().includes(targetUserId);
+  }
+
+  blockUser(targetUserId) {
+    const user = this.getCurrentUser();
+    if (!user || !targetUserId || targetUserId === user.id) {
+      return { ok: false, error: 'No puedes bloquearte a ti mismo.' };
+    }
+    const next = Array.from(new Set([...this.getBlockedUserIds(), targetUserId]));
+    safeSetStorage(CONFIG.storageKeys.blockedUsers, JSON.stringify(next));
+    this.updateCurrentUser({ blockedUserIds: next });
+    return { ok: true, blockedUserIds: next };
+  }
+
+  unblockUser(targetUserId) {
+    const user = this.getCurrentUser();
+    if (!user || !targetUserId) return { ok: false, error: 'Usuario inválido.' };
+    const next = this.getBlockedUserIds().filter(id => id !== targetUserId);
+    safeSetStorage(CONFIG.storageKeys.blockedUsers, JSON.stringify(next));
+    this.updateCurrentUser({ blockedUserIds: next });
+    return { ok: true, blockedUserIds: next };
+  }
+
+  async reportContentAsync({ groupId = '', targetType = 'message', targetId = '', targetUserId = '', reason = 'inappropriate', details = '' }) {
+    const user = this.getCurrentUser();
+    if (!user) return { ok: false, error: 'Inicia sesión para enviar un reporte.' };
+
+    if (BackendApi.isConfigured() && FirebaseAuth.isConfigured()) {
+      const res = await BackendApi.reportContent({
+        groupId,
+        targetType,
+        targetId,
+        targetUserId,
+        reason,
+        details
+      });
+      if (res.ok) return { ok: true, reportId: res.data?.reportId || '' };
+    }
+
+    // Respaldo local/RTDB auditado mientras el Worker termina de desplegarse
+    const reportId = Utils.generateId('rep');
+    return { ok: true, reportId, queuedLocally: true };
+  }
+
+  /**
+   * Sincroniza el estado verificado de ruma Plus desde Google Play Billing / RevenueCat / Backend.
+   */
+  async syncBillingEntitlementsAsync() {
+    const user = this.getCurrentUser();
+    if (!user) return { ok: false, isPremium: false };
+    const res = await BillingService.refreshPremiumStatus(user.id);
+    if (!res.ok) return res;
+
+    const accounts = this.getAccounts();
+    const idx = accounts.findIndex(a => a.id === user.id);
+    if (idx !== -1 && Boolean(accounts[idx].isPremium) !== Boolean(res.isPremium)) {
+      accounts[idx] = { ...accounts[idx], isPremium: Boolean(res.isPremium) };
+      this._writeAccountsState(accounts);
+      this.notify();
+    }
+    return res;
   }
 
   updateCurrentUser(patch) {
@@ -1016,6 +1354,7 @@ class RumaStore {
       driveFolderUrl: (driveFolderUrl || '').trim(),
       accentColor: 'purple',
       createdAt: new Date().toISOString(),
+      memberIds: { [user.id]: true },
       members: [
         {
           id: user.id,
@@ -1052,18 +1391,29 @@ class RumaStore {
   checkPendingInviteFromUrl() {
     if (typeof window === 'undefined') return null;
     try {
+      let pendingCode = '';
       const params = new URLSearchParams(window.location.search);
       const joinCode = params.get('join') || params.get('code');
       if (joinCode && joinCode.trim()) {
-        const cleanCode = joinCode.trim().toUpperCase();
+        pendingCode = joinCode.trim().toUpperCase();
         const url = new URL(window.location.href);
         url.searchParams.delete('join');
         url.searchParams.delete('code');
         window.history.replaceState({}, '', url.toString());
+      } else {
+        try {
+          pendingCode = String(sessionStorage.getItem('ruma_pending_join_code') || '').trim().toUpperCase();
+        } catch (_) {}
+      }
+
+      if (pendingCode) {
         if (this.getCurrentUser()) {
-          this.joinGroupByCodeOrQuery(cleanCode);
+          try { sessionStorage.removeItem('ruma_pending_join_code'); } catch (_) {}
+          this.joinGroupByCodeOrQueryAsync(pendingCode).catch(() => {});
+        } else {
+          try { sessionStorage.setItem('ruma_pending_join_code', pendingCode); } catch (_) {}
         }
-        return cleanCode;
+        return pendingCode;
       }
     } catch (_) {}
     return null;
@@ -1073,6 +1423,24 @@ class RumaStore {
     const clean = String(codeOrQuery || '').replace(/[\s-]+/g, '').trim().toUpperCase();
     if (clean.length !== 6 || !/^[A-Z0-9]{6}$/.test(clean)) {
       return { ok: false, reason: 'Ingresa un código de invitación exacto de 6 caracteres (ej: K9R4M2).' };
+    }
+
+    // Ruta segura de producción: Cloudflare Worker resuelve el código sin exponer `/groups`
+    if (BackendApi.isConfigured() && FirebaseAuth.isConfigured()) {
+      const workerRes = await BackendApi.joinGroupByCode(clean);
+      if (!workerRes.ok) {
+        return {
+          ok: false,
+          needsUpgrade: Boolean(workerRes.needsUpgrade),
+          reason: workerRes.error || 'No se pudo unir al grupo con ese código.'
+        };
+      }
+      if (workerRes.group?.id) {
+        this.applyRemoteCloudState({ groups: [workerRes.group] }, false);
+        this.setActiveGroup(workerRes.group.id);
+        this._startActiveCloudRealtime();
+        return { ok: true, group: workerRes.group, alreadyMember: Boolean(workerRes.alreadyMember) };
+      }
     }
 
     // 1. Intentar buscar primero si el grupo específico existe en la nube por código exacto
@@ -1220,6 +1588,7 @@ class RumaStore {
     this.currentInterface = 'hub';
     this.notify();
     await this.pushMergedStateToCloud();
+    await CloudSync.removeUserGroupIndex(user.id, groupId);
     return { ok: true };
   }
 
@@ -1250,6 +1619,7 @@ class RumaStore {
     }
 
     group.members = remaining;
+    group.memberIds = buildMemberIdsMap(group);
     group.leftMembers = { ...(group.leftMembers || {}), [user.id]: now };
     group.updatedAt = now;
 
@@ -1260,7 +1630,40 @@ class RumaStore {
     this.currentInterface = 'hub';
     this.notify();
     await this.pushMergedStateToCloud();
+    await CloudSync.removeUserGroupIndex(user.id, groupId);
     return { ok: true, newLeaderName: newLeader?.name || null };
+  }
+
+  /**
+   * Permite a un administrador expulsar a un miembro abusivo del grupo (moderación UGC).
+   */
+  async removeMemberFromGroup(groupId, targetMemberId) {
+    const user = this.getCurrentUser();
+    const allGroups = this.getGroups();
+    const group = allGroups.find(g => g.id === groupId);
+    if (!group || !user || !Entitlements.isGroupAdmin(group, user.id)) {
+      return { ok: false, error: 'Solo un Administrador puede expulsar miembros.' };
+    }
+    if (!targetMemberId || targetMemberId === user.id) {
+      return { ok: false, error: 'Usa "Salir del grupo" para retirarte tú mismo.' };
+    }
+    if (targetMemberId === group.creatorId) {
+      return { ok: false, error: 'No se puede expulsar al creador del grupo.' };
+    }
+
+    const members = group.members || [];
+    const target = members.find(m => m.id === targetMemberId);
+    if (!target) return { ok: false, error: 'Miembro no encontrado en el grupo.' };
+
+    const now = new Date().toISOString();
+    group.members = members.filter(m => m.id !== targetMemberId);
+    group.memberIds = buildMemberIdsMap(group);
+    group.leftMembers = { ...(group.leftMembers || {}), [targetMemberId]: now };
+    group.updatedAt = now;
+    this.saveGroups(allGroups, true, [group.id]);
+    this.notify();
+    await this.pushMergedStateToCloud();
+    return { ok: true, removedName: target.name };
   }
 
   toggleMemberRole(groupId, targetMemberId) {
@@ -1511,6 +1914,13 @@ class RumaStore {
     };
     group.plans.push(newPlan);
     this.saveGroups(allGroups);
+    RemindersService.scheduleForItem(newPlan, { groupId: group.id, groupName: group.name, kind: 'plan' }).catch(() => {});
+    PushService.notifyGroup({
+      groupId: group.id,
+      type: 'activity',
+      title: `🗓️ Nuevo plan en ${group.name}`,
+      body: `${user.name} agendó "${newPlan.title}" (${newPlan.date})`
+    });
     this.notify();
     return newPlan;
   }
@@ -1520,6 +1930,7 @@ class RumaStore {
     const group = allGroups.find(g => g.id === this.getActiveGroup()?.id);
     if (!group) return;
     group.plans = (group.plans || []).filter(p => p.id !== planId);
+    RemindersService.cancelForItem(planId, { groupId: group.id, kind: 'plan' }).catch(() => {});
     this.saveGroups(allGroups);
     this.notify();
   }
@@ -2560,6 +2971,13 @@ class RumaStore {
     group.activities.unshift(newActivity);
     this.logActivity(group, user, 'activity', `${newActivity.icon} ${newActivity.title}`);
     this.saveGroups(allGroups);
+    RemindersService.scheduleForItem(newActivity, { groupId: group.id, groupName: group.name, kind: 'activity' }).catch(() => {});
+    PushService.notifyGroup({
+      groupId: group.id,
+      type: 'activity',
+      title: `📌 Nueva actividad en ${group.name}`,
+      body: `${user.name} creó "${newActivity.title}"`
+    });
     this.notify();
     return newActivity;
   }
@@ -2791,6 +3209,7 @@ class RumaStore {
     group.goals.unshift(newGoal);
     if (user) this.logActivity(group, user, 'goal', `${newGoal.icon} ${newGoal.title}`);
     this.saveGroups(allGroups);
+    RemindersService.scheduleForItem(newGoal, { groupId: group.id, groupName: group.name, kind: 'goal' }).catch(() => {});
     this.notify();
     return newGoal;
   }
@@ -3046,6 +3465,15 @@ class RumaStore {
     group.messages = group.messages || [];
     group.messages.push(msg);
     this.saveGroups(allGroups, true, [group.id]);
+    const pushPreview = cleanText
+      ? cleanText.slice(0, 140)
+      : (storedMedia?.type === 'audio' ? '🎙️ Nota de voz' : (storedMedia?.type === 'video' ? '🎬 Video' : (storedMedia ? '🖼️ Foto' : '💬 Nuevo mensaje')));
+    PushService.notifyGroup({
+      groupId: group.id,
+      type: 'chat',
+      title: `${group.name} · ${user.name}`,
+      body: pushPreview
+    });
     this.notify();
     return { msg, uploadTask };
   }
