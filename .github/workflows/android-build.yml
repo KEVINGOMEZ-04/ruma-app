@@ -63,8 +63,7 @@ jobs:
       - name: Sync Capacitor Android
         run: npx cap sync android
 
-      - name: Decode release keystore (if release)
-        if: ${{ github.event.inputs.build_type == 'release' || startsWith(github.ref, 'refs/tags/v') }}
+      - name: Decode release keystore (if configured)
         env:
           B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
         run: |
@@ -75,6 +74,11 @@ jobs:
       - name: Build Debug APK
         if: ${{ github.event.inputs.build_type != 'release' && !startsWith(github.ref, 'refs/tags/v') }}
         working-directory: android
+        env:
+          RUMA_KEYSTORE_PATH: ${{ github.workspace }}/android/ruma-release.keystore
+          RUMA_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          RUMA_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          RUMA_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: ./gradlew assembleDebug
 
       - name: Build Release AAB & APK (Google Play)

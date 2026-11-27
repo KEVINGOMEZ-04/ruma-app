@@ -55,6 +55,11 @@ android {
     }
 
     buildTypes {
+        debug {
+            if (hasReleaseKeystore) {
+                signingConfig signingConfigs.release
+            }
+        }
         release {
             minifyEnabled true
             shrinkResources true
