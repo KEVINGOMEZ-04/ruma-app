@@ -190,14 +190,26 @@ export const GoogleAuth = {
 
     await ensureNativeGoogleInit(webClientId);
     const scopeList = String(scopes || 'email profile').split(/\s+/).filter(Boolean);
+    const customScopes = scopeList.filter(
+      (s) =>
+        s !== 'openid' &&
+        s !== 'email' &&
+        s !== 'profile' &&
+        s !== 'https://www.googleapis.com/auth/userinfo.email' &&
+        s !== 'https://www.googleapis.com/auth/userinfo.profile'
+    );
     const prevSession = loadPersistedSession();
+
+    const loginOptions = {
+      forceRefreshToken: Boolean(forceRefresh || expectDriveScope)
+    };
+    if (expectDriveScope && customScopes.length > 0) {
+      loginOptions.scopes = customScopes;
+    }
 
     const { result } = await SocialLogin.login({
       provider: 'google',
-      options: {
-        scopes: scopeList,
-        forceRefreshToken: Boolean(forceRefresh || expectDriveScope)
-      }
+      options: loginOptions
     });
 
     const accessToken = result?.accessToken?.token || '';
