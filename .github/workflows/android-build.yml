@@ -53,17 +53,24 @@ jobs:
           VITE_REVENUECAT_ANDROID_KEY: ${{ secrets.VITE_REVENUECAT_ANDROID_KEY }}
 
       - name: Decode google-services.json (if configured)
-        if: ${{ secrets.ANDROID_GOOGLE_SERVICES_JSON_B64 != '' }}
+        env:
+          B64: ${{ secrets.ANDROID_GOOGLE_SERVICES_JSON_B64 }}
         run: |
-          echo "${{ secrets.ANDROID_GOOGLE_SERVICES_JSON_B64 }}" | base64 --decode > android/app/google-services.json
+          if [ -n "$B64" ]; then
+            printf '%s' "$B64" | tr -d '\r\n ' | base64 --decode > android/app/google-services.json
+          fi
 
       - name: Sync Capacitor Android
         run: npx cap sync android
 
       - name: Decode release keystore (if release)
-        if: ${{ (github.event.inputs.build_type == 'release' || startsWith(github.ref, 'refs/tags/v')) && secrets.ANDROID_KEYSTORE_B64 != '' }}
+        if: ${{ github.event.inputs.build_type == 'release' || startsWith(github.ref, 'refs/tags/v') }}
+        env:
+          B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
         run: |
-          echo "${{ secrets.ANDROID_KEYSTORE_B64 }}" | base64 --decode > android/ruma-release.keystore
+          if [ -n "$B64" ]; then
+            printf '%s' "$B64" | tr -d '\r\n ' | base64 --decode > android/ruma-release.keystore
+          fi
 
       - name: Build Debug APK
         if: ${{ github.event.inputs.build_type != 'release' && !startsWith(github.ref, 'refs/tags/v') }}
