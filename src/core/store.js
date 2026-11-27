@@ -1346,14 +1346,29 @@ class RumaStore {
       };
     }
 
-    // Si el usuario eligió una Portada del Recuerdo explícita, colocarla primero y etiquetarla como Portada
+    const cleanMemoryTitle = String(title || 'Recuerdo')
+      .replace(/[\\/:*?"<>|]/g, '')
+      .trim() || 'Recuerdo';
+
+    const resolveExt = (fileObj, fallback = 'jpg') => {
+      const rawName = String(fileObj?.name || '');
+      const extMatch = rawName.match(/\.([a-zA-Z0-9]+)$/);
+      if (extMatch && extMatch[1]) return extMatch[1];
+      const mime = String(fileObj?.type || '').toLowerCase();
+      if (mime.includes('mp4')) return 'mp4';
+      if (mime.includes('quicktime') || mime.includes('mov')) return 'mov';
+      if (mime.includes('webm')) return 'webm';
+      if (mime.includes('png')) return 'png';
+      if (mime.includes('heic')) return 'heic';
+      return fallback;
+    };
+
+    // 1. La Portada del Recuerdo se nombra exactamente `Portada.<ext>`
     let namedCoverFile = null;
     if (coverFile) {
-      const rawName = String(coverFile.name || 'Portada.jpg');
-      const extMatch = rawName.match(/\.([a-zA-Z0-9]+)$/);
-      const ext = extMatch ? extMatch[1] : 'jpg';
+      const ext = resolveExt(coverFile, 'jpg');
       try {
-        namedCoverFile = new File([coverFile], `Portada_del_Recuerdo.${ext}`, {
+        namedCoverFile = new File([coverFile], `Portada.${ext}`, {
           type: coverFile.type || 'image/jpeg'
         });
         namedCoverFile.isCoverFile = true;
@@ -1363,7 +1378,28 @@ class RumaStore {
       }
     }
 
-    const combinedFiles = namedCoverFile ? [namedCoverFile, ...linkedFiles] : linkedFiles;
+    // 2. Los archivos enlazados se enumeran con el nombre del recuerdo en el orden exacto de carga:
+    //    "<Nombre del Recuerdo> 1.<ext>", "<Nombre del Recuerdo> 2.<ext>", ...
+    const existingMemForOffset = id ? (group.memories || []).find(m => m.id === id) : null;
+    const existingLinkedCount = existingMemForOffset
+      ? (existingMemForOffset.files || []).filter(f => !f?.isCover).length
+      : 0;
+
+    const namedLinkedFiles = linkedFiles.map((fileObj, idx) => {
+      const seqNum = existingLinkedCount + idx + 1;
+      const isVid = Boolean(fileObj?.type && fileObj.type.startsWith('video/'));
+      const ext = resolveExt(fileObj, isVid ? 'mp4' : 'jpg');
+      const targetName = `${cleanMemoryTitle} ${seqNum}.${ext}`;
+      try {
+        return new File([fileObj], targetName, {
+          type: fileObj.type || (isVid ? 'video/mp4' : 'image/jpeg')
+        });
+      } catch (_) {
+        return fileObj;
+      }
+    });
+
+    const combinedFiles = namedCoverFile ? [namedCoverFile, ...namedLinkedFiles] : namedLinkedFiles;
 
     const isCreator = Entitlements.isGroupCreator(group, user.id);
     if (isCreator && !DriveBridge.isRealFolderConfigured(group.driveFolderUrl) && DriveBridge.isRealFolderConfigured(user.googleDriveFolderUrl)) {

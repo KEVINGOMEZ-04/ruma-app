@@ -432,27 +432,40 @@ export const DriveBridge = {
     let uploadedOrAlreadySyncedCount = 0;
     let missingOriginalCount = 0;
 
+    const cleanMemTitle = String(memory.title || 'Recuerdo')
+      .replace(/[\\/:*?"<>|]/g, '')
+      .trim() || 'Recuerdo';
+
     // 1. Si hay archivos en IndexedDB, subir solo los que aún no tienen driveFileId
     if (updatedFiles.length > 0) {
+      let linkedSeq = 0;
       for (let i = 0; i < updatedFiles.length; i++) {
         const fMeta = updatedFiles[i];
+        const isCoverItem = Boolean(fMeta?.isCover || /^Portada(\.|_)/i.test(String(fMeta?.name || '')));
+        if (!isCoverItem) linkedSeq++;
         if (fMeta?.driveFileId) {
           uploadedOrAlreadySyncedCount++;
           continue;
         }
+        const rawExtMatch = String(fMeta?.name || '').match(/\.([a-zA-Z0-9]+)$/);
+        const ext = rawExtMatch ? rawExtMatch[1] : (fMeta?.isVideo ? 'mp4' : 'jpg');
+        const targetFileName = isCoverItem
+          ? `Portada.${ext}`
+          : `${cleanMemTitle} ${linkedSeq}.${ext}`;
+
         const record = await MediaStorage.getMedia(fMeta.id);
         let fileObj = null;
         if (record?.blob) {
-          fileObj = record.blob instanceof File
-            ? record.blob
-            : new File([record.blob], fMeta.name || `Archivo_${i + 1}`, { type: fMeta.type || record.blob.type || 'application/octet-stream' });
+          fileObj = new File([record.blob], targetFileName, {
+            type: fMeta.type || record.blob.type || 'application/octet-stream'
+          });
         } else if (fMeta.thumbnail && !fMeta.isVideo) {
           // Solo usar miniatura como respaldo para imágenes (nunca disfrazar un JPEG como vídeo .mp4)
           const thumbBlob = this.dataUrlToBlob(fMeta.thumbnail);
           if (thumbBlob) {
-            const safeBaseName = String(fMeta.name || `Foto_${i + 1}`).replace(/\.[^.]+$/, '');
-            const ext = (thumbBlob.type || '').includes('png') ? 'png' : 'jpg';
-            fileObj = new File([thumbBlob], `${safeBaseName}.${ext}`, { type: thumbBlob.type || 'image/jpeg' });
+            const thumbExt = (thumbBlob.type || '').includes('png') ? 'png' : 'jpg';
+            const thumbName = isCoverItem ? `Portada.${thumbExt}` : `${cleanMemTitle} ${linkedSeq}.${thumbExt}`;
+            fileObj = new File([thumbBlob], thumbName, { type: thumbBlob.type || 'image/jpeg' });
           }
         }
 
@@ -473,6 +486,7 @@ export const DriveBridge = {
         });
         updatedFiles[i] = {
           ...fMeta,
+          name: fileObj.name,
           driveFileId: uploaded.id,
           driveViewLink: uploaded.webViewLink
         };
@@ -489,7 +503,10 @@ export const DriveBridge = {
         const blob = this.dataUrlToBlob(photoStr);
         if (blob) {
           const ext = (blob.type || '').includes('png') ? 'png' : 'jpg';
-          const fileObj = new File([blob], `Foto_${i + 1}.${ext}`, { type: blob.type || 'image/jpeg' });
+          const photoName = i === 0 && memory.photos.length > 1
+            ? `Portada.${ext}`
+            : `${cleanMemTitle} ${i + 1}.${ext}`;
+          const fileObj = new File([blob], photoName, { type: blob.type || 'image/jpeg' });
           const uploaded = await DriveResumableUploader.uploadMultipartFile(token, driveSubfolder.id, fileObj);
           updatedFiles.push({
             id: Utils.generateId('blob'),

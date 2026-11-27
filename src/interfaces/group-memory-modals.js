@@ -462,6 +462,11 @@ export function openUploadMemoryModal(group, editingMemory = null, prefillDate =
         limitCounterEl.textContent = `${selectedLinkedFiles.length} / ${maxLinkedFiles} enlazados · ${formatBytes(totalLinkedBytes)} totales`;
       };
 
+      const getCleanMemTitle = () =>
+        String(titleInp?.value || editingMemory?.title || 'Recuerdo')
+          .replace(/[\\/:*?"<>|]/g, '')
+          .trim() || 'Recuerdo';
+
       const renderCoverPreview = () => {
         if (!coverPreviewBox) return;
         if (coverPreviewObjectUrl) {
@@ -474,7 +479,7 @@ export function openUploadMemoryModal(group, editingMemory = null, prefillDate =
             coverPreviewBox.innerHTML = `
               <div style="position:relative;width:100%;height:125px;border-radius:var(--radius-sm);overflow:hidden;border:1px solid var(--border-strong);background:#090414;">
                 <img src="${Utils.sanitize(Utils.safeUrl(editingMemory.coverPreview, 'assets/ruma_icon_512.png'))}" alt="Portada" style="width:100%;height:100%;object-fit:cover;">
-                <span class="badge badge-premium" style="position:absolute;bottom:6px;left:6px;font-size:0.68rem;">🖼️ Portada actual</span>
+                <span class="badge badge-premium" style="position:absolute;bottom:6px;left:6px;font-size:0.68rem;">🖼️ Portada</span>
               </div>`;
           } else {
             coverPreviewBox.style.display = 'none';
@@ -521,9 +526,10 @@ export function openUploadMemoryModal(group, editingMemory = null, prefillDate =
           return;
         }
 
+        const baseTitle = getCleanMemTitle();
         if (linkedHintEl) {
           linkedHintEl.style.color = '#34D399';
-          linkedHintEl.textContent = `✅ ${selectedLinkedFiles.length} ${selectedLinkedFiles.length === 1 ? 'archivo enlazado listo' : 'archivos enlazados listos'} para subir`;
+          linkedHintEl.textContent = `✅ Se guardarán como "${baseTitle} 1" hasta "${baseTitle} ${selectedLinkedFiles.length}"`;
         }
 
         linkedPreviewGrid.style.display = 'grid';
@@ -531,12 +537,16 @@ export function openUploadMemoryModal(group, editingMemory = null, prefillDate =
           const objUrl = URL.createObjectURL(file);
           linkedPreviewObjectUrls.push(objUrl);
           const isVid = Boolean((file.type && file.type.startsWith('video/')) || /\.(mp4|mov|m4v|webm)$/i.test(file.name || ''));
+          const displayLabel = `${baseTitle} ${idx + 1}`;
           return `
-            <div style="position:relative;height:74px;border-radius:var(--radius-xs);overflow:hidden;border:1px solid var(--border-subtle);background:#090414;" title="${Utils.sanitize(file.name)} (${Utils.sanitize(formatBytes(file.size))})">
+            <div style="position:relative;height:78px;border-radius:var(--radius-xs);overflow:hidden;border:1px solid var(--border-subtle);background:#090414;" title="${Utils.sanitize(displayLabel)} (${Utils.sanitize(formatBytes(file.size))})">
               ${isVid
-                ? `<video src="${Utils.sanitize(objUrl)}#t=0.001" muted playsinline webkit-playsinline preload="metadata" style="width:100%;height:100%;object-fit:cover;"></video><span class="badge badge-admin" style="position:absolute;bottom:3px;left:3px;font-size:0.62rem;padding:1px 4px;">🎬 ${Utils.sanitize(formatBytes(file.size))}</span>`
-                : `<img src="${Utils.sanitize(objUrl)}" alt="" style="width:100%;height:100%;object-fit:cover;"><span class="badge badge-free" style="position:absolute;bottom:3px;left:3px;font-size:0.62rem;padding:1px 4px;">${Utils.sanitize(formatBytes(file.size))}</span>`
+                ? `<video src="${Utils.sanitize(objUrl)}#t=0.001" muted playsinline webkit-playsinline preload="metadata" style="width:100%;height:100%;object-fit:cover;"></video>`
+                : `<img src="${Utils.sanitize(objUrl)}" alt="" style="width:100%;height:100%;object-fit:cover;">`
               }
+              <span class="badge ${isVid ? 'badge-admin' : 'badge-free'}" data-linked-preview-lbl="${idx}" style="position:absolute;bottom:3px;left:3px;right:3px;font-size:0.6rem;padding:1px 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:center;">
+                ${isVid ? '🎬 ' : ''}${Utils.sanitize(displayLabel)}
+              </span>
               <button type="button" data-remove-linked-idx="${idx}" aria-label="Quitar archivo" style="position:absolute;top:3px;right:3px;width:20px;height:20px;border-radius:50%;border:none;background:rgba(0,0,0,0.75);color:#fff;font-size:0.7rem;cursor:pointer;line-height:1;">✕</button>
             </div>
           `;
@@ -556,13 +566,27 @@ export function openUploadMemoryModal(group, editingMemory = null, prefillDate =
         updateLimitCounter();
       };
 
+      titleInp?.addEventListener('input', () => {
+        if (selectedLinkedFiles.length === 0) return;
+        const baseTitle = getCleanMemTitle();
+        if (linkedHintEl) {
+          linkedHintEl.textContent = `✅ Se guardarán como "${baseTitle} 1" hasta "${baseTitle} ${selectedLinkedFiles.length}"`;
+        }
+        linkedPreviewGrid?.querySelectorAll('[data-linked-preview-lbl]').forEach(el => {
+          const i = Number(el.getAttribute('data-linked-preview-lbl'));
+          const f = selectedLinkedFiles[i];
+          const isVid = Boolean(f && ((f.type && f.type.startsWith('video/')) || /\.(mp4|mov|m4v|webm)$/i.test(f.name || '')));
+          el.textContent = `${isVid ? '🎬 ' : ''}${baseTitle} ${i + 1}`;
+        });
+      });
+
       coverFileInp?.addEventListener('change', () => {
         const f = coverFileInp.files?.[0] || null;
         selectedCoverFile = f;
         if (coverHintEl) {
           coverHintEl.style.color = f ? '#34D399' : 'var(--text-muted)';
           coverHintEl.textContent = f
-            ? `✅ Portada seleccionada: ${f.name} (${formatBytes(f.size)})`
+            ? `✅ Se guardará como: Portada (${formatBytes(f.size)})`
             : 'Imagen principal que representará este recuerdo.';
         }
         renderCoverPreview();

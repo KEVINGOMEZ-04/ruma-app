@@ -342,7 +342,7 @@ describe('Store Freemium guards, Series/Movies states & permissions (AUD-05, AUD
     const linked2 = new File(['img2'], 'foto2.jpg', { type: 'image/jpeg' });
 
     const res = await store.addMemoryToActiveGroup({
-      title: 'Viaje',
+      title: 'Salida a la playa',
       date: '2026-11-26',
       coverFile,
       files: [linked1, linked2]
@@ -352,9 +352,9 @@ describe('Store Freemium guards, Series/Movies states & permissions (AUD-05, AUD
     expect(spy).toHaveBeenCalled();
     expect(res.memory.coverPreview).toBe('data:image/jpeg;base64,COVER_THUMB');
     expect(res.memory.files.length).toBe(3);
-    expect(res.memory.files[0].name).toBe('Portada_del_Recuerdo.jpg');
+    expect(res.memory.files[0].name).toBe('Portada.jpg');
     expect(res.memory.files[0].isCover).toBe(true);
-    expect(res.memory.files.slice(1).map(f => f.name)).toEqual(['foto1.jpg', 'foto2.jpg']);
+    expect(res.memory.files.slice(1).map(f => f.name)).toEqual(['Salida a la playa 1.jpg', 'Salida a la playa 2.jpg']);
   });
 
   it('restricts memories to past/today dates and plans to today/future dates', async () => {
