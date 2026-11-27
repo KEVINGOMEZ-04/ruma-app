@@ -29,3 +29,5 @@ Backend ligero y gratuito (100,000 peticiones/día gratis sin tarjeta en Firebas
    npx wrangler deploy
    ```
    Copia la URL resultante (`https://ruma-backend.<tu-subdominio>.workers.dev`) en `VITE_BACKEND_API_URL` (GitHub Secrets / `.env.local`).
+
+
