@@ -4,7 +4,6 @@ import { Utils } from '../core/utils.js';
 import { UI } from '../components/ui.js';
 import { GoogleAuth } from '../services/google-auth.js';
 import { DriveBridge } from '../services/drive-bridge.js';
-import { openDriveConnectModal } from '../components/drive-connect-modal.js';
 import { MusicService } from '../services/music-service.js';
 
 const MONTH_SHORT = ['ENE', 'FEB', 'MAR', 'ABR', 'MAY', 'JUN', 'JUL', 'AGO', 'SEP', 'OCT', 'NOV', 'DIC'];
@@ -271,8 +270,8 @@ export function renderGroupMemoriesView(viewport, group, user, isAdmin, ctx) {
         </div>
         ${isCreator ? `
         <div style="margin-top:.9rem;padding-top:.8rem;border-top:1px solid var(--border-subtle);display:flex;justify-content:space-between;align-items:center;">
-          <span style="font-size:.8rem;color:var(--text-secondary);">Google Drive del grupo (Creador)</span>
-          <button type="button" class="btn btn-secondary btn-sm" id="pk-drive">☁️ Configurar Drive</button>
+          <span style="font-size:.8rem;color:var(--text-secondary);">Google Drive del grupo (Ajustes)</span>
+          <button type="button" class="btn btn-secondary btn-sm" id="pk-drive">⚙️ Ir a Ajustes</button>
         </div>` : ''}`,
       onMount: () => {
         document.getElementById('pk-yr-prev')?.addEventListener('click', () => { memFilterState.calYear -= 1; UI.closeModal(); rerender(); });
@@ -286,7 +285,7 @@ export function renderGroupMemoriesView(viewport, group, user, isAdmin, ctx) {
         if (isCreator) {
           document.getElementById('pk-drive')?.addEventListener('click', () => {
             UI.closeModal();
-            openDriveConnectModal(group, true);
+            store.navigate('settings');
           });
         }
       }
@@ -505,32 +504,20 @@ export function renderGroupMemoriesView(viewport, group, user, isAdmin, ctx) {
             UI.closeModal();
             onQuoteMemory(mem);
           });
-          document.getElementById('mm-drive')?.addEventListener('click', () => {
+          document.getElementById('mm-drive')?.addEventListener('click', async () => {
+            UI.closeModal();
             if (!isCreator) {
-              UI.closeModal();
               UI.showToast('Solo el creador del grupo (dueño de la carpeta en Google Drive) puede activar y sincronizar con Google Drive 👑', 'info');
               return;
             }
-            if (!GoogleAuth.hasValidClientId(group)) {
-              UI.closeModal();
-              openDriveConnectModal(group, true);
-              UI.showToast('Conecta Google Drive para sincronizar el recuerdo 🔑', 'info');
-              return;
-            }
-            const runSync = async () => {
-              UI.closeModal();
-              UI.showToast('Subiendo recuerdo a Google Drive...', 'info');
-              const res = await store.syncExistingMemoryToDrive(mem.id);
-              UI.showToast(res.ok ? '¡Subido a Google Drive! ☁️' : (res.error || 'No se pudo subir.'), res.ok ? 'success' : 'error');
-            };
             if (!GoogleAuth.hasDriveAccess()) {
-              // Llamada síncrona dentro del clic para abrir el popup en iPhone / Safari iOS sin bloqueo
-              GoogleAuth.requestDriveAccess('', group)
-                .then(() => runSync())
-                .catch((err) => UI.showToast(err?.message || 'No se pudo conectar Google Drive.', 'error'));
+              store.navigate('settings');
+              UI.showToast('Sincroniza tu cuenta con Google en ⚙️ Ajustes para subir recuerdos a Ruma 🌷', 'info');
               return;
             }
-            runSync();
+            UI.showToast('Subiendo recuerdo a Google Drive...', 'info');
+            const res = await store.syncExistingMemoryToDrive(mem.id);
+            UI.showToast(res.ok ? '¡Subido a Google Drive! ☁️' : (res.error || 'No se pudo subir.'), res.ok ? 'success' : 'error');
           });
           document.getElementById('mm-del')?.addEventListener('click', () => {
             const res = store.deleteMemoryFromActiveGroup(mem.id);

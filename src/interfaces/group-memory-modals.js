@@ -8,7 +8,6 @@ import { MusicService } from '../services/music-service.js';
 import { MediaStorage } from '../services/media-storage.js';
 import { GoogleAuth } from '../services/google-auth.js';
 import { DriveBridge } from '../services/drive-bridge.js';
-import { openDriveConnectModal } from '../components/drive-connect-modal.js';
 import { UI } from '../components/ui.js';
 
 export function openAddPlanModal(dateStr, onSaved) {
@@ -134,25 +133,18 @@ export function openUploadMemoryModal(group, editingMemory = null, prefillDate =
             <strong id="mem-folder-preview" style="color:var(--text-primary);">${Utils.sanitize(sampleFolder)}</strong>
             <div id="mem-drive-status-line" style="font-size:0.74rem;color:${hasDriveAccess ? '#34D399' : '#FBBF24'};margin-top:0.2rem;">
               ${hasDriveAccess
-                ? `🟢 Google Drive conectado (${Utils.sanitize(googleSession?.email || googleSession?.name || 'Drive')})${hasRealFolder ? ' · Subirá a tu carpeta Ruma 🌷 vinculada' : ' · Creará tu carpeta Ruma 🌷 automáticamente'}`
+                ? `🟢 Google Drive sincronizado (${Utils.sanitize(googleSession?.email || googleSession?.name || 'Drive')}) · Subirá a tu carpeta Ruma 🌷`
                 : (isCreator
-                    ? '⚠️ Como creador del grupo, conecta tu Google Drive para respaldar los recuerdos en tu carpeta Ruma 🌷.'
+                    ? '⚠️ Ve a ⚙️ Ajustes para sincronizar tu cuenta con Google y activar tu carpeta Ruma 🌷.'
                     : (hasRealFolder
-                        ? '👑 Carpeta Ruma 🌷 gestionada por el creador del grupo. Tu recuerdo quedará disponible en el grupo.'
-                        : '👑 Solo el creador del grupo (dueño de la carpeta) necesita iniciar sesión en Google Drive para activar Ruma 🌷.'))}
+                        ? '👑 Carpeta Ruma 🌷 activa del creador del grupo. Tu recuerdo quedará guardado en el grupo.'
+                        : '👑 Solo el creador del grupo activa la carpeta Ruma 🌷 desde sus Ajustes.'))}
             </div>
           </div>
-          ${isCreator ? `
-            <div style="display:flex;gap:0.4rem;flex-wrap:wrap;">
-              ${!hasDriveAccess ? `
-                <button type="button" class="btn btn-primary btn-sm" id="btn-mem-modal-connect-drive">
-                  🔑 Conectar Drive
-                </button>
-              ` : ''}
-              <button type="button" class="btn btn-secondary btn-sm" id="btn-mem-modal-config-drive" title="Ver o configurar la carpeta Ruma 🌷">
-                ⚙️ Carpeta
-              </button>
-            </div>
+          ${isCreator && !hasDriveAccess ? `
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-mem-modal-config-drive">
+              ⚙️ Ir a Ajustes
+            </button>
           ` : ''}
         </div>
 
@@ -215,39 +207,9 @@ export function openUploadMemoryModal(group, editingMemory = null, prefillDate =
       const dateInp = document.getElementById('mem-date');
       const previewEl = document.getElementById('mem-folder-preview');
 
-      document.getElementById('btn-mem-modal-connect-drive')?.addEventListener('click', (e) => {
-        if (!isCreator) return;
-        const btn = e.currentTarget;
-        btn.disabled = true;
-        const prev = btn.textContent;
-        btn.textContent = '⏳ Abriendo Google...';
-        // Llamada síncrona en el clic sin cerrar el modal para no perder los datos ya escritos en el formulario
-        GoogleAuth.requestDriveAccess('', group)
-          .then((session) => {
-            UI.showToast(`¡Google Drive conectado (${session.email || session.name})! ☁️`, 'success');
-            btn.remove();
-            const statusBox = document.getElementById('mem-drive-status-box');
-            const statusLine = document.getElementById('mem-drive-status-line');
-            const submitBtn = document.getElementById('btn-submit-mem');
-            if (statusBox) statusBox.style.borderColor = 'rgba(16,185,129,0.4)';
-            if (statusLine) {
-              statusLine.style.color = '#34D399';
-              statusLine.textContent = `🟢 Google Drive conectado (${session.email || session.name || 'Drive'})${hasRealFolder ? ' · Subirá a tu carpeta Ruma 🌷 vinculada' : ' · Creará tu carpeta Ruma 🌷 automáticamente'}`;
-            }
-            if (submitBtn && !editingMemory) {
-              submitBtn.textContent = '☁️ Subir a Google Drive y Guardar';
-            }
-          })
-          .catch((err) => {
-            btn.disabled = false;
-            btn.textContent = prev;
-            UI.showToast(err?.message || 'No se pudo conectar Google Drive.', 'error');
-          });
-      });
-
       document.getElementById('btn-mem-modal-config-drive')?.addEventListener('click', () => {
         UI.closeModal();
-        openDriveConnectModal(group, isCreator);
+        store.navigate('settings');
       });
 
       const updateFolderPreview = () => {
@@ -554,22 +516,11 @@ export async function openMemoryDetailModal(group, mem, user) {
         else UI.openLightbox(mem.coverPreview || photos[0], false, mem.title);
       });
 
-      document.getElementById('btn-mem-connect-drive-hd')?.addEventListener('click', (e) => {
+      document.getElementById('btn-mem-connect-drive-hd')?.addEventListener('click', () => {
         if (!isCreator) return;
-        const btn = e.currentTarget;
-        btn.disabled = true;
-        btn.textContent = '⏳ Conectando...';
-        // Llamada síncrona en el clic para no perder el gesto táctil en Safari iOS
-        GoogleAuth.requestDriveAccess('', group)
-          .then(() => {
-            UI.showToast('Google Drive conectado · Cargando en HD ☁️', 'success');
-            openMemoryDetailModal(group, mem, user);
-          })
-          .catch((err) => {
-            btn.disabled = false;
-            btn.textContent = '🔑 Conectar Drive para ver en HD';
-            UI.showToast(err?.message || 'No se pudo conectar Google Drive.', 'error');
-          });
+        UI.closeModal();
+        store.navigate('settings');
+        UI.showToast('Sincroniza tu cuenta con Google en ⚙️ Ajustes para ver tus recuerdos en HD ☁️', 'info');
       });
 
       modalEl.querySelectorAll('[data-lightbox-idx]').forEach(el => {
@@ -587,44 +538,30 @@ export async function openMemoryDetailModal(group, mem, user) {
         });
       });
 
-      document.getElementById('btn-mem-detail-sync-drive')?.addEventListener('click', (e) => {
+      document.getElementById('btn-mem-detail-sync-drive')?.addEventListener('click', async (e) => {
         const btn = e.currentTarget;
         if (!isCreator) {
           UI.showToast('Solo el creador del grupo (dueño de la carpeta en Google Drive) puede activar y sincronizar con Google Drive 👑', 'info');
           return;
         }
-        if (!GoogleAuth.hasValidClientId(group)) {
+        if (!GoogleAuth.hasDriveAccess()) {
           UI.closeModal();
-          openDriveConnectModal(group, true);
-          UI.showToast('Conecta tu cuenta de Google Drive para subir el recuerdo 🔑', 'info');
+          store.navigate('settings');
+          UI.showToast('Sincroniza tu cuenta con Google en ⚙️ Ajustes para subir el recuerdo a Ruma 🌷', 'info');
           return;
         }
         btn.disabled = true;
         btn.textContent = '⏳ Subiendo a Drive...';
-        const performSync = async () => {
-          const res = await store.syncExistingMemoryToDrive(mem.id);
-          if (!res.ok) {
-            btn.disabled = false;
-            btn.textContent = '☁️ Subir a Google Drive';
-            UI.showToast(res.error || 'No se pudo subir a Google Drive.', 'error');
-            return;
-          }
-          UI.showToast(`¡Recuerdo "${res.memory.subfolderName}" subido a tu Google Drive! ☁️✨`, 'success');
-          const updated = (store.getActiveGroup()?.memories || []).find(m => m.id === mem.id);
-          if (updated) openMemoryDetailModal(store.getActiveGroup(), updated, user);
-        };
-        if (!GoogleAuth.hasDriveAccess()) {
-          // Llamada síncrona en el clic para abrir el popup en iPhone / Safari iOS sin bloqueo
-          GoogleAuth.requestDriveAccess('', group)
-            .then(() => performSync())
-            .catch((err) => {
-              btn.disabled = false;
-              btn.textContent = '☁️ Subir a Google Drive';
-              UI.showToast(err?.message || 'No se pudo conectar Google Drive.', 'error');
-            });
+        const res = await store.syncExistingMemoryToDrive(mem.id);
+        if (!res.ok) {
+          btn.disabled = false;
+          btn.textContent = '☁️ Subir a Google Drive';
+          UI.showToast(res.error || 'No se pudo subir a Google Drive.', 'error');
           return;
         }
-        performSync();
+        UI.showToast(`¡Recuerdo "${res.memory.subfolderName}" subido a tu Google Drive! ☁️✨`, 'success');
+        const updated = (store.getActiveGroup()?.memories || []).find(m => m.id === mem.id);
+        if (updated) openMemoryDetailModal(store.getActiveGroup(), updated, user);
       });
 
       document.getElementById('btn-mem-detail-feature')?.addEventListener('click', () => {

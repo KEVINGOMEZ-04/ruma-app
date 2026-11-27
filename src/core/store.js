@@ -992,9 +992,26 @@ class RumaStore {
     return { ok: true, group: grp };
   }
 
-  createGroup({ name, description, driveFolderUrl, plan = 'free' }) {
+  isUserGoogleDriveSynced(user = null) {
+    const u = user || this.getCurrentUser();
+    if (!u) return false;
+    return Boolean(
+      u.googleDriveSynced ||
+      u.googleDriveFolderUrl ||
+      GoogleAuth.hasDriveAccess()
+    );
+  }
+
+  createGroup({ name, description, driveFolderUrl, plan = 'free', requireGoogleSync = false }) {
     const user = this.getCurrentUser();
     const allGroups = this.getGroups();
+    if (requireGoogleSync && !this.isUserGoogleDriveSynced(user)) {
+      return {
+        ok: false,
+        needsGoogleSync: true,
+        reason: 'Debes sincronizar tu cuenta con Google desde Ajustes antes de crear un grupo.'
+      };
+    }
     const check = Entitlements.canCreateGroup(user, allGroups, plan);
     if (!check.allowed) {
       return { ok: false, reason: check.reason };
@@ -1006,6 +1023,8 @@ class RumaStore {
       uniqueCode = Utils.generateGroupCode();
     }
 
+    const effectiveDriveFolderUrl = (driveFolderUrl || user?.googleDriveFolderUrl || '').trim();
+
     const newGroup = {
       id: Utils.generateId('grp'),
       name: (name || 'Mi Grupo ruma').trim(),
@@ -1013,7 +1032,7 @@ class RumaStore {
       description: (description || '').trim(),
       plan: plan === 'premium' ? 'premium' : 'free',
       creatorId: user.id,
-      driveFolderUrl: (driveFolderUrl || '').trim(),
+      driveFolderUrl: effectiveDriveFolderUrl,
       accentColor: 'purple',
       createdAt: new Date().toISOString(),
       memberIds: { [user.id]: true },

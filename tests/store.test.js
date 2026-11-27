@@ -285,6 +285,25 @@ describe('Store Freemium guards, Series/Movies states & permissions (AUD-05, AUD
     expect(allowedDrivePatch.ok).toBe(true);
     expect(store.getActiveGroup().driveFolderUrl).toBe('https://drive.google.com/drive/folders/123456789');
   });
+
+  it('requires Google synchronization from Settings before creating a group when requireGoogleSync is true', () => {
+    const unsyncedUser = { id: 'u_new', name: 'Nuevo', username: 'nuevo', isPremium: false };
+    seedSession(unsyncedUser, [], '');
+
+    const blocked = store.createGroup({ name: 'Grupo Sin Google', plan: 'free', requireGoogleSync: true });
+    expect(blocked.ok).toBe(false);
+    expect(blocked.needsGoogleSync).toBe(true);
+    expect(blocked.reason).toMatch(/Ajustes/i);
+
+    // Once user syncs Google in Settings -> creating group succeeds and inherits googleDriveFolderUrl
+    store.updateCurrentUser({
+      googleDriveSynced: true,
+      googleDriveFolderUrl: 'https://drive.google.com/drive/folders/ruma_from_settings'
+    });
+    const allowed = store.createGroup({ name: 'Grupo Con Google', plan: 'free', requireGoogleSync: true });
+    expect(allowed.ok).toBe(true);
+    expect(allowed.group.driveFolderUrl).toBe('https://drive.google.com/drive/folders/ruma_from_settings');
+  });
 });
 
 describe('iPhone / iOS Safari QuotaExceededError resilience & Base64 deduplication', () => {
