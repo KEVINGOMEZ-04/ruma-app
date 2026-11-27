@@ -215,8 +215,8 @@ export function renderGroupMemoriesView(viewport, group, user, isAdmin, ctx) {
                       </div>
                       <div class="rm-tl-stats">
                         <span>${svg(ICO.camera, 14)} ${photosCount}</span>
-                        ${hasSong ? `<span data-play-song="${Utils.sanitize(mem.id)}" title="Escuchar canción">${svg(ICO.music, 14)} 1</span>` : ''}
-                        ${hasVoice ? `<span>${svg(ICO.mic, 14)} 1</span>` : ''}
+                        ${hasSong ? `<span data-play-song="${Utils.sanitize(mem.id)}" title="Toca para escuchar: ${Utils.sanitize(mem.song.title)} - ${Utils.sanitize(mem.song.artist || '')}" style="display:inline-flex;align-items:center;gap:0.25rem;color:var(--brand-lilac-soft);font-weight:700;max-width:170px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;">${svg(ICO.music, 14)} ${Utils.sanitize(mem.song.title)}</span>` : ''}
+                        ${hasVoice ? `<span>${svg(ICO.mic, 14)} Voz</span>` : ''}
                         <span>${svg(ICO.msg, 14)} ${commentsCount}</span>
                       </div>
                       <div class="rm-tl-date">${svg(ICO.cal, 14)} <span>${Utils.sanitize(fmtLongDate(mem.date || mem.createdAt))}</span></div>

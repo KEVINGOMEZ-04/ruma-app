@@ -133,46 +133,65 @@ export function openUploadMemoryModal(group, editingMemory = null, prefillDate =
   ];
   let selectedAura = editingMemory?.auraColor || '#A855F7';
 
+  const renderSelectedSongBoxHtml = (song) => {
+    if (!song || !song.title) return '';
+    return `
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:0.6rem;padding:0.5rem 0.65rem;border-radius:var(--radius-sm);background:var(--bg-elevated);border:1px solid var(--border-strong);margin-top:0.45rem;">
+        <div style="display:flex;align-items:center;gap:0.55rem;min-width:0;flex:1;">
+          <img src="${Utils.sanitize(Utils.safeUrl(song.artwork, 'assets/ruma_icon_512.png'))}" alt="" style="width:36px;height:36px;border-radius:6px;object-fit:cover;flex-shrink:0;">
+          <div style="min-width:0;">
+            <div style="font-size:0.82rem;font-weight:800;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">🎵 ${Utils.sanitize(song.title)}</div>
+            <div style="font-size:0.74rem;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${Utils.sanitize(song.artist || '')}</div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:0.35rem;flex-shrink:0;">
+          ${song.previewUrl ? `<button type="button" class="btn btn-secondary btn-sm" id="btn-mem-preview-selected-song" title="Escuchar canción">▶</button>` : ''}
+          <button type="button" class="btn btn-secondary btn-sm" id="btn-mem-clear-selected-song" title="Quitar canción">✕</button>
+        </div>
+      </div>
+    `;
+  };
+
   UI.openModal({
     title: editingMemory ? '✏️ Editar Recuerdo' : '📸 Inmortalizar Recuerdo en Google Drive',
     size: 'lg',
     contentHtml: `
-      <form id="form-upload-memory">
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.85rem;">
-          <div class="form-group">
+      <form id="form-upload-memory" style="max-width:100%;overflow-x:hidden;">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:0.75rem;">
+          <div class="form-group" style="min-width:0;">
             <label class="form-label">Nombre del Recuerdo</label>
             <input type="text" id="mem-title" class="form-input" placeholder="Ej: Paseo de Domingo" value="${Utils.sanitize(editingMemory?.title || '')}" required>
           </div>
-          <div class="form-group">
+          <div class="form-group" style="min-width:0;">
             <label class="form-label">Ubicación / Lugar (Opcional)</label>
             <input type="text" id="mem-location" class="form-input" placeholder="Ej: Mirador, Playa, Casa..." value="${Utils.sanitize(editingMemory?.location || '')}">
           </div>
         </div>
 
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.85rem;">
-          <div class="form-group">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:0.75rem;">
+          <div class="form-group" style="min-width:0;">
             <label class="form-label">Fecha del Recuerdo (hoy o días pasados)</label>
             <input type="date" id="mem-date" class="form-input" value="${Utils.sanitize(today)}" max="${Utils.sanitize(localToday)}" required>
           </div>
-          <div class="form-group">
+          <div class="form-group" style="min-width:0;">
             <label class="form-label">Estado & Aura Luminosa</label>
             <div style="display:flex;align-items:center;gap:0.5rem;padding-top:0.35rem;flex-wrap:wrap;">
               ${auraColors.map(c => `
                 <button type="button" class="aura-pick-btn" data-aura="${c.hex}" title="${c.label}" style="width:26px;height:26px;border-radius:50%;background:${c.hex};border:${selectedAura === c.hex ? '3px solid #fff' : '1px solid transparent'};cursor:pointer;"></button>
               `).join('')}
-              <label style="display:inline-flex;align-items:center;gap:0.35rem;font-size:0.82rem;margin-left:0.5rem;cursor:pointer;">
+              <label style="display:inline-flex;align-items:center;gap:0.35rem;font-size:0.82rem;margin-left:0.35rem;cursor:pointer;">
                 <input type="checkbox" id="mem-featured" ${editingMemory?.isFeatured ? 'checked' : ''}> ⭐ Destacado
               </label>
             </div>
           </div>
         </div>
 
-        <div style="background:var(--bg-elevated);padding:0.8rem 0.95rem;border-radius:var(--radius-sm);margin-bottom:1rem;font-size:0.8rem;border:1px solid ${hasDriveAccess ? 'rgba(16,185,129,0.4)' : 'var(--border-subtle)'};display:flex;align-items:center;justify-content:space-between;gap:0.75rem;flex-wrap:wrap;" id="mem-drive-status-box">
-          <div>
+        <div style="background:var(--bg-elevated);padding:0.8rem 0.95rem;border-radius:var(--radius-sm);margin-bottom:0.85rem;font-size:0.8rem;border:1px solid ${hasDriveAccess ? 'rgba(16,185,129,0.4)' : 'var(--border-subtle)'};display:flex;align-items:center;justify-content:space-between;gap:0.75rem;flex-wrap:wrap;" id="mem-drive-status-box">
+          <div style="min-width:0;flex:1;">
             <div style="color:var(--brand-lilac-soft);">
               📁 Subcarpeta dentro de <strong>Ruma 🌷</strong>:
             </div>
-            <strong id="mem-folder-preview" style="color:var(--text-primary);">${Utils.sanitize(sampleFolder)}</strong>
+            <strong id="mem-folder-preview" style="color:var(--text-primary);display:block;word-break:break-word;">${Utils.sanitize(sampleFolder)}</strong>
             <div id="mem-drive-status-line" style="font-size:0.74rem;color:${hasDriveAccess ? '#34D399' : '#FBBF24'};margin-top:0.2rem;">
               ${hasDriveAccess
                 ? `🟢 Google Drive sincronizado (${Utils.sanitize(googleSession?.email || googleSession?.name || 'Drive')}) · Subirá a tu carpeta Ruma 🌷`
@@ -191,18 +210,21 @@ export function openUploadMemoryModal(group, editingMemory = null, prefillDate =
         </div>
 
         <!-- Capacidad y límites de carga -->
-        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;padding:0.6rem 0.85rem;border-radius:var(--radius-sm);background:rgba(168,85,247,0.1);border:1px solid var(--border-subtle);margin-bottom:0.85rem;font-size:0.77rem;">
-          <span>📦 <strong>Capacidad de carga:</strong> 1 Portada + hasta <strong>${maxLinkedFiles} fotos/videos enlazados</strong> por recuerdo</span>
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.4rem;padding:0.6rem 0.85rem;border-radius:var(--radius-sm);background:rgba(168,85,247,0.1);border:1px solid var(--border-subtle);margin-bottom:0.85rem;font-size:0.76rem;">
+          <span>📦 <strong>Capacidad de carga:</strong> 1 Portada + hasta <strong>${maxLinkedFiles} fotos/videos enlazados</strong></span>
           <span style="color:var(--brand-lilac-soft);font-weight:700;" id="mem-upload-limit-counter">0 / ${maxLinkedFiles} enlazados · Sin límite de MB/GB en Drive</span>
         </div>
 
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.85rem;">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:0.85rem;margin-bottom:0.85rem;">
           <!-- Opción 1: Portada del Recuerdo + Previsualización -->
-          <div class="form-group">
-            <label class="form-label">🖼️ 1. Portada del Recuerdo</label>
-            <input type="file" id="mem-cover-file" class="form-input" accept="image/*,.heic,.heif">
-            <small id="mem-cover-file-hint" style="display:block;font-size:0.74rem;color:var(--text-muted);margin-top:0.25rem;">
-              ${editingMemory?.coverPreview ? '✅ Portada actual guardada (sube otra si deseas cambiarla)' : 'Imagen principal que representará este recuerdo.'}
+          <div class="form-group" style="margin:0;min-width:0;padding:0.75rem;border-radius:var(--radius-sm);background:var(--bg-elevated);border:1px solid var(--border-subtle);">
+            <label class="form-label" style="margin-bottom:0.45rem;">🖼️ 1. Portada del Recuerdo</label>
+            <input type="file" id="mem-cover-file" accept="image/*,.heic,.heif" style="display:none;">
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-trigger-cover-file" style="width:100%;justify-content:center;">
+              📷 Elegir imagen de portada
+            </button>
+            <small id="mem-cover-file-hint" style="display:block;font-size:0.74rem;color:var(--text-muted);margin-top:0.35rem;line-height:1.35;">
+              ${editingMemory?.coverPreview ? '✅ Portada actual guardada (elige otra si deseas cambiarla)' : 'Imagen principal que representará este recuerdo.'}
             </small>
             <div id="mem-cover-preview-box" style="margin-top:0.55rem;${editingMemory?.coverPreview ? '' : 'display:none;'}">
               ${editingMemory?.coverPreview ? `
@@ -215,13 +237,16 @@ export function openUploadMemoryModal(group, editingMemory = null, prefillDate =
           </div>
 
           <!-- Opción 2: Fotos y Videos enlazados + Previsualización -->
-          <div class="form-group">
-            <label class="form-label">📸 2. Fotos y Videos enlazados al Recuerdo</label>
-            <input type="file" id="mem-files" class="form-input" accept="image/*,video/*,.heic,.heif,.mov,.m4v,.mp4" multiple>
-            <small id="mem-linked-files-hint" style="display:block;font-size:0.74rem;color:var(--text-muted);margin-top:0.25rem;">
+          <div class="form-group" style="margin:0;min-width:0;padding:0.75rem;border-radius:var(--radius-sm);background:var(--bg-elevated);border:1px solid var(--border-subtle);">
+            <label class="form-label" style="margin-bottom:0.45rem;">📸 2. Fotos y Videos enlazados</label>
+            <input type="file" id="mem-files" accept="image/*,video/*,.heic,.heif,.mov,.m4v,.mp4" multiple style="display:none;">
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-trigger-linked-files" style="width:100%;justify-content:center;">
+              ➕ Agregar fotos o videos al álbum
+            </button>
+            <small id="mem-linked-files-hint" style="display:block;font-size:0.74rem;color:var(--text-muted);margin-top:0.35rem;line-height:1.35;">
               Puedes elegir varios archivos a la vez o ir agregando más (máx. ${maxLinkedFiles}).
             </small>
-            <div id="mem-linked-preview-grid" style="display:none;grid-template-columns:repeat(auto-fill,minmax(74px,1fr));gap:0.45rem;margin-top:0.55rem;max-height:175px;overflow-y:auto;padding:0.35rem;background:var(--bg-elevated);border-radius:var(--radius-sm);border:1px solid var(--border-subtle);"></div>
+            <div id="mem-linked-preview-grid" style="display:none;grid-template-columns:repeat(auto-fill,minmax(72px,1fr));gap:0.45rem;margin-top:0.55rem;max-height:175px;overflow-y:auto;padding:0.35rem;background:var(--surface);border-radius:var(--radius-sm);border:1px solid var(--border-subtle);"></div>
           </div>
         </div>
 
@@ -233,12 +258,12 @@ export function openUploadMemoryModal(group, editingMemory = null, prefillDate =
         <!-- Selector de Banda Sonora (Acoplado de LUMA) -->
         <div class="form-group">
           <label class="form-label">🎵 Banda Sonora del Recuerdo (Opcional)</label>
-          <div style="display:flex;gap:0.5rem;">
-            <input type="search" id="mem-song-query" class="form-input" placeholder="Buscar canción en iTunes para este recuerdo..." enterkeyhint="search" autocomplete="off">
-            <button type="button" class="btn btn-secondary btn-sm" id="btn-mem-search-song">Buscar</button>
+          <div style="display:flex;gap:0.45rem;align-items:center;">
+            <input type="search" id="mem-song-query" class="form-input" style="flex:1;min-width:0;" placeholder="Buscar canción o artista en iTunes..." enterkeyhint="search" autocomplete="off">
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-mem-search-song" style="flex-shrink:0;">Buscar</button>
           </div>
-          <div id="mem-song-selected" style="margin-top:0.45rem;font-size:0.82rem;color:var(--brand-lilac-soft);">
-            ${selectedSong ? `🎵 Seleccionada: <strong>${Utils.sanitize(selectedSong.title)}</strong> - ${Utils.sanitize(selectedSong.artist)}` : ''}
+          <div id="mem-song-selected">
+            ${renderSelectedSongBoxHtml(selectedSong)}
           </div>
           <div id="mem-song-results" style="display:flex;flex-direction:column;gap:0.35rem;margin-top:0.45rem;max-height:180px;overflow-y:auto;-webkit-overflow-scrolling:touch;"></div>
         </div>
@@ -267,9 +292,9 @@ export function openUploadMemoryModal(group, editingMemory = null, prefillDate =
           </div>
         </div>
 
-        <div style="display:flex;justify-content:flex-end;gap:0.65rem;margin-top:1.25rem;">
-          <button type="button" class="btn btn-secondary" id="btn-cancel-mem">Cancelar</button>
-          <button type="submit" class="btn btn-primary" id="btn-submit-mem">${editingMemory ? 'Guardar Cambios' : (isCreator ? '☁️ Subir a Google Drive y Guardar' : '💾 Guardar Recuerdo')}</button>
+        <div style="display:flex;justify-content:flex-end;gap:0.55rem;flex-wrap:wrap;margin-top:1.15rem;">
+          <button type="button" class="btn btn-secondary" id="btn-cancel-mem" style="flex:1 1 110px;justify-content:center;">Cancelar</button>
+          <button type="submit" class="btn btn-primary" id="btn-submit-mem" style="flex:2 1 200px;justify-content:center;">${editingMemory ? 'Guardar Cambios' : (isCreator ? '☁️ Subir a Google Drive y Guardar' : '💾 Guardar Recuerdo')}</button>
         </div>
       </form>
     `,
@@ -303,6 +328,18 @@ export function openUploadMemoryModal(group, editingMemory = null, prefillDate =
 
       // Buscar canción para el recuerdo
       const memSongInput = document.getElementById('mem-song-query');
+      const bindSelectedSongActions = () => {
+        document.getElementById('btn-mem-preview-selected-song')?.addEventListener('click', () => {
+          if (selectedSong?.previewUrl) MusicService.toggleTrack(selectedSong);
+        });
+        document.getElementById('btn-mem-clear-selected-song')?.addEventListener('click', () => {
+          selectedSong = null;
+          const selEl = document.getElementById('mem-song-selected');
+          if (selEl) selEl.innerHTML = '';
+        });
+      };
+      bindSelectedSongActions();
+
       const runMemSongSearch = async () => {
         const q = memSongInput?.value.trim();
         const resBox = document.getElementById('mem-song-results');
@@ -315,20 +352,33 @@ export function openUploadMemoryModal(group, editingMemory = null, prefillDate =
           return;
         }
         resBox.innerHTML = tracks.map((t, idx) => `
-          <div style="display:flex;align-items:center;justify-content:space-between;padding:0.4rem 0.6rem;background:var(--bg-elevated);border-radius:var(--radius-xs);">
-            <div style="display:flex;align-items:center;gap:0.5rem;min-width:0;">
-              <img src="${Utils.sanitize(t.artwork)}" alt="art" style="width:28px;height:28px;border-radius:4px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;padding:0.45rem 0.6rem;background:var(--bg-elevated);border-radius:var(--radius-xs);">
+            <div style="display:flex;align-items:center;gap:0.5rem;min-width:0;flex:1;">
+              <img src="${Utils.sanitize(t.artwork)}" alt="art" style="width:32px;height:32px;border-radius:4px;flex-shrink:0;">
               <span style="font-size:0.8rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><strong>${Utils.sanitize(t.title)}</strong> · ${Utils.sanitize(t.artist)}</span>
             </div>
-            <button type="button" class="btn btn-primary btn-sm" data-pick-mem-track="${idx}">Elegir</button>
+            <div style="display:flex;gap:0.3rem;flex-shrink:0;">
+              ${t.previewUrl ? `<button type="button" class="btn btn-secondary btn-sm" data-preview-mem-track="${idx}" title="Escuchar 30s">▶</button>` : ''}
+              <button type="button" class="btn btn-primary btn-sm" data-pick-mem-track="${idx}">Elegir</button>
+            </div>
           </div>
         `).join('');
+
+        resBox.querySelectorAll('[data-preview-mem-track]').forEach(b => {
+          b.addEventListener('click', () => {
+            const tr = tracks[Number(b.getAttribute('data-preview-mem-track'))];
+            if (tr?.previewUrl) MusicService.toggleTrack(tr);
+          });
+        });
 
         resBox.querySelectorAll('[data-pick-mem-track]').forEach(b => {
           b.addEventListener('click', () => {
             selectedSong = tracks[Number(b.getAttribute('data-pick-mem-track'))];
             const selEl = document.getElementById('mem-song-selected');
-            if (selEl) selEl.innerHTML = `🎵 Seleccionada: <strong>${Utils.sanitize(selectedSong.title)}</strong> - ${Utils.sanitize(selectedSong.artist)}`;
+            if (selEl) {
+              selEl.innerHTML = renderSelectedSongBoxHtml(selectedSong);
+              bindSelectedSongActions();
+            }
             resBox.innerHTML = '';
           });
         });
@@ -398,6 +448,13 @@ export function openUploadMemoryModal(group, editingMemory = null, prefillDate =
       const coverPreviewBox = document.getElementById('mem-cover-preview-box');
       const linkedPreviewGrid = document.getElementById('mem-linked-preview-grid');
       const limitCounterEl = document.getElementById('mem-upload-limit-counter');
+
+      document.getElementById('btn-trigger-cover-file')?.addEventListener('click', () => {
+        coverFileInp?.click();
+      });
+      document.getElementById('btn-trigger-linked-files')?.addEventListener('click', () => {
+        linkedFilesInp?.click();
+      });
 
       const updateLimitCounter = () => {
         if (!limitCounterEl) return;
@@ -706,6 +763,34 @@ export async function openMemoryDetailModal(group, mem, user) {
           </div>
         ` : ''}
 
+        <!-- Banda Sonora y Nota de Voz del Recuerdo -->
+        ${(mem.song && mem.song.title) || mem.voiceNote ? `
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:0.75rem;">
+            ${mem.song && mem.song.title ? `
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:0.7rem;padding:0.75rem 0.9rem;background:var(--bg-elevated);border:1px solid var(--border-strong);border-radius:var(--radius-md);">
+                <div style="display:flex;align-items:center;gap:0.65rem;min-width:0;flex:1;">
+                  <img src="${Utils.sanitize(Utils.safeUrl(mem.song.artwork, 'assets/ruma_icon_512.png'))}" alt="${Utils.sanitize(mem.song.title)}" style="width:46px;height:46px;border-radius:8px;object-fit:cover;flex-shrink:0;">
+                  <div style="min-width:0;">
+                    <div style="font-size:0.7rem;font-weight:800;color:var(--brand-lilac-soft);text-transform:uppercase;letter-spacing:0.04em;">🎵 Banda Sonora del Recuerdo</div>
+                    <div style="font-weight:800;font-size:0.9rem;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${Utils.sanitize(mem.song.title)}</div>
+                    <div style="font-size:0.76rem;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${Utils.sanitize(mem.song.artist || '')}</div>
+                  </div>
+                </div>
+                <button type="button" class="btn btn-primary btn-sm" id="btn-mem-detail-play-song" style="flex-shrink:0;">
+                  ▶ Escuchar
+                </button>
+              </div>
+            ` : ''}
+
+            ${mem.voiceNote ? `
+              <div style="display:flex;flex-direction:column;justify-content:center;gap:0.4rem;padding:0.75rem 0.9rem;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:var(--radius-md);">
+                <div style="font-size:0.72rem;font-weight:800;color:var(--brand-lilac-soft);text-transform:uppercase;letter-spacing:0.04em;">🎙️ Nota de Voz del Momento</div>
+                <audio controls preload="metadata" src="${Utils.sanitize(mem.voiceNote)}" style="width:100%;height:34px;"></audio>
+              </div>
+            ` : ''}
+          </div>
+        ` : ''}
+
         <!-- Galería deslizable con Lightbox -->
         ${resolvedMedia.length > 0 ? `
           <div>
@@ -761,6 +846,24 @@ export async function openMemoryDetailModal(group, mem, user) {
         const first = resolvedMedia[0];
         if (first) UI.openLightbox(first.url, first.isVideo, mem.title);
         else UI.openLightbox(mem.coverPreview || photos[0], false, mem.title);
+      });
+
+      document.getElementById('btn-mem-detail-play-song')?.addEventListener('click', async (e) => {
+        if (!mem.song) return;
+        const btn = e.currentTarget;
+        if (mem.song.previewUrl) {
+          MusicService.toggleTrack(mem.song);
+          return;
+        }
+        btn.disabled = true;
+        const res = await MusicService.searchSongs(`${mem.song.title} ${mem.song.artist || ''}`, 2);
+        btn.disabled = false;
+        if (res[0]?.previewUrl) {
+          mem.song.previewUrl = res[0].previewUrl;
+          MusicService.playTrack(res[0]);
+        } else {
+          UI.showToast('No hay fragmento de audio disponible para esta canción.', 'info');
+        }
       });
 
       document.getElementById('btn-mem-connect-drive-hd')?.addEventListener('click', () => {
